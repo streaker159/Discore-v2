@@ -91,6 +91,7 @@ module.exports = {
     } else if (sub === "revoke") {
       const premium = await revokePremium(
         interaction.options.getString("guild_id", true),
+        interaction.user.id,
       );
       message = `Revoked premium for guild **${premium.guildId}**.`;
     } else {

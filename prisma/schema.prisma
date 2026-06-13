@@ -21,6 +21,7 @@ model Guild {
   premiumNoticeChan String?
   battleSignupChan  String?
   language          String    @default("en")
+  customFooter      String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -187,6 +188,8 @@ model Unit {
   imageUrl    String?
   isActive    Boolean @default(true)
   isDraft     Boolean @default(false)
+  approvedBy  String?
+  approvedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -204,6 +207,8 @@ model Building {
   iconUrl     String?
   isActive    Boolean @default(true)
   isDraft     Boolean @default(false)
+  approvedBy  String?
+  approvedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -235,6 +240,8 @@ model Research {
   iconUrl     String?
   isActive    Boolean @default(true)
   isDraft     Boolean @default(false)
+  approvedBy  String?
+  approvedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -383,6 +390,8 @@ model PlayerProfile {
   currentAlliance String?
   playstyle       String?
   role            String?
+  avaWins         Int       @default(0)
+  avaLosses       Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -498,4 +507,35 @@ model AuditLog {
   createdAt DateTime  @default(now())
 
   @@index([guildId])
+}
+
+// ── GAME FINDER WATCHERS ──────────────────────────────────
+
+model MatchWatcher {
+  id          String    @id @default(cuid())
+  guildId     String
+  channelId   String
+  createdBy   String
+  game        String
+  mode        String?
+  maxPlayers  Int?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([guildId])
+  @@index([game, isActive])
+}
+
+// ── BATTLE REMINDERS ─────────────────────────────────────
+
+model BattleReminder {
+  id          String    @id @default(cuid())
+  signupId    String
+  userId      String
+  remindAt    DateTime
+  sent        Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@unique([signupId, userId])
+  @@index([remindAt, sent])
 }

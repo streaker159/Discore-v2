@@ -1,15 +1,29 @@
 module.exports = {
-  'scoreboards.basic': 'FREE',
-  'scoreboards.archive': 'PRO',
-  'scoreboards.restore': 'PRO',
-  'scoreboards.merge': 'PRO',
-  'battle.signup': 'FREE',
-  'game.lookup': 'FREE',
-  'strategy.ai': 'PRO',
-  'match.finder': 'PRO',
-  'branding.customNickname': 'PRO',
-  'branding.full': 'ELITE',
-  'alliance.globalRanking': 'FREE',
-  'ava.verified': 'PRO',
-  'analytics.advanced': 'ELITE',
+  // Scoreboards
+  "scoreboards.basic": "FREE",
+  "scoreboards.archive": "PRO",
+  "scoreboards.restore": "PRO",
+  "scoreboards.merge": "PRO",
+  // Battle & events
+  "battle.signup": "FREE",
+  "events.create": "FREE",
+  // Game data
+  "game.lookup": "FREE",
+  // AI strategy
+  "strategy.ai": "PRO",
+  "strategy.deepReport": "ELITE",
+  // Game finder
+  "match.finder": "PRO",
+  // Branding
+  "branding.customNickname": "PRO",
+  "branding.customFooter": "PRO",
+  "branding.full": "ELITE",
+  // Alliance & players
+  "alliance.profiles": "FREE",
+  "alliance.globalRanking": "FREE",
+  "ava.verified": "PRO",
+  // Analytics
+  "analytics.advanced": "ELITE",
+  // Suggestions
+  "suggestions.create": "FREE",
 };

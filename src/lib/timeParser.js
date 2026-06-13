@@ -1,33 +1,38 @@
-const chrono = require('chrono-node');
-const { DateTime } = require('luxon');
+const chrono = require("chrono-node");
+const { DateTime } = require("luxon");
 
 const CITY_TIMEZONES = {
-  paris: 'Europe/Paris',
-  france: 'Europe/Paris',
-  toulouse: 'Europe/Paris',
-  london: 'Europe/London',
-  uk: 'Europe/London',
-  utc: 'UTC',
-  gmt: 'UTC',
-  sydney: 'Australia/Sydney',
-  melbourne: 'Australia/Melbourne',
-  perth: 'Australia/Perth',
-  brisbane: 'Australia/Brisbane',
-  newyork: 'America/New_York',
-  'new york': 'America/New_York',
-  losangeles: 'America/Los_Angeles',
-  'los angeles': 'America/Los_Angeles',
+  paris: "Europe/Paris",
+  france: "Europe/Paris",
+  toulouse: "Europe/Paris",
+  london: "Europe/London",
+  uk: "Europe/London",
+  utc: "UTC",
+  gmt: "UTC",
+  sydney: "Australia/Sydney",
+  melbourne: "Australia/Melbourne",
+  perth: "Australia/Perth",
+  brisbane: "Australia/Brisbane",
+  newyork: "America/New_York",
+  "new york": "America/New_York",
+  losangeles: "America/Los_Angeles",
+  "los angeles": "America/Los_Angeles",
 };
 
-function detectTimezone(text, fallback = 'UTC') {
-  const lower = String(text || '').toLowerCase();
+function detectTimezone(text, fallback = "UTC") {
+  const lower = String(text || "").toLowerCase();
   for (const [key, zone] of Object.entries(CITY_TIMEZONES)) {
     if (lower.includes(key)) return zone;
   }
-  const explicitUtc = lower.match(/\b(?:utc|gmt)\s*([+-]\d{1,2})(?::?(\d{2}))?\b/);
+  const explicitUtc = lower.match(
+    /\b(?:utc|gmt)\s*([+-]\d{1,2})(?::?(\d{2}))?\b/,
+  );
   if (explicitUtc) {
-    const hours = explicitUtc[1].padStart(3, explicitUtc[1].startsWith('-') ? '-' : '+0');
-    const mins = explicitUtc[2] || '00';
+    const hours = explicitUtc[1].padStart(
+      3,
+      explicitUtc[1].startsWith("-") ? "-" : "+0",
+    );
+    const mins = explicitUtc[2] || "00";
     return `UTC${hours}:${mins}`;
   }
   return fallback;
@@ -35,32 +40,67 @@ function detectTimezone(text, fallback = 'UTC') {
 
 function normalizeEuropeanNumericDates(input) {
   // Helps chrono with dates like 24/7/26 at 3pm.
-  return String(input || '').replace(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g, '$1-$2-$3');
+  return String(input || "").replace(
+    /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g,
+    "$1-$2-$3",
+  );
+}
+
+function isAmbiguousTime(input) {
+  // Detect bare hour numbers without AM/PM, e.g. "Monday at 3", "at 14" (24h is unambiguous), "at 3 on Friday"
+  const stripped = String(input || "")
+    .replace(/\b(utc|gmt|[a-z]+\s+time)\b/gi, "")
+    .trim();
+  // If there's an explicit am/pm or a 4-digit 24h time (1800), or a colon (:), it's unambiguous
+  if (/\b(am|pm)\b/i.test(stripped)) return false;
+  if (/\b[01][0-9][0-5][0-9]\b/.test(stripped)) return false; // 1800-style
+  if (/\b([01]?\d|2[0-3]):[0-5]\d\b/.test(stripped)) return false; // 14:00-style
+  // Bare single or double digit hour without am/pm after "at" or alone
+  if (/\bat\s+\d{1,2}\b(?!\s*[:h\d])/.test(stripped)) return true;
+  return false;
 }
 
 function parseDateTime(input, options = {}) {
-  const fallbackTimezone = options.timezone || 'UTC';
-  const timezone = options.explicitTimezone || detectTimezone(input, fallbackTimezone);
+  const fallbackTimezone = options.timezone || "UTC";
+  const timezone =
+    options.explicitTimezone || detectTimezone(input, fallbackTimezone);
   const cleaned = normalizeEuropeanNumericDates(input);
   const referenceDate = options.referenceDate || new Date();
+
+  if (isAmbiguousTime(cleaned)) {
+    return {
+      ok: false,
+      ambiguous: true,
+      reason:
+        "Time is ambiguous — did you mean AM or PM? Try: `Monday at 3pm`, `1800 UTC`, or `15:00 Paris time`.",
+    };
+  }
+
   const results = chrono.parse(cleaned, referenceDate, { forwardDate: true });
 
   if (!results.length) {
-    return { ok: false, reason: 'I could not understand that date/time. Try `24/7/26 at 3pm` or `1800 UTC`.' };
+    return {
+      ok: false,
+      reason:
+        "I could not understand that date/time. Try `24/7/26 at 3pm` or `1800 UTC`.",
+    };
   }
 
   const first = results[0];
   let naive = DateTime.fromJSDate(first.start.date());
 
   // Rebuild the parsed date in the requested zone so "3pm Paris" means 3pm in Paris.
-  const zoned = DateTime.fromObject({
-    year: naive.year,
-    month: naive.month,
-    day: naive.day,
-    hour: naive.hour,
-    minute: naive.minute,
-    second: 0,
-  }, { zone: timezone });
+  const zoned = DateTime.fromObject(
+    {
+      year: naive.year,
+      month: naive.month,
+      day: naive.day,
+      hour: naive.hour,
+      minute: naive.minute,
+      second: 0,
+    },
+    { zone: timezone },
+  );
 
   if (!zoned.isValid) {
     return { ok: false, reason: `Invalid timezone: ${timezone}` };
@@ -87,4 +127,5 @@ function parseDateTime(input, options = {}) {
 module.exports = {
   parseDateTime,
   detectTimezone,
+  isAmbiguousTime,
 };

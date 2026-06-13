@@ -24,7 +24,8 @@
     "chrono-node": "latest",
     "discord.js": "^14.17.3",
     "dotenv": "latest",
-    "luxon": "latest"
+    "luxon": "latest",
+    "stripe": "latest"
   },
   "devDependencies": {
     "nodemon": "latest",
