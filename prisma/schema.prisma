@@ -19,9 +19,11 @@ model Guild {
   scoreboardChan    String?
   adminLogChan      String?
   premiumNoticeChan String?
-  battleSignupChan  String?
-  language          String    @default("en")
-  customFooter      String?
+  battleSignupChan        String?
+  language                String    @default("en")
+  customFooter            String?
+  scoreboardManagerRoleId String?
+  disAdminRoleId          String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -261,9 +263,12 @@ model BattleSignup {
   threadId      String?
   captainId     String
   game          String
+  title         String?
   mode          String?
   scheduledAt   DateTime
   teamSize      Int
+  tagOnCreate   String?   // role ID to ping when signup is created
+  tagOnStart    String?   // role ID to ping when battle starts
   status        SignupStatus @default(OPEN)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -287,6 +292,7 @@ model SignupParticipant {
 enum SignupStatus {
   OPEN
   LOCKED
+  STARTED
   CANCELLED
   COMPLETED
 }

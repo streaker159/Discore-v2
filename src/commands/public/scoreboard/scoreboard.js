@@ -24,7 +24,10 @@ const {
   buildScoreboardEmbed,
 } = require("../../../modules/scoreboards/service");
 const { requireFeature } = require("../../../lib/premiumGate");
-const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
+const {
+  createDiscoreEmbed,
+  getGuildSettings,
+} = require("../../../lib/embedBuilder");
 
 const ADMIN_SUBS = [
   "start",
@@ -334,14 +337,23 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    if (
-      ADMIN_SUBS.includes(sub) &&
-      !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
-    ) {
-      return interaction.reply({
-        content: "You need **Manage Server** permission to use this.",
-        ephemeral: true,
-      });
+    if (ADMIN_SUBS.includes(sub)) {
+      const settings = await getGuildSettings(interaction.guildId);
+      const hasManagerRole = settings?.scoreboardManagerRoleId
+        ? interaction.member?.roles?.cache?.has(
+            settings.scoreboardManagerRoleId,
+          )
+        : false;
+      const hasPermission =
+        hasManagerRole ||
+        interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+      if (!hasPermission) {
+        return interaction.reply({
+          content:
+            "You need the **Scoreboard Manager** role (or Manage Server permission) to use this.",
+          ephemeral: true,
+        });
+      }
     }
 
     // ── show ──────────────────────────────────────────────────────────────

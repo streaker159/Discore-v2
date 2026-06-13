@@ -1,12 +1,34 @@
-const { getSignup, setParticipant, buildBattleSignupEmbed, battleSignupButtons } = require('../../../modules/battleSignup/service');
+const {
+  getSignup,
+  setParticipant,
+  buildBattleSignupEmbed,
+  buildSignupDmEmbed,
+  battleSignupButtons,
+  remindMeRow,
+} = require("../../../modules/battleSignup/service");
 
 module.exports = {
-  customIdPrefix: 'battle:join:',
+  customIdPrefix: "battle:join:",
   async execute(interaction) {
-    const signupId = interaction.customId.split(':')[2];
-    await setParticipant(signupId, interaction.user.id, 'ACCEPTED');
+    const signupId = interaction.customId.split(":")[2];
+    await setParticipant(signupId, interaction.user.id, "ACCEPTED");
     const signup = await getSignup(signupId);
     const embed = await buildBattleSignupEmbed(interaction, signup);
-    await interaction.update({ embeds: [embed], components: battleSignupButtons(signupId) });
+    await interaction.update({
+      embeds: [embed],
+      components: battleSignupButtons(signupId),
+    });
+
+    // DM the user with signup details + Remind Me button
+    const dmEmbed = await buildSignupDmEmbed(
+      interaction.client,
+      signup,
+      "accepted",
+    );
+    await interaction.user
+      .send({ embeds: [dmEmbed], components: [remindMeRow(signupId)] })
+      .catch(() => {
+        // User has DMs disabled — silently skip
+      });
   },
 };

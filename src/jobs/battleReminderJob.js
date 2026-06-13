@@ -1,5 +1,9 @@
 const prisma = require("../lib/prisma");
 const { reminderQueue } = require("../lib/queue");
+const {
+  buildSignupDmEmbed,
+  remindMeRow,
+} = require("../modules/battleSignup/service");
 const logger = require("../lib/logger");
 
 module.exports = {
@@ -20,13 +24,19 @@ module.exports = {
             .catch(() => null);
           const signup = await prisma.battleSignup.findUnique({
             where: { id: reminder.signupId },
+            include: { participants: true, guild: true },
           });
           if (user && signup) {
-            await user
-              .send(
-                `🔔 Reminder: your battle signup starts soon! Game: **${signup.game}**`,
-              )
-              .catch(() => {});
+            const dmEmbed = await buildSignupDmEmbed(
+              client,
+              signup,
+              "accepted",
+            );
+            dmEmbed.setTitle("🔔 Battle Starting in 30 Minutes!");
+            dmEmbed.setDescription(
+              `Your battle for **${signup.game}** is starting soon!`,
+            );
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
           }
           await prisma.battleReminder.update({
             where: { id: reminder.id },
