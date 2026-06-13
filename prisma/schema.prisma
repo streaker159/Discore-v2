@@ -98,9 +98,11 @@ model Scoreboard {
   type          BoardType @default(USER)
   channelId     String
   messageId     String?   // for live editing
-  theme         String    @default("default")
+  theme         String    @default("default")  // hex color like #FF5733 or preset name
   liveTitle     String?
+  description   String?
   season        Int?
+  lastLeaderId  String?   // targetId of current #1 for leader-change detection
   isArchived    Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
