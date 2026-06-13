@@ -1,0 +1,501 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── GUILDS ──────────────────────────────────────────────
+
+model Guild {
+  id                String    @id              // Discord guild ID
+  defaultGame       String?
+  timezone          String    @default("UTC")
+  allianceName      String?
+  allianceLogo      String?
+  themeColor        String    @default("#1a7a9e")
+  scoreboardChan    String?
+  adminLogChan      String?
+  premiumNoticeChan String?
+  battleSignupChan  String?
+  language          String    @default("en")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  premium           GuildPremium?
+  scoreboards       Scoreboard[]
+  events            Event[]
+  battleSignups     BattleSignup[]
+  suggestions       Suggestion[]
+  auditLogs         AuditLog[]
+
+  @@index([id])
+}
+
+// ── PREMIUM ──────────────────────────────────────────────
+
+model GuildPremium {
+  id            String    @id @default(cuid())
+  guildId       String    @unique
+  guild         Guild     @relation(fields: [guildId], references: [id])
+  tier          Tier      @default(FREE)
+  method        PremiumMethod
+  stripeSubId   String?
+  code          String?
+  expiresAt     DateTime?
+  grantedBy     String?   // Discord user ID of bot owner who granted
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([guildId])
+}
+
+model PremiumCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  type        CodeType
+  tier        Tier
+  maxUses     Int       @default(1)
+  uses        Int       @default(0)
+  discountPct Int?      // for discount codes
+  trialDays   Int?      // for trial codes
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([code])
+}
+
+enum Tier {
+  FREE
+  PRO
+  ELITE
+  LIFETIME
+}
+
+enum PremiumMethod {
+  STRIPE
+  CODE
+  MANUAL
+}
+
+enum CodeType {
+  LIFETIME
+  DISCOUNT
+  TRIAL
+}
+
+// ── SCOREBOARDS ──────────────────────────────────────────
+
+model Scoreboard {
+  id            String    @id @default(cuid())
+  guildId       String
+  guild         Guild     @relation(fields: [guildId], references: [id])
+  name          String
+  metric        ScoreMetric
+  type          BoardType @default(USER)
+  channelId     String
+  messageId     String?   // for live editing
+  theme         String    @default("default")
+  liveTitle     String?
+  season        Int?
+  isArchived    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  entries       ScoreboardEntry[]
+  actions       ScoreboardAction[]
+
+  @@index([guildId])
+}
+
+model ScoreboardEntry {
+  id            String    @id @default(cuid())
+  scoreboardId  String
+  scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
+  targetId      String    // Discord user or role ID
+  targetType    BoardType
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  points        Int       @default(0)
+  winStreak     Int       @default(0)
+  lossStreak    Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([scoreboardId, targetId])
+  @@index([scoreboardId])
+}
+
+model ScoreboardAction {
+  id            String    @id @default(cuid())
+  scoreboardId  String
+  scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
+  targetId      String
+  action        String    // "WIN", "LOSS", "POINT", "RESET"
+  delta         Int
+  reason        String?
+  adminId       String
+  createdAt     DateTime  @default(now())
+
+  @@index([scoreboardId])
+}
+
+enum ScoreMetric {
+  WINS
+  LOSSES
+  RATIO
+  WIN_STREAK
+  LOSS_STREAK
+  POINTS
+  SEASON
+  ALL_TIME
+}
+
+enum BoardType {
+  USER
+  ROLE
+}
+
+// ── GAME DATA ─────────────────────────────────────────────
+
+model Game {
+  id          String  @id @default(cuid())
+  slug        String  @unique  // "supremacy-ww3", "call-of-war"
+  name        String
+  isActive    Boolean @default(true)
+
+  units       Unit[]
+  buildings   Building[]
+  resources   Resource[]
+  research    Research[]
+
+  @@index([slug])
+}
+
+model Unit {
+  id          String  @id @default(cuid())
+  gameId      String
+  game        Game    @relation(fields: [gameId], references: [id])
+  name        String
+  aliases     String[]
+  doctrine    String?
+  category    String?
+  description String?
+  stats       Json?
+  iconUrl     String?
+  imageUrl    String?
+  isActive    Boolean @default(true)
+  isDraft     Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([gameId])
+}
+
+model Building {
+  id          String  @id @default(cuid())
+  gameId      String
+  game        Game    @relation(fields: [gameId], references: [id])
+  name        String
+  aliases     String[]
+  description String?
+  stats       Json?
+  iconUrl     String?
+  isActive    Boolean @default(true)
+  isDraft     Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([gameId])
+}
+
+model Resource {
+  id          String  @id @default(cuid())
+  gameId      String
+  game        Game    @relation(fields: [gameId], references: [id])
+  name        String
+  aliases     String[]
+  description String?
+  iconUrl     String?
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([gameId])
+}
+
+model Research {
+  id          String  @id @default(cuid())
+  gameId      String
+  game        Game    @relation(fields: [gameId], references: [id])
+  name        String
+  aliases     String[]
+  description String?
+  stats       Json?
+  iconUrl     String?
+  isActive    Boolean @default(true)
+  isDraft     Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([gameId])
+}
+
+// ── BATTLE SIGNUP ─────────────────────────────────────────
+
+model BattleSignup {
+  id            String    @id @default(cuid())
+  guildId       String
+  guild         Guild     @relation(fields: [guildId], references: [id])
+  channelId     String
+  messageId     String?
+  threadId      String?
+  captainId     String
+  game          String
+  mode          String?
+  scheduledAt   DateTime
+  teamSize      Int
+  status        SignupStatus @default(OPEN)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  participants  SignupParticipant[]
+
+  @@index([guildId])
+}
+
+model SignupParticipant {
+  id          String    @id @default(cuid())
+  signupId    String
+  signup      BattleSignup @relation(fields: [signupId], references: [id])
+  userId      String
+  status      ParticipantStatus
+  joinedAt    DateTime  @default(now())
+
+  @@unique([signupId, userId])
+}
+
+enum SignupStatus {
+  OPEN
+  LOCKED
+  CANCELLED
+  COMPLETED
+}
+
+enum ParticipantStatus {
+  ACCEPTED
+  RESERVE
+  DECLINED
+}
+
+// ── EVENTS ───────────────────────────────────────────────
+
+model Event {
+  id          String    @id @default(cuid())
+  guildId     String
+  guild       Guild     @relation(fields: [guildId], references: [id])
+  title       String
+  description String?
+  location    String?
+  imageUrl    String?
+  channelId   String
+  messageId   String?
+  scheduledAt DateTime
+  createdBy   String
+  status      EventStatus @default(UPCOMING)
+  createdAt   DateTime  @default(now())
+
+  rsvps       EventRsvp[]
+
+  @@index([guildId])
+}
+
+model EventRsvp {
+  id        String  @id @default(cuid())
+  eventId   String
+  event     Event   @relation(fields: [eventId], references: [id])
+  userId    String
+  status    RsvpStatus
+  @@unique([eventId, userId])
+}
+
+enum EventStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum RsvpStatus {
+  GOING
+  MAYBE
+  NOT_GOING
+}
+
+// ── SUGGESTIONS ───────────────────────────────────────────
+
+model Suggestion {
+  id          String    @id @default(cuid())
+  guildId     String
+  guild       Guild     @relation(fields: [guildId], references: [id])
+  authorId    String
+  content     String
+  imageUrl    String?
+  status      SuggestionStatus @default(OPEN)
+  channelId   String
+  messageId   String?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  votes       SuggestionVote[]
+
+  @@index([guildId])
+}
+
+model SuggestionVote {
+  id            String    @id @default(cuid())
+  suggestionId  String
+  suggestion    Suggestion @relation(fields: [suggestionId], references: [id])
+  userId        String
+  type          VoteType
+  @@unique([suggestionId, userId])
+}
+
+enum SuggestionStatus {
+  OPEN
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum VoteType {
+  UP
+  DOWN
+}
+
+// ── PLAYERS & ALLIANCES ───────────────────────────────────
+
+model PlayerProfile {
+  id              String    @id @default(cuid())
+  discordId       String    @unique
+  gameUsername    String?
+  game            String?
+  currentAlliance String?
+  playstyle       String?
+  role            String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  allianceHistory AllianceHistory[]
+
+  @@index([discordId])
+}
+
+model AllianceHistory {
+  id            String    @id @default(cuid())
+  playerId      String
+  player        PlayerProfile @relation(fields: [playerId], references: [id])
+  allianceName  String
+  allianceTag   String?
+  game          String
+  joinedAt      DateTime
+  leftAt        DateTime?
+
+  @@index([playerId])
+}
+
+model AllianceProfile {
+  id              String    @id @default(cuid())
+  name            String
+  tag             String
+  game            String
+  logoUrl         String?
+  bannerUrl       String?
+  description     String?
+  discordInvite   String?
+  country         String?
+  officialId      String?
+  officialRank    Int?
+  officialElo     Int?
+  officialWins    Int?
+  officialLosses  Int?
+  officialMembers Int?
+  discoreElo      Int       @default(1000)
+  discoreWins     Int       @default(0)
+  discoreLosses   Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  avaMatches      AvaMatch[] @relation("HomeAlliance")
+  avaMatchesAway  AvaMatch[] @relation("AwayAlliance")
+
+  @@unique([tag, game])
+  @@index([game])
+}
+
+// ── AVA ───────────────────────────────────────────────────
+
+model AvaMatch {
+  id              String    @id @default(cuid())
+  homeAllianceId  String
+  awayAllianceId  String
+  homeAlliance    AllianceProfile @relation("HomeAlliance", fields: [homeAllianceId], references: [id])
+  awayAlliance    AllianceProfile @relation("AwayAlliance", fields: [awayAllianceId], references: [id])
+  game            String
+  status          AvaStatus @default(PENDING)
+  winnerId        String?
+  evidenceUrl     String?
+  submittedBy     String?
+  confirmedBy     String?
+  scheduledAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([homeAllianceId, awayAllianceId])
+}
+
+enum AvaStatus {
+  PENDING
+  ACTIVE
+  RESULT_SUBMITTED
+  AWAITING_CONFIRMATION
+  VERIFIED
+  DISPUTED
+  VOIDED
+  CANCELED
+}
+
+// ── AI CREDITS ────────────────────────────────────────────
+
+model AiCredits {
+  id          String  @id @default(cuid())
+  guildId     String  @unique
+  balance     Int     @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+model AiUsageLog {
+  id          String  @id @default(cuid())
+  guildId     String
+  userId      String
+  requestType String
+  cost        Int
+  createdAt   DateTime @default(now())
+
+  @@index([guildId])
+}
+
+// ── AUDIT LOG ─────────────────────────────────────────────
+
+model AuditLog {
+  id        String    @id @default(cuid())
+  guildId   String
+  guild     Guild     @relation(fields: [guildId], references: [id])
+  action    String
+  actorId   String
+  targetId  String?
+  meta      Json?
+  createdAt DateTime  @default(now())
+
+  @@index([guildId])
+}

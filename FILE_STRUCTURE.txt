@@ -1,0 +1,54 @@
+discore-v2/
+├── src/
+│   ├── commands/
+│   │   ├── public/
+│   │   │   ├── help/
+│   │   │   ├── premium/
+│   │   │   ├── server/
+│   │   │   ├── scoreboard/
+│   │   │   ├── battle/
+│   │   │   ├── game/
+│   │   │   ├── strategy/
+│   │   │   ├── alliance/
+│   │   │   ├── player/
+│   │   │   ├── ava/
+│   │   │   ├── match/
+│   │   │   ├── event/
+│   │   │   └── suggestion/
+│   │   └── admin/
+│   │       ├── system/
+│   │       ├── game-admin/
+│   │       ├── premium-admin/
+│   │       ├── broadcast/
+│   │       └── debug/
+│   ├── components/
+│   │   ├── buttons/
+│   │   ├── modals/
+│   │   └── selectMenus/
+│   ├── modules/
+│   │   ├── scoreboards/
+│   │   ├── battleSignup/
+│   │   ├── gameData/
+│   │   ├── gameFinder/
+│   │   ├── ai/
+│   │   ├── allianceNetwork/
+│   │   ├── ava/
+│   │   ├── events/
+│   │   ├── suggestions/
+│   │   ├── premium/
+│   │   ├── branding/
+│   │   ├── moderation/
+│   │   └── serverSettings/
+│   ├── jobs/
+│   ├── routes/
+│   ├── config/
+│   ├── lib/
+│   ├── loaders/
+│   ├── events/
+│   └── index.js
+├── prisma/schema.prisma
+├── scripts/
+├── .env.example
+├── .gitignore
+├── package.json
+└── README.md

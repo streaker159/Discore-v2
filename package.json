@@ -1,0 +1,33 @@
+{
+  "name": "discore-v2",
+  "version": "0.1.0",
+  "description": "Discore V2 - strategy-game command network Discord bot.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy:global": "node scripts/deployGlobalCommands.js",
+    "deploy:admin": "node scripts/deployAdminCommands.js",
+    "clear:global": "node scripts/clearGlobalCommands.js",
+    "clear:admin": "node scripts/clearAdminCommands.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:studio": "prisma studio",
+    "check": "node scripts/checkSyntax.js"
+  },
+  "dependencies": {
+    "@prisma/client": "latest",
+    "chrono-node": "latest",
+    "discord.js": "^14.17.3",
+    "dotenv": "latest",
+    "luxon": "latest"
+  },
+  "devDependencies": {
+    "nodemon": "latest",
+    "prisma": "latest"
+  }
+}

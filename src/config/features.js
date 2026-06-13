@@ -1,0 +1,15 @@
+module.exports = {
+  'scoreboards.basic': 'FREE',
+  'scoreboards.archive': 'PRO',
+  'scoreboards.restore': 'PRO',
+  'scoreboards.merge': 'PRO',
+  'battle.signup': 'FREE',
+  'game.lookup': 'FREE',
+  'strategy.ai': 'PRO',
+  'match.finder': 'PRO',
+  'branding.customNickname': 'PRO',
+  'branding.full': 'ELITE',
+  'alliance.globalRanking': 'FREE',
+  'ava.verified': 'PRO',
+  'analytics.advanced': 'ELITE',
+};
