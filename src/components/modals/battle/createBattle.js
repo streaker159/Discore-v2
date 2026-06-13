@@ -18,8 +18,9 @@ module.exports = {
     const tagOnCreate = parts[2] !== "0" ? parts[2] : null;
     const tagOnStart = parts[3] !== "0" ? parts[3] : null;
 
-    const title = interaction.fields.getTextInputValue("title").trim() || null;
     const game = interaction.fields.getTextInputValue("game").trim();
+    const description =
+      interaction.fields.getTextInputValue("description").trim() || null;
     const mode = interaction.fields.getTextInputValue("mode").trim() || null;
     const rawTime = interaction.fields.getTextInputValue("datetime").trim();
     const teamSizeRaw = interaction.fields
@@ -48,7 +49,7 @@ module.exports = {
       channelId: interaction.channelId,
       captainId: interaction.user.id,
       game,
-      title,
+      description,
       mode,
       scheduledAt: parsed.date,
       teamSize,

@@ -85,9 +85,12 @@ async function buildBattleSignupEmbed(interactionOrGuildId, signup) {
     },
   ];
 
+  const descriptionBlock = signup.description
+    ? `\n> ${signup.description}`
+    : "";
   return createDiscoreEmbed(interactionOrGuildId, {
     title: `⚔️ ${signup.title || signup.game}`,
-    description: `**Game:** ${signup.game}${statusLine}`,
+    description: `**Game:** ${signup.game}${descriptionBlock}${statusLine}`,
     fields,
   });
 }

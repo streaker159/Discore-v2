@@ -35,11 +35,12 @@ module.exports = {
     modal.addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId("title")
-          .setLabel("Title (blank = keep current)")
-          .setStyle(TextInputStyle.Short)
+          .setCustomId("description")
+          .setLabel("Description (blank = clear)")
+          .setStyle(TextInputStyle.Paragraph)
           .setRequired(false)
-          .setValue(signup.title || ""),
+          .setMaxLength(1000)
+          .setValue(signup.description || ""),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()

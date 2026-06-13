@@ -27,8 +27,9 @@ module.exports = {
       });
     }
 
-    const newTitle =
-      interaction.fields.getTextInputValue("title").trim() || signup.title;
+    const newDescription = interaction.fields
+      .getTextInputValue("description")
+      .trim();
     const newMode =
       interaction.fields.getTextInputValue("mode").trim() || signup.mode;
     const rawTime = interaction.fields.getTextInputValue("datetime").trim();
@@ -37,7 +38,7 @@ module.exports = {
       .trim();
 
     const updateData = {
-      title: newTitle || null,
+      description: newDescription || null,
       mode: newMode || null,
     };
 

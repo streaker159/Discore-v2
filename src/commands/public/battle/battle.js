@@ -69,19 +69,20 @@ module.exports = {
     modal.addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId("title")
-          .setLabel('Title (optional, e.g. "AvA vs Rivals")')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(100),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
           .setCustomId("game")
           .setLabel("Game")
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
           .setPlaceholder("e.g. Clash of Clans"),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Description (optional)")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(1000)
+          .setPlaceholder("e.g. AvA vs Rivals — need full team, no reserves!"),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()

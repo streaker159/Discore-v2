@@ -264,6 +264,7 @@ model BattleSignup {
   captainId     String
   game          String
   title         String?
+  description   String?
   mode          String?
   scheduledAt   DateTime
   teamSize      Int
@@ -306,21 +307,26 @@ enum ParticipantStatus {
 // ── EVENTS ───────────────────────────────────────────────
 
 model Event {
-  id          String    @id @default(cuid())
-  guildId     String
-  guild       Guild     @relation(fields: [guildId], references: [id])
-  title       String
-  description String?
-  location    String?
-  imageUrl    String?
-  channelId   String
-  messageId   String?
-  scheduledAt DateTime
-  createdBy   String
-  status      EventStatus @default(UPCOMING)
-  createdAt   DateTime  @default(now())
+  id            String    @id @default(cuid())
+  guildId       String
+  guild         Guild     @relation(fields: [guildId], references: [id])
+  title         String
+  description   String?
+  location      String?
+  imageUrl      String?   // banner (set_image — full width)
+  thumbnailUrl  String?   // small icon (set_thumbnail)
+  channelId     String
+  messageId     String?
+  scheduledAt   DateTime
+  createdBy     String
+  tagOnCreate   String?   // role ID to ping when event is posted
+  tagOnStart    String?   // role ID to ping when event starts
+  reminderSent  Boolean   @default(false)
+  status        EventStatus @default(UPCOMING)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  rsvps       EventRsvp[]
+  rsvps         EventRsvp[]
 
   @@index([guildId])
 }
