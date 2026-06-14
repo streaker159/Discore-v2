@@ -53,15 +53,22 @@ module.exports = {
           .setDescription("Your alliance tag (e.g. WOLF)")
           .setRequired(true),
       );
+      // screenshot1 required — must come before all non-required options
+      s.addAttachmentOption((o) =>
+        o
+          .setName("screenshot1")
+          .setDescription("Screenshot 1 of your alliance profile")
+          .setRequired(true),
+      );
       s.addStringOption((o) =>
         o.setName("game").setDescription("Game slug (default: supremacy-ww3)"),
       );
-      for (let i = 1; i <= MAX_SCREENSHOTS; i++) {
+      for (let i = 2; i <= MAX_SCREENSHOTS; i++) {
         s.addAttachmentOption((o) =>
           o
             .setName(`screenshot${i}`)
             .setDescription(`Screenshot ${i} of your alliance profile`)
-            .setRequired(i === 1),
+            .setRequired(false),
         );
       }
       return s;
