@@ -397,19 +397,54 @@ enum VoteType {
 // ── PLAYERS & ALLIANCES ───────────────────────────────────
 
 model PlayerProfile {
-  id              String    @id @default(cuid())
-  discordId       String    @unique
-  gameUsername    String?
-  game            String?
-  currentAlliance String?
-  playstyle       String?
-  role            String?
-  avaWins         Int       @default(0)
-  avaLosses       Int       @default(0)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                      String    @id @default(cuid())
+  discordId               String    @unique
+  gameUsername            String?
+  game                    String?   @default("supremacy-ww3")
+  // Alliance
+  currentAlliance         String?
+  currentAllianceTag      String?
+  currentAllianceJoinedAt DateTime?
+  // In-game stats
+  inGameRank              String?   // "Staff Sergeant", "Commander"
+  level                   Int?
+  xpCurrent               Int?
+  xpMax                   Int?
+  kdRatio                 Float?
+  unitsKilled             Int?
+  unitsLost               Int?
+  provincesTaken          Int?
+  provincesLost           Int?
+  gamesJoined             Int?
+  soloVictories           Int?
+  coalitionVictories      Int?
+  overallScore            Int?
+  overallRank             Int?
+  economicRank            Int?
+  militaryRank            Int?
+  memberSince             String?
+  lastOnline              String?
+  playedOnPC              Int?      // percentage 0-100
+  playedOnMobile          Int?      // percentage 0-100
+  // Discore verified stats
+  role                    String?   // "Shot Caller", "Strategist" etc.
+  playstyle               String?
+  discoreElo              Int       @default(1000)
+  avaWins                 Int       @default(0)
+  avaLosses               Int       @default(0)
+  winRate                 Float?
+  performanceScore        Int?      // 0-100
+  combatStyle             String?   // short description
+  // Profile settings
+  isPublic                Boolean   @default(true)
+  profileImageUrl         String?
+  screenshotUrls          String[]
+  lastUpdateAt            DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  allianceHistory AllianceHistory[]
+  allianceHistory         AllianceHistory[]
+  updateLogs              ProfileUpdateLog[]
 
   @@index([discordId])
 }
@@ -427,33 +462,124 @@ model AllianceHistory {
   @@index([playerId])
 }
 
-model AllianceProfile {
-  id              String    @id @default(cuid())
-  name            String
-  tag             String
-  game            String
-  logoUrl         String?
-  bannerUrl       String?
-  description     String?
-  discordInvite   String?
-  country         String?
-  officialId      String?
-  officialRank    Int?
-  officialElo     Int?
-  officialWins    Int?
-  officialLosses  Int?
-  officialMembers Int?
-  discoreElo      Int       @default(1000)
-  discoreWins     Int       @default(0)
-  discoreLosses   Int       @default(0)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+model ProfileUpdateLog {
+  id          String    @id @default(cuid())
+  playerId    String
+  player      PlayerProfile @relation(fields: [playerId], references: [id])
+  updatedAt   DateTime  @default(now())
 
-  avaMatches      AvaMatch[] @relation("HomeAlliance")
-  avaMatchesAway  AvaMatch[] @relation("AwayAlliance")
+  @@index([playerId])
+}
+
+model AllianceProfile {
+  id                  String    @id @default(cuid())
+  name                String
+  tag                 String
+  game                String
+  logoUrl             String?
+  bannerUrl           String?
+  description         String?
+  discordInvite       String?
+  country             String?
+  tags                String[]  // ["COMPETITIVE", "ACTIVE", "TEAMWORK"]
+  ownerId             String?   // Discord user ID who registered
+  managerRoleId       String?   // Discord role that can manage
+  // Official in-game stats
+  officialId          String?
+  officialRank        Int?
+  officialElo         Int?
+  officialWins        Int?
+  officialLosses      Int?
+  officialMembers     Int?
+  officialMaxMembers  Int?
+  founded             String?   // date string e.g. "5/31/24"
+  // Discore verified stats
+  discoreRank         Int?
+  discoreElo          Int       @default(1000)
+  discoreWins         Int       @default(0)
+  discoreLosses       Int       @default(0)
+  winRate             Float?
+  seasonRecord        String?   // "89W – 31L"
+  // Profile settings
+  isPublic            Boolean   @default(true)
+  screenshotUrls      String[]
+  lastUpdateAt        DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  avaMatches          AvaMatch[] @relation("HomeAlliance")
+  avaMatchesAway      AvaMatch[] @relation("AwayAlliance")
+  recentMatches       AllianceRecentMatch[]
+  updateLogs          AllianceUpdateLog[]
 
   @@unique([tag, game])
   @@index([game])
+}
+
+model AllianceRecentMatch {
+  id            String      @id @default(cuid())
+  allianceId    String
+  alliance      AllianceProfile @relation(fields: [allianceId], references: [id])
+  opponentName  String
+  opponentTag   String?
+  opponentLogo  String?
+  result        MatchResult
+  occurredAt    DateTime    @default(now())
+
+  @@index([allianceId])
+}
+
+model AllianceUpdateLog {
+  id          String    @id @default(cuid())
+  allianceId  String
+  alliance    AllianceProfile @relation(fields: [allianceId], references: [id])
+  updatedBy   String    // Discord user ID
+  updatedAt   DateTime  @default(now())
+
+  @@index([allianceId])
+}
+
+enum MatchResult {
+  VICTORY
+  DEFEAT
+  DRAW
+}
+
+// ── LEADERBOARD CONFIG ────────────────────────────────────
+
+model LeaderboardChannel {
+  id          String          @id @default(cuid())
+  guildId     String
+  type        LeaderboardType
+  channelId   String
+  messageId   String?
+  enabled     Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([guildId, type])
+  @@index([guildId])
+}
+
+model LeaderboardSettings {
+  id              String    @id @default(cuid())
+  guildId         String    @unique
+  scheduleHour    Int       @default(9)    // 0-23 UTC
+  scheduleMinute  Int       @default(0)
+  frequencyHours  Int       @default(24)
+  lastPostedAt    DateTime?
+  enabled         Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+enum LeaderboardType {
+  TOP_PLAYERS_KD
+  TOP_PLAYERS_WINS
+  TOP_PLAYERS_ELO
+  TOP_ALLIANCES_ELO
+  TOP_ALLIANCES_WINS
+  TOP_ALLIANCES_RANK
 }
 
 // ── AVA ───────────────────────────────────────────────────

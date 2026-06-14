@@ -32,4 +32,6 @@ module.exports = {
   guildSettingsCache: new TTLCache(60_000),
   premiumCache: new TTLCache(60_000),
   gameFinderCache: new TTLCache(120_000),
+  // Holds pending profile parse results while user reviews (15 min TTL)
+  pendingProfileCache: new TTLCache(15 * 60_000),
 };
