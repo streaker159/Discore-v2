@@ -20,7 +20,7 @@
     "check": "node scripts/checkSyntax.js"
   },
   "dependencies": {
-    "@prisma/client": "latest",
+    "@prisma/client": "^6",
     "chrono-node": "latest",
     "discord.js": "^14.17.3",
     "dotenv": "latest",
@@ -29,6 +29,6 @@
   },
   "devDependencies": {
     "nodemon": "latest",
-    "prisma": "latest"
+    "prisma": "^6"
   }
 }
