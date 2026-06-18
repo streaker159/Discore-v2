@@ -124,17 +124,19 @@ model Scoreboard {
 }
 
 model ScoreboardEntry {
-  id            String    @id @default(cuid())
-  scoreboardId  String
-  scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
-  targetId      String    // Discord user or role ID
-  targetType    BoardType
-  wins          Int       @default(0)
-  losses        Int       @default(0)
-  points        Int       @default(0)
-  winStreak     Int       @default(0)
-  lossStreak    Int       @default(0)
-  updatedAt     DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  scoreboardId   String
+  scoreboard     Scoreboard @relation(fields: [scoreboardId], references: [id])
+  targetId       String    // Discord user or role ID
+  targetType     BoardType
+  wins           Int       @default(0)
+  losses         Int       @default(0)
+  points         Int       @default(0)
+  winStreak      Int       @default(0)
+  lossStreak     Int       @default(0)
+  liveChannelId  String?   // channel to post per-entry live score embed
+  liveMessageId  String?   // message to edit for per-entry live score embed
+  updatedAt      DateTime  @updatedAt
 
   @@unique([scoreboardId, targetId])
   @@index([scoreboardId])
@@ -155,14 +157,8 @@ model ScoreboardAction {
 }
 
 enum ScoreMetric {
-  WINS
-  LOSSES
-  RATIO
-  WIN_STREAK
-  LOSS_STREAK
+  WIN_LOSS
   POINTS
-  SEASON
-  ALL_TIME
 }
 
 enum BoardType {

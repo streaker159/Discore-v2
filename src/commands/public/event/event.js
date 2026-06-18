@@ -132,7 +132,7 @@ module.exports = {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId("datetime")
-          .setLabel("When? (time shown in each user's local timezone)")
+          .setLabel("When? (auto-converts to local timezone)")
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
           .setPlaceholder("e.g. tomorrow 8pm UTC, in 3 hours, 5pm 04/07/2026"),
@@ -156,7 +156,7 @@ module.exports = {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId("image")
-          .setLabel("Banner image URL (optional, paste a direct link)")
+          .setLabel("Banner image URL (optional)")
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
           .setPlaceholder("https://example.com/banner.png"),

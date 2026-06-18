@@ -29,6 +29,8 @@ const {
   buildScoreboardPage,
   buildScoreboardEmbed,
   pushLiveEmbed,
+  pushEntryLiveEmbed,
+  buildEntryEmbed,
   repairLiveEmbed,
   getScoreboardById,
 } = require("../../../modules/scoreboards/service");
@@ -161,14 +163,11 @@ module.exports = {
             .setDescription("Ranking metric")
             .setRequired(true)
             .addChoices(
-              { name: "Wins", value: "WINS" },
-              { name: "Losses", value: "LOSSES" },
-              { name: "Points", value: "POINTS" },
-              { name: "Ratio", value: "RATIO" },
-              { name: "Win streak", value: "WIN_STREAK" },
-              { name: "Loss streak", value: "LOSS_STREAK" },
-              { name: "Season", value: "SEASON" },
-              { name: "All-time", value: "ALL_TIME" },
+              {
+                name: "Win / Loss  (tracks wins, losses, ratio, streaks)",
+                value: "WIN_LOSS",
+              },
+              { name: "Points  (add/subtract point totals)", value: "POINTS" },
             ),
         )
         .addStringOption((o) =>
@@ -447,7 +446,8 @@ module.exports = {
         const entries = b.entries.length;
         const status = b.repairStatus !== "OK" ? " ⚠️" : "";
         const live = b.channelId ? ` · <#${b.channelId}>` : "";
-        return `**${b.liveTitle || b.name}**${status} — ${b.metric} · ${entries} entries${live}`;
+        const modeLabel = b.metric === "POINTS" ? "Points" : "Win / Loss";
+        return `**${b.liveTitle || b.name}**${status} — ${modeLabel} · ${entries} entries${live}`;
       });
       const embed = await createDiscoreEmbed(interaction, {
         title: `📋 Active Scoreboards (${boards.length})`,
@@ -588,15 +588,41 @@ module.exports = {
         reason: interaction.options.getString("reason"),
       });
 
-      const { embed } = buildScoreboardPage(result.board, 1);
-      await pushLiveEmbed(interaction.client, result.board);
+      // Get fresh entry with liveChannelId/liveMessageId
+      const freshEntry = result.board.entries.find(
+        (e) => e.targetId === target.id,
+      );
+      const targetColor = role
+        ? (interaction.guild.roles.cache.get(role.id)?.color ?? 0)
+        : 0;
+      const targetName = user
+        ? (interaction.guild.members.cache.get(user.id)?.displayName ??
+          user.username)
+        : role.name;
+      const mention = role ? `<@&${role.id}>` : `<@${user.id}>`;
+      const entryEmbed = buildEntryEmbed(
+        result.board,
+        freshEntry,
+        mention,
+        targetName,
+        targetColor,
+      );
+
+      await pushLiveEmbed(interaction.client, result.board).catch(() => {});
+      if (freshEntry)
+        await pushEntryLiveEmbed(
+          interaction.client,
+          interaction.guild,
+          result.board,
+          freshEntry,
+        ).catch(() => {});
       if (result.leaderChange)
         await announceLeaderChange(
           interaction,
           result.board,
           result.leaderChange.newLeaderId,
         );
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({ embeds: [entryEmbed] });
     }
 
     // ── addpoints ──────────────────────────────────────────────────────────
@@ -622,15 +648,40 @@ module.exports = {
         adminId: interaction.user.id,
       });
 
-      const { embed } = buildScoreboardPage(result.board, 1);
-      await pushLiveEmbed(interaction.client, result.board);
+      const freshEntry = result.board.entries.find(
+        (e) => e.targetId === target.id,
+      );
+      const targetColor = role
+        ? (interaction.guild.roles.cache.get(role.id)?.color ?? 0)
+        : 0;
+      const targetName = user
+        ? (interaction.guild.members.cache.get(user.id)?.displayName ??
+          user.username)
+        : role.name;
+      const mention = role ? `<@&${role.id}>` : `<@${user.id}>`;
+      const entryEmbed = buildEntryEmbed(
+        result.board,
+        freshEntry,
+        mention,
+        targetName,
+        targetColor,
+      );
+
+      await pushLiveEmbed(interaction.client, result.board).catch(() => {});
+      if (freshEntry)
+        await pushEntryLiveEmbed(
+          interaction.client,
+          interaction.guild,
+          result.board,
+          freshEntry,
+        ).catch(() => {});
       if (result.leaderChange)
         await announceLeaderChange(
           interaction,
           result.board,
           result.leaderChange.newLeaderId,
         );
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({ embeds: [entryEmbed] });
     }
 
     // ── edit ───────────────────────────────────────────────────────────────
