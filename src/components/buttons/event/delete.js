@@ -2,6 +2,7 @@ const prisma = require("../../../lib/prisma");
 const {
   getEvent,
   buildEventEmbed,
+  closeEvent,
 } = require("../../../modules/events/service");
 
 // customId: event:delete:{eventId}
@@ -40,9 +41,8 @@ module.exports = {
       });
       await interaction.update({ embeds: [embed], components: [] });
 
-      // Remove from DB
-      await prisma.eventRsvp.deleteMany({ where: { eventId } });
-      await prisma.event.delete({ where: { id: eventId } });
+      // Schedule for cleanup instead of hard-deleting immediately
+      await closeEvent(eventId, "CANCELLED");
       return;
     }
 

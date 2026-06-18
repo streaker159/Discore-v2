@@ -8,7 +8,7 @@ const {
   eventButtons,
 } = require("../../../modules/events/service");
 
-// customId format: event:create:{tagOnCreate}:{tagOnStart}
+// customId format: event:create:{tagOnCreate}:{tagOnStart}:{eventType}
 module.exports = {
   customIdPrefix: "event:create:",
   async execute(interaction) {
@@ -17,6 +17,7 @@ module.exports = {
     const parts = interaction.customId.split(":");
     const tagOnCreate = parts[2] !== "0" ? parts[2] : null;
     const tagOnStart = parts[3] !== "0" ? parts[3] : null;
+    const eventType = parts[4] ?? "EVENT";
 
     const title = interaction.fields.getTextInputValue("title").trim();
     const rawTime = interaction.fields.getTextInputValue("datetime").trim();
@@ -59,6 +60,7 @@ module.exports = {
       scheduledAt: parsed.date,
       tagOnCreate,
       tagOnStart,
+      eventType,
     });
 
     const full = await getEvent(event.id);
@@ -78,7 +80,7 @@ module.exports = {
 
     const t = parsed.discord;
     await interaction.editReply({
-      content: `✅ Event posted!\n> Time shows in everyone's **local timezone** as ${t.full} (${t.relative})\n> ID: \`${event.id}\``,
+      content: `✅ Event posted!\n> Time shows in everyone's **local timezone** as ${t.full} (${t.relative})\n> ID: \`${event.publicId ?? event.id}\``,
     });
   },
 };

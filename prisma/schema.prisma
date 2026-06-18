@@ -94,19 +94,26 @@ enum CodeType {
 
 model Scoreboard {
   id            String    @id @default(cuid())
+  publicId      String?   @unique              // short human-readable ID
   guildId       String
   guild         Guild     @relation(fields: [guildId], references: [id])
   name          String
   metric        ScoreMetric
   type          BoardType @default(USER)
-  channelId     String
-  messageId     String?   // for live editing
+  channelId     String?                        // nullable — not required for non-live boards
+  messageId     String?                        // for live editing
   theme         String    @default("default")  // hex color like #FF5733 or preset name
   liveTitle     String?
   description   String?
   season        Int?
-  lastLeaderId  String?   // targetId of current #1 for leader-change detection
+  lastLeaderId  String?                        // targetId of current #1 for leader-change detection
+  roleImageUrl  String?                        // team/role avatar URL
+  repairStatus  String    @default("OK")       // OK | NEEDS_REPAIR | REPAIRING
+  lastUpdatedAt DateTime?                      // when last score was changed
   isArchived    Boolean   @default(false)
+  archivedAt    DateTime?
+  archivedBy    String?                        // Discord user ID
+  archiveNote   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -257,6 +264,7 @@ model Research {
 
 model BattleSignup {
   id            String    @id @default(cuid())
+  publicId      String?
   guildId       String
   guild         Guild     @relation(fields: [guildId], references: [id])
   channelId     String
@@ -272,6 +280,7 @@ model BattleSignup {
   tagOnCreate   String?   // role ID to ping when signup is created
   tagOnStart    String?   // role ID to ping when battle starts
   status        SignupStatus @default(OPEN)
+  cleanupAfter  DateTime?                      // set when completed/cancelled
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -309,6 +318,7 @@ enum ParticipantStatus {
 
 model Event {
   id            String    @id @default(cuid())
+  publicId      String?   @unique
   guildId       String
   guild         Guild     @relation(fields: [guildId], references: [id])
   title         String
@@ -316,6 +326,7 @@ model Event {
   location      String?
   imageUrl      String?   // banner (set_image — full width)
   thumbnailUrl  String?   // small icon (set_thumbnail)
+  eventType     String    @default("EVENT")    // EVENT | BATTLE | TRAINING | CUSTOM
   channelId     String
   messageId     String?
   scheduledAt   DateTime
@@ -324,6 +335,7 @@ model Event {
   tagOnStart    String?   // role ID to ping when event starts
   reminderSent  Boolean   @default(false)
   status        EventStatus @default(UPCOMING)
+  cleanupAfter  DateTime?                      // set when completed/cancelled; cleanup job deletes after this
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

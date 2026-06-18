@@ -17,10 +17,11 @@ module.exports = {
 
     for (const signup of expired) {
       try {
-        // Mark as STARTED
+        // Mark as STARTED and schedule cleanup 7 days from now
+        const cleanupAfter = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
         await prisma.battleSignup.update({
           where: { id: signup.id },
-          data: { status: "STARTED" },
+          data: { status: "STARTED", cleanupAfter },
         });
 
         const updated = { ...signup, status: "STARTED" };

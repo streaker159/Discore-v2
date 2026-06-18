@@ -9,17 +9,22 @@ function loadComponents(client) {
   const files = walkFiles(componentsRoot);
 
   for (const file of files) {
-    const component = require(file);
-    if (
-      (!component.customId && !component.customIdPrefix) ||
-      typeof component.execute !== "function"
-    ) {
-      logger.warn("Skipped invalid component", { file });
-      continue;
+    const raw = require(file);
+    // Support both a single export and an array of exports
+    const components = Array.isArray(raw) ? raw : [raw];
+
+    for (const component of components) {
+      if (
+        (!component.customId && !component.customIdPrefix) ||
+        typeof component.execute !== "function"
+      ) {
+        logger.warn("Skipped invalid component", { file });
+        continue;
+      }
+      const key = component.customId || component.customIdPrefix;
+      client.components.set(key, component);
+      logger.info("Loaded component", { key });
     }
-    const key = component.customId || component.customIdPrefix;
-    client.components.set(key, component);
-    logger.info("Loaded component", { key });
   }
 
   return client.components;

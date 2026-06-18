@@ -2,7 +2,9 @@ const {
   SlashCommandBuilder,
   PermissionFlagsBits,
   ChannelType,
+  EmbedBuilder,
 } = require("discord.js");
+const prisma = require("../../../lib/prisma");
 const {
   updateGuildSettings,
   ensureGuild,
@@ -16,6 +18,11 @@ module.exports = {
     .setName("server")
     .setDescription("Configure Discore server settings.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand((s) =>
+      s
+        .setName("info")
+        .setDescription("Show local server stats and Discore setup health."),
+    )
     .addSubcommand((s) =>
       s.setName("setup").setDescription("Create default server settings."),
     )
@@ -91,6 +98,92 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     let guild;
+
+    // ── info ───────────────────────────────────────────────────────────────
+    if (sub === "info") {
+      const [dbGuild, scoreboards, events] = await Promise.all([
+        ensureGuild(interaction.guildId),
+        prisma.scoreboard.findMany({
+          where: { guildId: interaction.guildId },
+          select: { isArchived: true, repairStatus: true, channelId: true },
+        }),
+        prisma.event.findMany({
+          where: {
+            guildId: interaction.guildId,
+            status: { in: ["UPCOMING", "LIVE"] },
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      const discordGuild = interaction.guild;
+      const activeBoards = scoreboards.filter((s) => !s.isArchived).length;
+      const archivedBoards = scoreboards.filter((s) => s.isArchived).length;
+      const brokenBoards = scoreboards.filter(
+        (s) => !s.isArchived && s.repairStatus !== "OK",
+      ).length;
+      const liveBoards = scoreboards.filter(
+        (s) => !s.isArchived && s.channelId,
+      ).length;
+
+      const statusLines = [
+        dbGuild.adminLogChan
+          ? `✅ Admin log: <#${dbGuild.adminLogChan}>`
+          : `⚠️ Admin log channel not set`,
+        dbGuild.scoreboardChan
+          ? `✅ Default scoreboard channel: <#${dbGuild.scoreboardChan}>`
+          : `⚠️ Default scoreboard channel not set`,
+        brokenBoards > 0
+          ? `❌ ${brokenBoards} scoreboard(s) need repair — run \`/scoreboard repair\``
+          : `✅ All scoreboards healthy`,
+      ];
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🏠 ${dbGuild.allianceName || discordGuild.name}`)
+        .setColor(
+          parseInt((dbGuild.themeColor ?? "#1a7a9e").replace("#", ""), 16),
+        )
+        .setThumbnail(discordGuild.iconURL({ dynamic: true }) ?? null)
+        .addFields(
+          { name: "Discord server", value: discordGuild.name, inline: true },
+          {
+            name: "Created",
+            value: `<t:${Math.floor(discordGuild.createdTimestamp / 1000)}:D>`,
+            inline: true,
+          },
+          {
+            name: "Members",
+            value: String(discordGuild.memberCount),
+            inline: true,
+          },
+          {
+            name: "Default game",
+            value: dbGuild.defaultGame || "Not set",
+            inline: true,
+          },
+          { name: "Timezone", value: dbGuild.timezone || "UTC", inline: true },
+          { name: "Premium", value: "—", inline: true },
+          {
+            name: "Scoreboards",
+            value: `${activeBoards} active · ${archivedBoards} archived · ${liveBoards} live`,
+            inline: false,
+          },
+          {
+            name: "Upcoming events",
+            value: String(events.length),
+            inline: true,
+          },
+          {
+            name: "Setup health",
+            value: statusLines.join("\n"),
+            inline: false,
+          },
+        )
+        .setFooter({ text: `ID: ${interaction.guildId}` })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
 
     if (sub === "setup") {
       guild = await ensureGuild(interaction.guildId, {

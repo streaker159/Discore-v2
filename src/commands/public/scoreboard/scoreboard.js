@@ -1,14 +1,18 @@
-const {
+﻿const {
   SlashCommandBuilder,
   PermissionFlagsBits,
   ChannelType,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
 const prisma = require("../../../lib/prisma");
 const {
   createScoreboard,
   getScoreboard,
   getArchivedScoreboards,
+  listActiveScoreboards,
   addResult,
   editEntry,
   deleteEntry,
@@ -20,8 +24,13 @@ const {
   setTheme,
   setDescription,
   setTitle,
+  setRoleImage,
   getTargetScores,
+  buildScoreboardPage,
   buildScoreboardEmbed,
+  pushLiveEmbed,
+  repairLiveEmbed,
+  getScoreboardById,
 } = require("../../../modules/scoreboards/service");
 const { requireFeature } = require("../../../lib/premiumGate");
 const {
@@ -40,23 +49,52 @@ const ADMIN_SUBS = [
   "set-theme",
   "set-description",
   "set-title",
+  "set-image",
   "rename",
   "delete",
   "delete-entry",
   "edit",
+  "repair",
 ];
 
-async function pushLiveEmbed(interaction, board) {
-  if (!board.messageId || !board.channelId) return;
-  const ch = await interaction.client.channels
-    .fetch(board.channelId)
-    .catch(() => null);
-  if (!ch) return;
-  const msg = await ch.messages.fetch(board.messageId).catch(() => null);
-  if (!msg) return;
-  const embed = await buildScoreboardEmbed(interaction, board);
-  await msg.edit({ embeds: [embed] }).catch(() => {});
+// ── pagination button row ─────────────────────────────────────────────────────
+
+function pageButtons(boardId, currentPage, totalPages) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`scoreboard:page:${boardId}:${currentPage - 1}`)
+      .setLabel("◀ Prev")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentPage <= 1),
+    new ButtonBuilder()
+      .setCustomId(`scoreboard:page:${boardId}:${currentPage + 1}`)
+      .setLabel("Next ▶")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentPage >= totalPages),
+    new ButtonBuilder()
+      .setCustomId(`scoreboard:refresh:${boardId}:${currentPage}`)
+      .setLabel("🔄 Refresh")
+      .setStyle(ButtonStyle.Primary),
+  );
+  return row;
 }
+
+// ── archive confirmation buttons ──────────────────────────────────────────────
+
+function archiveConfirmRow(boardId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`scoreboard:archive_confirm:${boardId}`)
+      .setLabel("Archive")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`scoreboard:archive_cancel:${boardId}`)
+      .setLabel("Cancel")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+// ── leader-change announcement ────────────────────────────────────────────────
 
 async function announceLeaderChange(interaction, board, newLeaderId) {
   const mention =
@@ -85,15 +123,22 @@ module.exports = {
         .setDescription("Show a scoreboard.")
         .addStringOption((o) =>
           o.setName("name").setDescription("Scoreboard name").setRequired(true),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("page")
+            .setDescription("Page number (default: 1)")
+            .setMinValue(1),
         ),
     )
-
+    .addSubcommand((s) =>
+      s.setName("list").setDescription("List all active scoreboards."),
+    )
     .addSubcommand((s) =>
       s
         .setName("view-archive")
         .setDescription("List all archived scoreboards."),
     )
-
     .addSubcommand((s) =>
       s
         .setName("scores")
@@ -102,7 +147,7 @@ module.exports = {
         .addRoleOption((o) => o.setName("role").setDescription("Discord role")),
     )
 
-    // ── write (require ManageGuild) ────────────────────────────────────────
+    // ── write (require ManageGuild or scoreboard manager role) ─────────────
     .addSubcommand((s) =>
       s
         .setName("start")
@@ -147,7 +192,6 @@ module.exports = {
             .addChannelTypes(ChannelType.GuildText),
         ),
     )
-
     .addSubcommand((s) =>
       s
         .setName("addwin")
@@ -159,7 +203,6 @@ module.exports = {
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
         .addStringOption((o) => o.setName("reason").setDescription("Reason")),
     )
-
     .addSubcommand((s) =>
       s
         .setName("addloss")
@@ -171,7 +214,6 @@ module.exports = {
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
         .addStringOption((o) => o.setName("reason").setDescription("Reason")),
     )
-
     .addSubcommand((s) =>
       s
         .setName("addpoints")
@@ -188,7 +230,6 @@ module.exports = {
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target")),
     )
-
     .addSubcommand((s) =>
       s
         .setName("edit")
@@ -198,23 +239,16 @@ module.exports = {
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
+        .addIntegerOption((o) => o.setName("wins").setDescription("Wins"))
+        .addIntegerOption((o) => o.setName("losses").setDescription("Losses"))
         .addIntegerOption((o) =>
-          o.setName("wins").setDescription("Wins (win/loss boards)"),
+          o.setName("win_streak").setDescription("Win streak"),
         )
         .addIntegerOption((o) =>
-          o.setName("losses").setDescription("Losses (win/loss boards)"),
+          o.setName("loss_streak").setDescription("Loss streak"),
         )
-        .addIntegerOption((o) =>
-          o.setName("win_streak").setDescription("Current win streak"),
-        )
-        .addIntegerOption((o) =>
-          o.setName("loss_streak").setDescription("Current loss streak"),
-        )
-        .addIntegerOption((o) =>
-          o.setName("points").setDescription("Points (points boards)"),
-        ),
+        .addIntegerOption((o) => o.setName("points").setDescription("Points")),
     )
-
     .addSubcommand((s) =>
       s
         .setName("delete-entry")
@@ -225,7 +259,6 @@ module.exports = {
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target")),
     )
-
     .addSubcommand((s) =>
       s
         .setName("set-theme")
@@ -240,7 +273,6 @@ module.exports = {
             .setRequired(true),
         ),
     )
-
     .addSubcommand((s) =>
       s
         .setName("set-description")
@@ -255,7 +287,6 @@ module.exports = {
             .setRequired(true),
         ),
     )
-
     .addSubcommand((s) =>
       s
         .setName("set-title")
@@ -267,44 +298,61 @@ module.exports = {
           o.setName("title").setDescription("New title text").setRequired(true),
         ),
     )
-
+    .addSubcommand((s) =>
+      s
+        .setName("set-image")
+        .setDescription(
+          "Set a team or role image for a scoreboard (shown as thumbnail).",
+        )
+        .addStringOption((o) =>
+          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("url")
+            .setDescription("Image URL (https://...)")
+            .setRequired(false),
+        )
+        .addBooleanOption((o) =>
+          o.setName("remove").setDescription("Remove the current image"),
+        ),
+    )
     .addSubcommand((s) =>
       s
         .setName("rename")
         .setDescription("Rename a scoreboard.")
         .addStringOption((o) =>
-          o
-            .setName("name")
-            .setDescription("Current scoreboard name")
-            .setRequired(true),
+          o.setName("name").setDescription("Current name").setRequired(true),
         )
         .addStringOption((o) =>
           o.setName("new_name").setDescription("New name").setRequired(true),
         ),
     )
-
     .addSubcommand((s) =>
       s
         .setName("archive")
-        .setDescription("Archive a scoreboard (PRO).")
+        .setDescription("Archive a scoreboard.")
         .addStringOption((o) =>
           o.setName("name").setDescription("Scoreboard name").setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("note")
+            .setDescription("Optional archive note (e.g. 'Season 1 final')"),
         ),
     )
-
     .addSubcommand((s) =>
       s
         .setName("restore")
-        .setDescription("Restore an archived scoreboard (PRO).")
+        .setDescription("Restore an archived scoreboard.")
         .addStringOption((o) =>
           o.setName("name").setDescription("Scoreboard name").setRequired(true),
         ),
     )
-
     .addSubcommand((s) =>
       s
         .setName("merge")
-        .setDescription("Merge one scoreboard into another (PRO).")
+        .setDescription("Merge one scoreboard into another.")
         .addStringOption((o) =>
           o
             .setName("source")
@@ -318,7 +366,14 @@ module.exports = {
             .setRequired(true),
         ),
     )
-
+    .addSubcommand((s) =>
+      s
+        .setName("repair")
+        .setDescription("Repair a live scoreboard's channel message.")
+        .addStringOption((o) =>
+          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+        ),
+    )
     .addSubcommand((s) =>
       s
         .setName("delete")
@@ -337,6 +392,7 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
+    // ── permission check for write operations ──────────────────────────────
     if (ADMIN_SUBS.includes(sub)) {
       const settings = await getGuildSettings(interaction.guildId);
       const hasManagerRole = settings?.scoreboardManagerRoleId
@@ -356,18 +412,47 @@ module.exports = {
       }
     }
 
-    // ── show ──────────────────────────────────────────────────────────────
+    // ── show ───────────────────────────────────────────────────────────────
     if (sub === "show") {
-      const board = await getScoreboard(
-        interaction.guildId,
-        interaction.options.getString("name", true),
-      );
+      const name = interaction.options.getString("name", true);
+      const page = interaction.options.getInteger("page") ?? 1;
+      const board = await getScoreboard(interaction.guildId, name);
       if (!board)
         return interaction.reply({
           content: "Scoreboard not found.",
           ephemeral: true,
         });
-      const embed = await buildScoreboardEmbed(interaction, board);
+
+      const {
+        embed,
+        page: safePage,
+        totalPages,
+      } = buildScoreboardPage(board, page);
+      const components =
+        totalPages > 1 ? [pageButtons(board.id, safePage, totalPages)] : [];
+      return interaction.reply({ embeds: [embed], components });
+    }
+
+    // ── list ───────────────────────────────────────────────────────────────
+    if (sub === "list") {
+      const boards = await listActiveScoreboards(interaction.guildId);
+      if (!boards.length)
+        return interaction.reply({
+          content:
+            "No active scoreboards. Create one with `/scoreboard start`.",
+          ephemeral: true,
+        });
+
+      const lines = boards.map((b) => {
+        const entries = b.entries.length;
+        const status = b.repairStatus !== "OK" ? " ⚠️" : "";
+        const live = b.channelId ? ` · <#${b.channelId}>` : "";
+        return `**${b.liveTitle || b.name}**${status} — ${b.metric} · ${entries} entries${live}`;
+      });
+      const embed = await createDiscoreEmbed(interaction, {
+        title: `📋 Active Scoreboards (${boards.length})`,
+        description: lines.join("\n"),
+      });
       return interaction.reply({ embeds: [embed] });
     }
 
@@ -379,11 +464,16 @@ module.exports = {
           content: "📭 No archived scoreboards.",
           ephemeral: true,
         });
-      const lines = archived.map(
-        (b) => `**${b.name}** — ${b.entries.length} entries • ${b.metric}`,
-      );
+
+      const lines = archived.map((b) => {
+        const d = b.archivedAt
+          ? ` · ${new Date(b.archivedAt).toLocaleDateString()}`
+          : "";
+        const note = b.archiveNote ? ` — *${b.archiveNote}*` : "";
+        return `**${b.name}** (${b.entries.length} entries · ${b.metric})${d}${note}`;
+      });
       const embed = await createDiscoreEmbed(interaction, {
-        title: "🗃️ Archived Scoreboards",
+        title: `🗃️ Archived Scoreboards (${archived.length})`,
         description: lines.join("\n"),
       });
       return interaction.reply({ embeds: [embed], ephemeral: true });
@@ -398,6 +488,7 @@ module.exports = {
           content: "Provide a user or role.",
           ephemeral: true,
         });
+
       const targetId = (user || role).id;
       const results = await getTargetScores({
         guildId: interaction.guildId,
@@ -408,16 +499,18 @@ module.exports = {
           content: "No scores found.",
           ephemeral: true,
         });
+
       const active = results.filter((r) => !r.board.isArchived);
       const archived = results.filter((r) => r.board.isArchived);
       const fmt = ({ board, entry }) => {
         const name = board.liveTitle || board.name;
         if (board.metric === "POINTS")
           return `**${name}**: ${entry.points} pts`;
-        return `**${name}**: ${entry.wins}W / ${entry.losses}L`;
+        return `**${name}**: ${entry.wins}W / ${entry.losses}L (${((entry.wins / Math.max(1, entry.wins + entry.losses)) * 100).toFixed(0)}% win)`;
       };
+
       const embed = await createDiscoreEmbed(interaction, {
-        title: `📊 Score Summary — ${user ? user.username : role.name}`,
+        title: `📊 Score Summary — ${user ? (user.displayName ?? user.username) : role.name}`,
         fields: [
           active.length
             ? {
@@ -442,10 +535,11 @@ module.exports = {
     if (sub === "start") {
       const name = interaction.options.getString("name", true);
       const metric = interaction.options.getString("metric", true);
-      const type = interaction.options.getString("type") || "USER";
+      const type = interaction.options.getString("type") ?? "USER";
       const description = interaction.options.getString("description");
       const channel =
-        interaction.options.getChannel("channel") || interaction.channel;
+        interaction.options.getChannel("channel") ?? interaction.channel;
+
       const board = await createScoreboard({
         guildId: interaction.guildId,
         name,
@@ -455,16 +549,18 @@ module.exports = {
         description,
         createdBy: interaction.user.id,
       });
-      const embed = await buildScoreboardEmbed(interaction, {
-        ...board,
-        entries: [],
-      });
-      const message = await channel.send({ embeds: [embed] });
-      await prisma.scoreboard
-        .update({ where: { id: board.id }, data: { messageId: message.id } })
-        .catch(() => {});
+
+      // Post the live embed immediately
+      const { embed } = buildScoreboardPage({ ...board, entries: [] }, 1);
+      const message = await channel.send({ embeds: [embed] }).catch(() => null);
+      if (message) {
+        await prisma.scoreboard
+          .update({ where: { id: board.id }, data: { messageId: message.id } })
+          .catch(() => {});
+      }
+
       return interaction.reply({
-        content: `✅ Scoreboard **${name}** created in ${channel}.`,
+        content: `✅ Scoreboard **${name}** created in ${channel}. ID: \`${board.publicId}\``,
         ephemeral: true,
       });
     }
@@ -479,6 +575,7 @@ module.exports = {
           content: "Provide a user or role.",
           ephemeral: true,
         });
+
       const target = user || role;
       const targetType = role ? "ROLE" : "USER";
       const result = await addResult({
@@ -490,8 +587,9 @@ module.exports = {
         adminId: interaction.user.id,
         reason: interaction.options.getString("reason"),
       });
-      const embed = await buildScoreboardEmbed(interaction, result.board);
-      await pushLiveEmbed(interaction, result.board);
+
+      const { embed } = buildScoreboardPage(result.board, 1);
+      await pushLiveEmbed(interaction.client, result.board);
       if (result.leaderChange)
         await announceLeaderChange(
           interaction,
@@ -510,6 +608,7 @@ module.exports = {
           content: "Provide a user or role.",
           ephemeral: true,
         });
+
       const target = user || role;
       const targetType = role ? "ROLE" : "USER";
       const delta = interaction.options.getInteger("points", true);
@@ -522,8 +621,9 @@ module.exports = {
         delta,
         adminId: interaction.user.id,
       });
-      const embed = await buildScoreboardEmbed(interaction, result.board);
-      await pushLiveEmbed(interaction, result.board);
+
+      const { embed } = buildScoreboardPage(result.board, 1);
+      await pushLiveEmbed(interaction.client, result.board);
       if (result.leaderChange)
         await announceLeaderChange(
           interaction,
@@ -542,6 +642,7 @@ module.exports = {
           content: "Provide a user or role.",
           ephemeral: true,
         });
+
       const target = user || role;
       const result = await editEntry({
         guildId: interaction.guildId,
@@ -555,8 +656,9 @@ module.exports = {
         lossStreak: interaction.options.getInteger("loss_streak") ?? undefined,
         adminId: interaction.user.id,
       });
-      const embed = await buildScoreboardEmbed(interaction, result.board);
-      await pushLiveEmbed(interaction, result.board);
+
+      const { embed } = buildScoreboardPage(result.board, 1);
+      await pushLiveEmbed(interaction.client, result.board);
       return interaction.reply({
         content: `✅ Entry updated for **${user ? user.username : role.name}**.`,
         embeds: [embed],
@@ -573,6 +675,7 @@ module.exports = {
           content: "Provide a user or role.",
           ephemeral: true,
         });
+
       const target = user || role;
       const board = await deleteEntry({
         guildId: interaction.guildId,
@@ -580,8 +683,9 @@ module.exports = {
         targetId: target.id,
         adminId: interaction.user.id,
       });
-      const embed = await buildScoreboardEmbed(interaction, board);
-      await pushLiveEmbed(interaction, board);
+
+      const { embed } = buildScoreboardPage(board, 1);
+      await pushLiveEmbed(interaction.client, board);
       return interaction.reply({
         content: `✅ Entry for **${user ? user.username : role.name}** deleted.`,
         embeds: [embed],
@@ -597,6 +701,7 @@ module.exports = {
           content: "Invalid hex color. Use format `#FF5733`.",
           ephemeral: true,
         });
+
       const board = await setTheme({
         guildId: interaction.guildId,
         name: interaction.options.getString("name", true),
@@ -634,6 +739,38 @@ module.exports = {
       });
     }
 
+    // ── set-image ──────────────────────────────────────────────────────────
+    if (sub === "set-image") {
+      const remove = interaction.options.getBoolean("remove") ?? false;
+      const urlInput = interaction.options.getString("url");
+
+      if (!remove && !urlInput)
+        return interaction.reply({
+          content: "Provide an image URL or use `remove: True` to clear it.",
+          ephemeral: true,
+        });
+
+      // Validate URL is HTTPS if provided
+      if (urlInput && !urlInput.startsWith("https://"))
+        return interaction.reply({
+          content: "Image URL must start with `https://`.",
+          ephemeral: true,
+        });
+
+      const imageUrl = remove ? null : urlInput;
+      await setRoleImage({
+        guildId: interaction.guildId,
+        name: interaction.options.getString("name", true),
+        imageUrl,
+      });
+      return interaction.reply({
+        content: remove
+          ? "✅ Image removed from scoreboard."
+          : `✅ Image set. It will appear as a thumbnail on the scoreboard embed.`,
+        ephemeral: true,
+      });
+    }
+
     // ── rename ─────────────────────────────────────────────────────────────
     if (sub === "rename") {
       const board = await renameScoreboard({
@@ -649,46 +786,60 @@ module.exports = {
 
     // ── archive ────────────────────────────────────────────────────────────
     if (sub === "archive") {
-      const ok = await requireFeature(interaction, "scoreboards.archive");
-      if (!ok) return;
-      const board = await archiveScoreboard({
-        guildId: interaction.guildId,
-        name: interaction.options.getString("name", true),
+      const name = interaction.options.getString("name", true);
+      const note = interaction.options.getString("note");
+
+      const board = await getScoreboard(interaction.guildId, name);
+      if (!board)
+        return interaction.reply({
+          content: "Scoreboard not found.",
+          ephemeral: true,
+        });
+
+      const { embed } = buildScoreboardPage(board, 1);
+      const confirmEmbed = new EmbedBuilder()
+        .setColor(0xe67e22)
+        .setTitle("📦 Archive this scoreboard?")
+        .setDescription(
+          `You are about to archive **${board.name}** (${board.entries.length} entries).\n` +
+            (note ? `Archive note: *${note}*\n` : "") +
+            `\nThe live message will be detached. You can restore this later with \`/scoreboard restore\`.`,
+        )
+        .setFooter({
+          text: board.publicId ? `ID: ${board.publicId}` : "Powered by Discore",
+        });
+
+      // Store note in customId (up to 100 chars total, so keep note short)
+      const safeNote = (note ?? "").substring(0, 40).replace(/:/g, "");
+      return interaction.reply({
+        embeds: [confirmEmbed],
+        components: [archiveConfirmRow(`${board.id}:${safeNote}`)],
+        ephemeral: true,
       });
-      const embed = await createDiscoreEmbed(interaction, {
-        title: "📦 Scoreboard archived",
-        description: `**${board.name}** is now archived.`,
-      });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     // ── restore ────────────────────────────────────────────────────────────
     if (sub === "restore") {
-      const ok = await requireFeature(interaction, "scoreboards.restore");
-      if (!ok) return;
       const board = await restoreScoreboard({
         guildId: interaction.guildId,
         name: interaction.options.getString("name", true),
       });
-      const embed = await createDiscoreEmbed(interaction, {
-        title: "♻️ Scoreboard restored",
-        description: `**${board.name}** is now active again.`,
+      return interaction.reply({
+        content: `♻️ **${board.name}** restored. Set a live channel with \`/scoreboard start\` or use \`/scoreboard repair\` to reattach.`,
+        ephemeral: true,
       });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     // ── merge ──────────────────────────────────────────────────────────────
     if (sub === "merge") {
-      const ok = await requireFeature(interaction, "scoreboards.merge");
-      if (!ok) return;
       const merged = await mergeScoreboards({
         guildId: interaction.guildId,
         sourceName: interaction.options.getString("source", true),
         targetName: interaction.options.getString("target", true),
         adminId: interaction.user.id,
       });
-      const embed = await buildScoreboardEmbed(interaction, merged);
-      await pushLiveEmbed(interaction, merged);
+      const { embed } = buildScoreboardPage(merged, 1);
+      await pushLiveEmbed(interaction.client, merged);
       return interaction.reply({
         content: `✅ Merged into **${merged.name}**.`,
         embeds: [embed],
@@ -696,21 +847,46 @@ module.exports = {
       });
     }
 
+    // ── repair ─────────────────────────────────────────────────────────────
+    if (sub === "repair") {
+      const name = interaction.options.getString("name", true);
+      const board = await getScoreboard(interaction.guildId, name);
+      if (!board)
+        return interaction.reply({
+          content: "Scoreboard not found.",
+          ephemeral: true,
+        });
+
+      await interaction.deferReply({ ephemeral: true });
+      const status = await repairLiveEmbed(interaction.client, board.id);
+
+      const msgs = {
+        REPAIRED: `✅ Scoreboard **${name}** repaired — live message recreated.`,
+        OK: `✅ Scoreboard **${name}** is healthy. Nothing to repair.`,
+        NO_CHANNEL: `⚠️ No live channel set for **${name}**. Use \`/scoreboard start\` to set one.`,
+        CHANNEL_MISSING: `❌ The channel for **${name}** no longer exists. Set a new live channel with \`/scoreboard start\`.`,
+        NO_PERMS: `❌ Missing **Send Messages** permission in the scoreboard channel for **${name}**.`,
+      };
+      return interaction.editReply({
+        content: msgs[status] ?? `Repair result: ${status}`,
+      });
+    }
+
     // ── delete ─────────────────────────────────────────────────────────────
     if (sub === "delete") {
-      if (interaction.options.getString("confirm", true) !== "DELETE") {
+      if (interaction.options.getString("confirm", true) !== "DELETE")
         return interaction.reply({
           content:
             "⚠️ Type `DELETE` in the confirm field to permanently delete a scoreboard.",
           ephemeral: true,
         });
-      }
+
       const board = await deleteScoreboard({
         guildId: interaction.guildId,
         name: interaction.options.getString("name", true),
       });
       return interaction.reply({
-        content: `🗑️ Scoreboard **${board.name}** and all its entries have been permanently deleted.`,
+        content: `🗑️ Scoreboard **${board.name}** and all its entries permanently deleted.`,
         ephemeral: true,
       });
     }

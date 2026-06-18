@@ -4,18 +4,52 @@ const {
   ButtonStyle,
   EmbedBuilder,
 } = require("discord.js");
+const { randomBytes } = require("crypto");
 const prisma = require("../../lib/prisma");
 const {
   createDiscoreEmbed,
   formatDiscordTime,
 } = require("../../lib/embedBuilder");
 
+const CLEANUP_DAYS = 7; // delete event data N days after completion
+
+function genPublicId() {
+  return randomBytes(3).toString("hex"); // 6 hex chars
+}
+
+const EVENT_TYPE_LABEL = {
+  EVENT: "📅 Event",
+  BATTLE: "⚔️ Battle",
+  TRAINING: "🎯 Training",
+  CUSTOM: "📌 Event",
+};
+
 async function createEvent(data) {
-  return prisma.event.create({ data });
+  return prisma.event.create({
+    data: {
+      ...data,
+      publicId: data.publicId ?? genPublicId(),
+      eventType: data.eventType ?? "EVENT",
+    },
+  });
 }
 
 async function updateEvent(eventId, data) {
   return prisma.event.update({ where: { id: eventId }, data });
+}
+
+/**
+ * Close an event (COMPLETED or CANCELLED) and stamp cleanupAfter.
+ * The cleanup job will delete the event after CLEANUP_DAYS.
+ */
+async function closeEvent(eventId, status = "COMPLETED") {
+  const cleanupAfter = new Date(
+    Date.now() + CLEANUP_DAYS * 24 * 60 * 60 * 1000,
+  );
+  return prisma.event.update({
+    where: { id: eventId },
+    data: { status, cleanupAfter },
+  });
 }
 
 async function setRsvp(eventId, userId, status) {
@@ -77,6 +111,11 @@ async function buildEventEmbed(interactionOrGuildId, event) {
     { name: "📅 Date", value: t.shortDate, inline: true },
     { name: "⏰ Time", value: `${t.shortTime} — ${t.full}`, inline: true },
     { name: "⏳ Starts", value: t.relative, inline: true },
+    {
+      name: "Type",
+      value: EVENT_TYPE_LABEL[event.eventType] ?? "📅 Event",
+      inline: true,
+    },
   ];
 
   if (event.location) {
@@ -105,7 +144,7 @@ async function buildEventEmbed(interactionOrGuildId, event) {
   );
 
   return createDiscoreEmbed(interactionOrGuildId, {
-    title: `📅 ${event.title}`,
+    title: `${EVENT_TYPE_LABEL[event.eventType] ?? "📅"} ${event.title}`,
     description: (event.description || "") + statusBanner,
     image: event.imageUrl || undefined,
     thumbnail: event.thumbnailUrl || undefined,
@@ -173,6 +212,7 @@ function eventButtons(eventId, isEnded = false) {
 module.exports = {
   createEvent,
   updateEvent,
+  closeEvent,
   setRsvp,
   removeRsvp,
   getEvent,

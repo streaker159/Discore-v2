@@ -21,6 +21,7 @@ const {
 
 module.exports = {
   scope: "PUBLIC",
+  disabled: true, // Disabled until game API data available
   data: new SlashCommandBuilder()
     .setName("player")
     .setDescription("Player profile commands.")

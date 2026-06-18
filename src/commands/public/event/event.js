@@ -22,6 +22,17 @@ module.exports = {
       s
         .setName("create")
         .setDescription("Open the event creation form.")
+        .addStringOption((o) =>
+          o
+            .setName("type")
+            .setDescription("Event type")
+            .addChoices(
+              { name: "Event", value: "EVENT" },
+              { name: "Battle", value: "BATTLE" },
+              { name: "Training", value: "TRAINING" },
+              { name: "Custom", value: "CUSTOM" },
+            ),
+        )
         .addRoleOption((o) =>
           o
             .setName("tag_on_create")
@@ -86,7 +97,7 @@ module.exports = {
         const badge = ev.status === "LIVE" ? "🔴 LIVE" : "🟢 Upcoming";
         embed.addFields({
           name: `${badge} — ${ev.title}`,
-          value: `<t:${unix}:F> (<t:${unix}:R>)\n${ev.location ? `📍 ${ev.location}\n` : ""}✅ ${going} going  •  ID: \`${ev.id}\``,
+          value: `<t:${unix}:F> (<t:${unix}:R>)\n${ev.location ? `📍 ${ev.location}\n` : ""}✅ ${going} going  ·  ID: \`${ev.publicId ?? ev.id}\``,
           inline: false,
         });
       }
@@ -103,9 +114,10 @@ module.exports = {
     // ── create — open modal ────────────────────────────────────────────────
     const tagCreate = interaction.options.getRole("tag_on_create")?.id || "0";
     const tagStart = interaction.options.getRole("tag_on_start")?.id || "0";
+    const eventType = interaction.options.getString("type") ?? "EVENT";
 
     const modal = new ModalBuilder()
-      .setCustomId(`event:create:${tagCreate}:${tagStart}`)
+      .setCustomId(`event:create:${tagCreate}:${tagStart}:${eventType}`)
       .setTitle("Create Event");
 
     modal.addComponents(

@@ -22,6 +22,7 @@ const DEFAULT_GAME = "supremacy-ww3";
 
 module.exports = {
   scope: "PUBLIC",
+  disabled: true, // Disabled until game API data available
   data: new SlashCommandBuilder()
     .setName("alliance")
     .setDescription("Alliance profile commands.")
