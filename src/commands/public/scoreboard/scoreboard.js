@@ -533,6 +533,7 @@ module.exports = {
 
     // ── start ──────────────────────────────────────────────────────────────
     if (sub === "start") {
+      await interaction.deferReply({ flags: 64 });
       const name = interaction.options.getString("name", true);
       const metric = interaction.options.getString("metric", true);
       const type = interaction.options.getString("type") ?? "USER";
@@ -559,9 +560,8 @@ module.exports = {
           .catch(() => {});
       }
 
-      return interaction.reply({
+      return interaction.editReply({
         content: `✅ Scoreboard **${name}** created in ${channel}. ID: \`${board.publicId}\``,
-        ephemeral: true,
       });
     }
 
@@ -573,8 +573,9 @@ module.exports = {
       if (!user && !role)
         return interaction.reply({
           content: "Provide a user or role.",
-          ephemeral: true,
+          flags: 64,
         });
+      await interaction.deferReply();
 
       const target = user || role;
       const targetType = role ? "ROLE" : "USER";
@@ -622,18 +623,19 @@ module.exports = {
           result.board,
           result.leaderChange.newLeaderId,
         );
-      return interaction.reply({ embeds: [entryEmbed] });
+      return interaction.editReply({ embeds: [entryEmbed] });
     }
 
-    // ── addpoints ──────────────────────────────────────────────────────────
+    // ── addpoints ──────────────────────────────────────────────────────
     if (sub === "addpoints") {
       const user = interaction.options.getUser("user");
       const role = interaction.options.getRole("role");
       if (!user && !role)
         return interaction.reply({
           content: "Provide a user or role.",
-          ephemeral: true,
+          flags: 64,
         });
+      await interaction.deferReply();
 
       const target = user || role;
       const targetType = role ? "ROLE" : "USER";
@@ -681,7 +683,7 @@ module.exports = {
           result.board,
           result.leaderChange.newLeaderId,
         );
-      return interaction.reply({ embeds: [entryEmbed] });
+      return interaction.editReply({ embeds: [entryEmbed] });
     }
 
     // ── edit ───────────────────────────────────────────────────────────────
