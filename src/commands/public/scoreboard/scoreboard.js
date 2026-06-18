@@ -112,8 +112,41 @@ async function announceLeaderChange(interaction, board, newLeaderId) {
   await interaction.channel.send({ embeds: [embed] }).catch(() => {});
 }
 
+// ── autocomplete ─────────────────────────────────────────────────────────────
+
+async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const sub = interaction.options.getSubcommand(false);
+  const boards = await listActiveScoreboards(interaction.guildId).catch(
+    () => [],
+  );
+
+  // Filter by metric so addwin/addloss only show WIN_LOSS boards and addpoints only shows POINTS boards
+  const metricFilter =
+    sub === "addwin" || sub === "addloss"
+      ? "WIN_LOSS"
+      : sub === "addpoints"
+        ? "POINTS"
+        : null;
+
+  const choices = boards
+    .filter((b) => !metricFilter || b.metric === metricFilter)
+    .filter((b) => b.name.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((b) => {
+      const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
+      const typeLabel = b.type === "ROLE" ? "Roles" : "Users";
+      return {
+        name: `${b.liveTitle || b.name}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
+        value: b.name,
+      };
+    });
+  await interaction.respond(choices).catch(() => {});
+}
+
 module.exports = {
   scope: "PUBLIC",
+  autocomplete,
   data: new SlashCommandBuilder()
     .setName("scoreboard")
     .setDescription("Create and manage Discore scoreboards.")
@@ -122,9 +155,17 @@ module.exports = {
     .addSubcommand((s) =>
       s
         .setName("show")
-        .setDescription("Show a scoreboard.")
+        .setDescription(
+          "Show a scoreboard. Leave name blank to pick from a list.",
+        )
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription(
+              "Scoreboard name (optional — omit to pick from list)",
+            )
+            .setRequired(false)
+            .setAutocomplete(true),
         )
         .addIntegerOption((o) =>
           o
@@ -155,7 +196,11 @@ module.exports = {
         .setName("start")
         .setDescription("Create a live scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
@@ -196,7 +241,11 @@ module.exports = {
         .setName("addwin")
         .setDescription("Add a win.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
@@ -207,7 +256,11 @@ module.exports = {
         .setName("addloss")
         .setDescription("Add a loss.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
@@ -218,7 +271,11 @@ module.exports = {
         .setName("addpoints")
         .setDescription("Add or subtract points.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addIntegerOption((o) =>
           o
@@ -234,7 +291,11 @@ module.exports = {
         .setName("edit")
         .setDescription("Manually set a score entry.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
@@ -253,7 +314,11 @@ module.exports = {
         .setName("delete-entry")
         .setDescription("Delete a score entry from a scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target")),
@@ -263,7 +328,11 @@ module.exports = {
         .setName("set-theme")
         .setDescription("Set a custom colour for a scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
@@ -277,7 +346,11 @@ module.exports = {
         .setName("set-description")
         .setDescription("Set the description/season info of a scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
@@ -291,7 +364,11 @@ module.exports = {
         .setName("set-title")
         .setDescription("Set the live embed title of a scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o.setName("title").setDescription("New title text").setRequired(true),
@@ -304,7 +381,11 @@ module.exports = {
           "Set a team or role image for a scoreboard (shown as thumbnail).",
         )
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
@@ -332,7 +413,11 @@ module.exports = {
         .setName("archive")
         .setDescription("Archive a scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
@@ -345,7 +430,11 @@ module.exports = {
         .setName("restore")
         .setDescription("Restore an archived scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         ),
     )
     .addSubcommand((s) =>
@@ -370,7 +459,11 @@ module.exports = {
         .setName("repair")
         .setDescription("Repair a live scoreboard's channel message.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         ),
     )
     .addSubcommand((s) =>
@@ -378,7 +471,11 @@ module.exports = {
         .setName("delete")
         .setDescription("Permanently delete a scoreboard.")
         .addStringOption((o) =>
-          o.setName("name").setDescription("Scoreboard name").setRequired(true),
+          o
+            .setName("name")
+            .setDescription("Scoreboard name")
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
@@ -391,7 +488,17 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // ── permission check for write operations ──────────────────────────────
+    // ── branding helpers (pass to embed builders) ─────────────────────────
+    const guildIconUrl =
+      interaction.guild?.iconURL({ size: 128, extension: "png" }) ?? undefined;
+    const discoreIconUrl =
+      interaction.client.user?.displayAvatarURL({
+        size: 64,
+        extension: "png",
+      }) ?? undefined;
+    const embedOpts = { guildIconUrl, discoreIconUrl };
+
+    // ── permission check for write operations ─────────────────────────────────────
     if (ADMIN_SUBS.includes(sub)) {
       const settings = await getGuildSettings(interaction.guildId);
       const hasManagerRole = settings?.scoreboardManagerRoleId
@@ -552,7 +659,11 @@ module.exports = {
       });
 
       // Post the live embed immediately
-      const { embed } = buildScoreboardPage({ ...board, entries: [] }, 1);
+      const { embed } = buildScoreboardPage(
+        { ...board, entries: [] },
+        1,
+        embedOpts,
+      );
       const message = await channel.send({ embeds: [embed] }).catch(() => null);
       if (message) {
         await prisma.scoreboard
@@ -628,6 +739,7 @@ module.exports = {
 
     // ── addpoints ──────────────────────────────────────────────────────
     if (sub === "addpoints") {
+      const boardName = interaction.options.getString("name", true);
       const user = interaction.options.getUser("user");
       const role = interaction.options.getRole("role");
       if (!user && !role)
@@ -635,14 +747,39 @@ module.exports = {
           content: "Provide a user or role.",
           flags: 64,
         });
-      await interaction.deferReply();
+
+      // Fetch board first to validate metric + type
+      const boardCheck = await getScoreboard(interaction.guildId, boardName);
+      if (!boardCheck)
+        return interaction.reply({
+          content: `❌ Scoreboard **${boardName}** not found.`,
+          flags: 64,
+        });
+      if (boardCheck.metric !== "POINTS")
+        return interaction.reply({
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Win / Loss scoreboard. Use \`/scoreboard addwin\` or \`addloss\` instead.`,
+          flags: 64,
+        });
+      if (boardCheck.type === "ROLE" && !role)
+        return interaction.reply({
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **roles**. Provide a role, not a user.`,
+          flags: 64,
+        });
+      if (boardCheck.type === "USER" && !user)
+        return interaction.reply({
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **users**. Provide a user, not a role.`,
+          flags: 64,
+        });
+
+      await interaction.deferReply({ flags: 64 });
 
       const target = user || role;
       const targetType = role ? "ROLE" : "USER";
+      const targetLabel = role ? `<@&${role.id}>` : `<@${user.id}>`;
       const delta = interaction.options.getInteger("points", true);
       const result = await addResult({
         guildId: interaction.guildId,
-        scoreboardName: interaction.options.getString("name", true),
+        scoreboardName: boardName,
         targetId: target.id,
         targetType,
         action: "POINT",
@@ -653,37 +790,31 @@ module.exports = {
       const freshEntry = result.board.entries.find(
         (e) => e.targetId === target.id,
       );
-      const targetColor = role
-        ? (interaction.guild.roles.cache.get(role.id)?.color ?? 0)
-        : 0;
-      const targetName = user
-        ? (interaction.guild.members.cache.get(user.id)?.displayName ??
-          user.username)
-        : role.name;
-      const mention = role ? `<@&${role.id}>` : `<@${user.id}>`;
-      const entryEmbed = buildEntryEmbed(
-        result.board,
-        freshEntry,
-        mention,
-        targetName,
-        targetColor,
-      );
 
-      await pushLiveEmbed(interaction.client, result.board).catch(() => {});
+      pushLiveEmbed(interaction.client, result.board).catch(() => {});
       if (freshEntry)
-        await pushEntryLiveEmbed(
+        pushEntryLiveEmbed(
           interaction.client,
           interaction.guild,
           result.board,
           freshEntry,
         ).catch(() => {});
       if (result.leaderChange)
-        await announceLeaderChange(
+        announceLeaderChange(
           interaction,
           result.board,
           result.leaderChange.newLeaderId,
         );
-      return interaction.editReply({ embeds: [entryEmbed] });
+
+      const sign = delta >= 0 ? `+${delta}` : String(delta);
+      return interaction.editReply({
+        content: [
+          `✅ **${sign} points** recorded for ${targetLabel} on **${result.board.liveTitle || result.board.name}**`,
+          freshEntry ? `> Total: \`${freshEntry.points}\` points` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
     }
 
     // ── edit ───────────────────────────────────────────────────────────────
