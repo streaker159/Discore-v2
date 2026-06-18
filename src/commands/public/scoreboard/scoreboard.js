@@ -196,11 +196,7 @@ module.exports = {
         .setName("start")
         .setDescription("Create a live scoreboard.")
         .addStringOption((o) =>
-          o
-            .setName("name")
-            .setDescription("Scoreboard name")
-            .setRequired(true)
-            .setAutocomplete(true),
+          o.setName("name").setDescription("Scoreboard name").setRequired(true),
         )
         .addStringOption((o) =>
           o
@@ -239,7 +235,7 @@ module.exports = {
     .addSubcommand((s) =>
       s
         .setName("addwin")
-        .setDescription("Add a win.")
+        .setDescription("Add a win to a scoreboard.")
         .addStringOption((o) =>
           o
             .setName("name")
@@ -247,14 +243,17 @@ module.exports = {
             .setRequired(true)
             .setAutocomplete(true),
         )
-        .addUserOption((o) => o.setName("user").setDescription("User target"))
-        .addRoleOption((o) => o.setName("role").setDescription("Role target"))
-        .addStringOption((o) => o.setName("reason").setDescription("Reason")),
+        .addRoleOption((o) =>
+          o.setName("role").setDescription("Role").setRequired(false),
+        )
+        .addUserOption((o) =>
+          o.setName("user").setDescription("User").setRequired(false),
+        ),
     )
     .addSubcommand((s) =>
       s
         .setName("addloss")
-        .setDescription("Add a loss.")
+        .setDescription("Add a loss to a scoreboard.")
         .addStringOption((o) =>
           o
             .setName("name")
@@ -262,9 +261,12 @@ module.exports = {
             .setRequired(true)
             .setAutocomplete(true),
         )
-        .addUserOption((o) => o.setName("user").setDescription("User target"))
-        .addRoleOption((o) => o.setName("role").setDescription("Role target"))
-        .addStringOption((o) => o.setName("reason").setDescription("Reason")),
+        .addRoleOption((o) =>
+          o.setName("role").setDescription("Role").setRequired(false),
+        )
+        .addUserOption((o) =>
+          o.setName("user").setDescription("User").setRequired(false),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -679,62 +681,84 @@ module.exports = {
     // ── addwin / addloss ───────────────────────────────────────────────────
     if (sub === "addwin" || sub === "addloss") {
       const action = sub === "addwin" ? "WIN" : "LOSS";
-      const user = interaction.options.getUser("user");
+      const boardName = interaction.options.getString("name", true);
       const role = interaction.options.getRole("role");
-      if (!user && !role)
+      const user = interaction.options.getUser("user");
+      if (!role && !user)
         return interaction.reply({
-          content: "Provide a user or role.",
+          content: "❌ Provide a role or user to add the score to.",
           flags: 64,
         });
-      await interaction.deferReply();
 
-      const target = user || role;
+      // Validate board exists + metric + type match
+      const boardCheck = await getScoreboard(interaction.guildId, boardName);
+      if (!boardCheck)
+        return interaction.reply({
+          content: `❌ Scoreboard **${boardName}** not found.`,
+          flags: 64,
+        });
+      if (boardCheck.metric !== "WIN_LOSS")
+        return interaction.reply({
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Points board — use \`/scoreboard addpoints\`.`,
+          flags: 64,
+        });
+      if (boardCheck.type === "ROLE" && !role)
+        return interaction.reply({
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **roles** — provide a role.`,
+          flags: 64,
+        });
+      if (boardCheck.type === "USER" && !user)
+        return interaction.reply({
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **users** — provide a user.`,
+          flags: 64,
+        });
+
+      await interaction.deferReply({ flags: 64 });
+
+      const target = role || user;
       const targetType = role ? "ROLE" : "USER";
       const result = await addResult({
         guildId: interaction.guildId,
-        scoreboardName: interaction.options.getString("name", true),
+        scoreboardName: boardName,
         targetId: target.id,
         targetType,
         action,
         adminId: interaction.user.id,
-        reason: interaction.options.getString("reason"),
       });
 
-      // Get fresh entry with liveChannelId/liveMessageId
       const freshEntry = result.board.entries.find(
         (e) => e.targetId === target.id,
       );
-      const targetColor = role
-        ? (interaction.guild.roles.cache.get(role.id)?.color ?? 0)
-        : 0;
-      const targetName = user
-        ? (interaction.guild.members.cache.get(user.id)?.displayName ??
-          user.username)
-        : role.name;
-      const mention = role ? `<@&${role.id}>` : `<@${user.id}>`;
-      const entryEmbed = buildEntryEmbed(
-        result.board,
-        freshEntry,
-        mention,
-        targetName,
-        targetColor,
-      );
+      const targetLabel = role ? `<@&${role.id}>` : `<@${user.id}>`;
+      const actionLabel = action === "WIN" ? "win 🏆" : "loss ☠️";
 
-      await pushLiveEmbed(interaction.client, result.board).catch(() => {});
+      // Fire-and-forget live embed updates
+      pushLiveEmbed(interaction.client, result.board).catch(() => {});
       if (freshEntry)
-        await pushEntryLiveEmbed(
+        pushEntryLiveEmbed(
           interaction.client,
           interaction.guild,
           result.board,
           freshEntry,
         ).catch(() => {});
       if (result.leaderChange)
-        await announceLeaderChange(
+        announceLeaderChange(
           interaction,
           result.board,
           result.leaderChange.newLeaderId,
         );
-      return interaction.editReply({ embeds: [entryEmbed] });
+
+      const e = freshEntry;
+      return interaction.editReply({
+        content: [
+          `✅ **1 ${actionLabel}** added for ${targetLabel} on **${result.board.liveTitle || result.board.name}**`,
+          e
+            ? `> \`${e.wins}W\` / \`${e.losses}L\`${e.winStreak > 1 ? `  ·  🔥 ${e.winStreak} win streak` : e.lossStreak > 1 ? `  ·  💀 ${e.lossStreak} loss streak` : ""}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
     }
 
     // ── addpoints ──────────────────────────────────────────────────────
