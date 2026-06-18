@@ -98,7 +98,7 @@ model Scoreboard {
   guildId       String
   guild         Guild     @relation(fields: [guildId], references: [id])
   name          String
-  metric        ScoreMetric
+  metric        String    @default("WIN_LOSS")  // WIN_LOSS | POINTS
   type          BoardType @default(USER)
   channelId     String?                        // nullable — not required for non-live boards
   messageId     String?                        // for live editing
@@ -154,11 +154,6 @@ model ScoreboardAction {
   createdAt     DateTime  @default(now())
 
   @@index([scoreboardId])
-}
-
-enum ScoreMetric {
-  WIN_LOSS
-  POINTS
 }
 
 enum BoardType {
