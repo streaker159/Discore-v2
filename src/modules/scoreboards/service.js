@@ -38,7 +38,15 @@ function makeBoardColor(board) {
  * Build the per-target score embed (posted in the team/role channel).
  * Matches the Python bot style exactly.
  */
-function buildEntryEmbed(board, entry, targetMention, targetName, targetColor) {
+function buildEntryEmbed(
+  board,
+  entry,
+  targetMention,
+  targetName,
+  targetColor,
+  opts = {},
+) {
+  const { discoreIconUrl } = opts;
   const color =
     targetColor && targetColor !== 0 ? targetColor : makeBoardColor(board);
   const tsUnix = entry?.updatedAt
@@ -285,12 +293,16 @@ async function pushEntryLiveEmbed(client, guild, board, entry) {
       entry.targetType === "ROLE"
         ? `<@&${entry.targetId}>`
         : `<@${entry.targetId}>`;
+    const discoreIconUrl =
+      client.user?.displayAvatarURL({ size: 64, extension: "png" }) ??
+      undefined;
     const embed = buildEntryEmbed(
       board,
       entry,
       mention,
       targetName,
       targetColor,
+      { discoreIconUrl },
     );
 
     // Find channel: prefer stored liveChannelId, else auto-detect
@@ -811,7 +823,14 @@ async function pushLiveEmbed(client, board) {
       .catch(() => null);
     return "no_perms";
   }
-  const embed = buildScoreboardEmbedDirect(board);
+  const guildIconUrl =
+    ch.guild?.iconURL({ size: 128, extension: "png" }) ?? undefined;
+  const discoreIconUrlLive =
+    client.user?.displayAvatarURL({ size: 64, extension: "png" }) ?? undefined;
+  const embed = buildScoreboardPage(board, 1, {
+    guildIconUrl,
+    discoreIconUrl: discoreIconUrlLive,
+  }).embed;
   if (board.messageId) {
     const msg = await ch.messages.fetch(board.messageId).catch(() => null);
     if (msg) {

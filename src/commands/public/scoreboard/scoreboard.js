@@ -109,7 +109,14 @@ async function announceLeaderChange(interaction, board, newLeaderId) {
     )
     .setTimestamp()
     .setFooter({ text: "Powered by Discore" });
-  await interaction.channel.send({ embeds: [embed] }).catch(() => {});
+
+  // Send to the board's live channel; fall back to command channel
+  const targetChannel = board.channelId
+    ? await interaction.client.channels.fetch(board.channelId).catch(() => null)
+    : null;
+  await (targetChannel ?? interaction.channel)
+    .send({ embeds: [embed] })
+    .catch(() => {});
 }
 
 // ── autocomplete ─────────────────────────────────────────────────────────────
@@ -244,10 +251,10 @@ module.exports = {
             .setAutocomplete(true),
         )
         .addRoleOption((o) =>
-          o.setName("role").setDescription("Role").setRequired(false),
-        )
-        .addUserOption((o) =>
-          o.setName("user").setDescription("User").setRequired(false),
+          o
+            .setName("role")
+            .setDescription("Role to add the win to")
+            .setRequired(true),
         ),
     )
     .addSubcommand((s) =>
@@ -262,10 +269,10 @@ module.exports = {
             .setAutocomplete(true),
         )
         .addRoleOption((o) =>
-          o.setName("role").setDescription("Role").setRequired(false),
-        )
-        .addUserOption((o) =>
-          o.setName("user").setDescription("User").setRequired(false),
+          o
+            .setName("role")
+            .setDescription("Role to add the loss to")
+            .setRequired(true),
         ),
     )
     .addSubcommand((s) =>
@@ -682,15 +689,9 @@ module.exports = {
     if (sub === "addwin" || sub === "addloss") {
       const action = sub === "addwin" ? "WIN" : "LOSS";
       const boardName = interaction.options.getString("name", true);
-      const role = interaction.options.getRole("role");
-      const user = interaction.options.getUser("user");
-      if (!role && !user)
-        return interaction.reply({
-          content: "❌ Provide a role or user to add the score to.",
-          flags: 64,
-        });
+      const role = interaction.options.getRole("role", true);
 
-      // Validate board exists + metric + type match
+      // Validate board exists + metric
       const boardCheck = await getScoreboard(interaction.guildId, boardName);
       if (!boardCheck)
         return interaction.reply({
@@ -702,21 +703,11 @@ module.exports = {
           content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Points board — use \`/scoreboard addpoints\`.`,
           flags: 64,
         });
-      if (boardCheck.type === "ROLE" && !role)
-        return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **roles** — provide a role.`,
-          flags: 64,
-        });
-      if (boardCheck.type === "USER" && !user)
-        return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **users** — provide a user.`,
-          flags: 64,
-        });
 
       await interaction.deferReply({ flags: 64 });
 
-      const target = role || user;
-      const targetType = role ? "ROLE" : "USER";
+      const target = role;
+      const targetType = "ROLE";
       const result = await addResult({
         guildId: interaction.guildId,
         scoreboardName: boardName,
@@ -729,7 +720,7 @@ module.exports = {
       const freshEntry = result.board.entries.find(
         (e) => e.targetId === target.id,
       );
-      const targetLabel = role ? `<@&${role.id}>` : `<@${user.id}>`;
+      const targetLabel = `<@&${role.id}>`;
       const actionLabel = action === "WIN" ? "win 🏆" : "loss ☠️";
 
       // Fire-and-forget live embed updates
