@@ -27,6 +27,7 @@ const {
   setRoleImage,
   getTargetScores,
   buildScoreboardPage,
+  buildScoreboardComponents,
   buildScoreboardEmbed,
   pushLiveEmbed,
   pushEntryLiveEmbed,
@@ -58,28 +59,6 @@ const ADMIN_SUBS = [
   "edit",
   "repair",
 ];
-
-// ── pagination button row ─────────────────────────────────────────────────────
-
-function pageButtons(boardId, currentPage, totalPages) {
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:page:${boardId}:${currentPage - 1}`)
-      .setLabel("◀ Prev")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage <= 1),
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:page:${boardId}:${currentPage + 1}`)
-      .setLabel("Next ▶")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage >= totalPages),
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:refresh:${boardId}:${currentPage}`)
-      .setLabel("🔄 Refresh")
-      .setStyle(ButtonStyle.Primary),
-  );
-  return row;
-}
 
 // ── archive confirmation buttons ──────────────────────────────────────────────
 
@@ -542,9 +521,14 @@ module.exports = {
         embed,
         page: safePage,
         totalPages,
-      } = buildScoreboardPage(board, page);
-      const components =
-        totalPages > 1 ? [pageButtons(board.id, safePage, totalPages)] : [];
+      } = buildScoreboardPage(board, page, { ...embedOpts, sortBy: "WINS" });
+      const components = buildScoreboardComponents(
+        board.id,
+        safePage,
+        totalPages,
+        board.metric,
+        "WINS",
+      );
       return interaction.reply({ embeds: [embed], components });
     }
 
@@ -574,6 +558,7 @@ module.exports = {
 
     // ── view-archive ───────────────────────────────────────────────────────
     if (sub === "view-archive") {
+      if (!(await requireFeature(interaction, "scoreboards.archive"))) return;
       const archived = await getArchivedScoreboards(interaction.guildId);
       if (!archived.length)
         return interaction.reply({
@@ -985,6 +970,7 @@ module.exports = {
 
     // ── archive ────────────────────────────────────────────────────────────
     if (sub === "archive") {
+      if (!(await requireFeature(interaction, "scoreboards.archive"))) return;
       const name = interaction.options.getString("name", true);
       const note = interaction.options.getString("note");
 
@@ -1019,6 +1005,7 @@ module.exports = {
 
     // ── restore ────────────────────────────────────────────────────────────
     if (sub === "restore") {
+      if (!(await requireFeature(interaction, "scoreboards.restore"))) return;
       const board = await restoreScoreboard({
         guildId: interaction.guildId,
         name: interaction.options.getString("name", true),

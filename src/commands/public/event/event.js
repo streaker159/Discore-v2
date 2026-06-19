@@ -1,92 +1,262 @@
+"use strict";
+
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const { parseDateTime } = require("../../../lib/timeParser");
+const { getGuildSettings } = require("../../../lib/embedBuilder");
 const {
-  SlashCommandBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  ActionRowBuilder,
-  EmbedBuilder,
-} = require("discord.js");
-const {
+  createEvent,
   getEvent,
-  getUpcomingEvents,
   buildEventEmbed,
   eventButtons,
+  claimNotification,
+  getUpcomingEvents,
+  COLOR_PRESETS,
 } = require("../../../modules/events/service");
+const { getGuildPlan } = require("../../../lib/premiumGate");
+const prisma = require("../../../lib/prisma");
+
+// Max file size for attachments (8 MB)
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_CONTENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+];
+
+function isValidImageAttachment(attachment) {
+  if (!attachment) return true;
+  if (attachment.size > MAX_IMAGE_BYTES) return "too_large";
+  const ct = attachment.contentType?.split(";")[0]?.trim().toLowerCase();
+  if (!IMAGE_CONTENT_TYPES.includes(ct)) return "wrong_type";
+  return true;
+}
 
 module.exports = {
   scope: "PUBLIC",
   data: new SlashCommandBuilder()
     .setName("event")
     .setDescription("Create and manage server events.")
+
+    // ── create ──────────────────────────────────────────────────────────────
     .addSubcommand((s) =>
       s
         .setName("create")
-        .setDescription("Open the event creation form.")
+        .setDescription("Create a new event, battle, or team activity.")
         .addStringOption((o) =>
           o
             .setName("type")
-            .setDescription("Event type")
+            .setDescription("What kind of event is this?")
+            .setRequired(true)
             .addChoices(
-              { name: "Event", value: "EVENT" },
-              { name: "Battle", value: "BATTLE" },
-              { name: "Training", value: "TRAINING" },
-              { name: "Custom", value: "CUSTOM" },
+              { name: "📅 Event — General server event", value: "EVENT" },
+              {
+                name: "⚔️ Game Sign-On — Battle/match signup with slots",
+                value: "BATTLE",
+              },
+              { name: "🛡️ Team Event — Team-vs-team activity", value: "TEAM" },
+              {
+                name: "🌍 Community — Open server-wide event",
+                value: "COMMUNITY",
+              },
+              {
+                name: "🎯 Training — Practice or coaching session",
+                value: "TRAINING",
+              },
+              {
+                name: "🚀 Game Start — Scheduled game/match launch",
+                value: "GAME_START",
+              },
+              {
+                name: "📌 Custom — Set your own label with custom_type",
+                value: "CUSTOM",
+              },
             ),
         )
-        .addRoleOption((o) =>
+        .addStringOption((o) =>
           o
-            .setName("tag_on_create")
-            .setDescription("Role to ping when event is posted (optional)"),
+            .setName("title")
+            .setDescription("Event title")
+            .setRequired(true)
+            .setMaxLength(100),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("when")
+            .setDescription(
+              "When? e.g. in 3 hours · tomorrow 8pm UTC · 24/7/26 3pm Paris time · 1800 UTC",
+            )
+            .setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("description")
+            .setDescription("What is this event about? (optional)")
+            .setMaxLength(1000),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("location")
+            .setDescription(
+              "Where? Channel name, map location, or a URL (optional)",
+            ),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("game")
+            .setDescription("Game name, e.g. Supremacy 1914 (optional)"),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("team_size")
+            .setDescription(
+              "Slots per side — only used for Game Sign-On type (optional)",
+            )
+            .setMinValue(1)
+            .setMaxValue(500),
+        )
+        .addRoleOption((o) =>
+          o.setName("tag_role").setDescription("First role to ping (optional)"),
         )
         .addRoleOption((o) =>
           o
+            .setName("tag_role_2")
+            .setDescription("Second role to ping (optional)"),
+        )
+        .addRoleOption((o) =>
+          o
+            .setName("tag_role_3")
+            .setDescription("Third role to ping (optional)"),
+        )
+        .addBooleanOption((o) =>
+          o
+            .setName("tag_on_create")
+            .setDescription(
+              "Ping role(s) when this event is posted? (default: true if role set)",
+            ),
+        )
+        .addBooleanOption((o) =>
+          o
             .setName("tag_on_start")
-            .setDescription("Role to ping when event starts (optional)"),
+            .setDescription(
+              "Ping role(s) when the event goes live? (default: false)",
+            ),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("reminder_before")
+            .setDescription("Send a channel reminder before start? (optional)")
+            .addChoices(
+              { name: "None", value: "0" },
+              { name: "10 minutes", value: "10" },
+              { name: "30 minutes", value: "30" },
+              { name: "1 hour", value: "60" },
+              { name: "3 hours", value: "180" },
+              { name: "6 hours", value: "360" },
+              { name: "24 hours", value: "1440" },
+            ),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("color")
+            .setDescription("Embed accent color (optional)")
+            .addChoices(
+              { name: "🟣 Blurple (default)", value: "blurple" },
+              { name: "🔴 Red", value: "red" },
+              { name: "🟠 Orange", value: "orange" },
+              { name: "🟡 Yellow", value: "yellow" },
+              { name: "🟢 Green", value: "green" },
+              { name: "🩵 Teal", value: "teal" },
+              { name: "🔵 Blue", value: "blue" },
+              { name: "🟤 Purple", value: "purple" },
+              { name: "🩷 Pink", value: "pink" },
+              { name: "⚪ Grey", value: "grey" },
+              {
+                name: "🎨 Custom hex — type hex code in title field after picking this",
+                value: "custom",
+              },
+            ),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("custom_type")
+            .setDescription(
+              "Custom event type label — only shown when type is 📌 Custom (e.g. Movie Night)",
+            )
+            .setMaxLength(40),
+        )
+        .addAttachmentOption((o) =>
+          o
+            .setName("thumbnail")
+            .setDescription(
+              "Small thumbnail image (top-right corner of embed)",
+            ),
+        )
+        .addAttachmentOption((o) =>
+          o
+            .setName("image")
+            .setDescription(
+              "Main banner image (full-width at bottom of embed)",
+            ),
         ),
     )
+
+    // ── list ────────────────────────────────────────────────────────────────
     .addSubcommand((s) =>
       s.setName("list").setDescription("Show upcoming and live events."),
     )
+
+    // ── show ────────────────────────────────────────────────────────────────
     .addSubcommand((s) =>
       s
         .setName("show")
         .setDescription("Show a specific event by ID.")
         .addStringOption((o) =>
-          o.setName("id").setDescription("Event ID").setRequired(true),
+          o
+            .setName("id")
+            .setDescription("Event number (e.g. #1042) or public ID")
+            .setRequired(true),
         ),
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // ── show ──────────────────────────────────────────────────────────────
+    // ── show ─────────────────────────────────────────────────────────────────
     if (sub === "show") {
-      const event = await getEvent(interaction.options.getString("id", true));
+      const rawId = interaction.options.getString("id", true).replace(/^#/, "");
+      const event = await getEvent(rawId);
       if (!event)
         return interaction.reply({
-          content: "Event not found.",
+          content: "⚠️ Event not found. Check the ID and try again.",
           ephemeral: true,
         });
-      const isEnded = ["COMPLETED", "CANCELLED"].includes(event.status);
+      const isEnded = ["COMPLETED", "CANCELLED", "EXPIRED"].includes(
+        event.status,
+      );
       const embed = await buildEventEmbed(interaction, event);
       return interaction.reply({
         embeds: [embed],
-        components: eventButtons(event.id, isEnded),
+        components: eventButtons(
+          event.id,
+          isEnded,
+          event.eventType,
+          event.teamSize,
+        ),
       });
     }
 
-    // ── list ───────────────────────────────────────────────────────────────
+    // ── list ─────────────────────────────────────────────────────────────────
     if (sub === "list") {
       const events = await getUpcomingEvents(interaction.guildId);
-      if (!events.length) {
+      if (!events.length)
         return interaction.reply({
-          content: "📭 No upcoming events found.",
+          content: "📭 No upcoming events. Create one with `/event create`.",
           ephemeral: true,
         });
-      }
 
       const embed = new EmbedBuilder()
-        .setColor(0x9b59b6)
+        .setColor(0x5865f2)
         .setTitle("📅 Upcoming Events")
         .setFooter({ text: "Powered by Discore" })
         .setTimestamp();
@@ -94,75 +264,196 @@ module.exports = {
       for (const ev of events.slice(0, 10)) {
         const unix = Math.floor(new Date(ev.scheduledAt).getTime() / 1000);
         const going = ev.rsvps.filter((r) => r.status === "GOING").length;
-        const badge = ev.status === "LIVE" ? "🔴 LIVE" : "🟢 Upcoming";
+        const badge = ev.status === "LIVE" ? "🟢 LIVE" : "🔵 Upcoming";
+        const idLabel = ev.eventNumber
+          ? `#${ev.eventNumber}`
+          : (ev.publicId ?? ev.id.slice(0, 6));
         embed.addFields({
           name: `${badge} — ${ev.title}`,
-          value: `<t:${unix}:F> (<t:${unix}:R>)\n${ev.location ? `📍 ${ev.location}\n` : ""}✅ ${going} going  ·  ID: \`${ev.publicId ?? ev.id}\``,
+          value: `<t:${unix}:F> (<t:${unix}:R>)\n${ev.location ? `📍 ${ev.location}  ` : ""}✅ ${going} going  ·  ID: \`${idLabel}\``,
           inline: false,
         });
       }
-
-      if (events.length > 10) {
-        embed.setDescription(
-          `Showing 10 of ${events.length} events. Use \`/event show <id>\` for details.`,
-        );
-      }
-
+      if (events.length > 10)
+        embed.setDescription(`Showing 10 of ${events.length} events.`);
       return interaction.reply({ embeds: [embed] });
     }
 
-    // ── create — open modal ────────────────────────────────────────────────
-    const tagCreate = interaction.options.getRole("tag_on_create")?.id || "0";
-    const tagStart = interaction.options.getRole("tag_on_start")?.id || "0";
-    const eventType = interaction.options.getString("type") ?? "EVENT";
+    // ── create ────────────────────────────────────────────────────────────────
+    await interaction.deferReply({ ephemeral: true });
 
-    const modal = new ModalBuilder()
-      .setCustomId(`event:create:${tagCreate}:${tagStart}:${eventType}`)
-      .setTitle("Create Event");
+    // ── Premium: live event limit ────────────────────────────────────────────
+    const { limits } = await getGuildPlan(interaction.guildId);
+    // Only UPCOMING counts toward the limit — once an event starts (LIVE) it no longer blocks new ones
+    const liveCount = await prisma.event.count({
+      where: { guildId: interaction.guildId, status: "UPCOMING" },
+    });
+    if (liveCount >= limits.liveEvents) {
+      return interaction.editReply({
+        content: [
+          `🔒 **Scheduled event limit reached.** Your server has **${liveCount}/${limits.liveEvents}** upcoming events.`,
+          limits.liveEvents <= 5
+            ? `> Upgrade to **Discore Pro** for up to 50 scheduled events at once. Use \`/premium info\` to learn more.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+    }
 
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("title")
-          .setLabel("Event Title")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setMaxLength(100),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("datetime")
-          .setLabel("When? (auto-converts to local timezone)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setPlaceholder("e.g. tomorrow 8pm UTC, in 3 hours, 5pm 04/07/2026"),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("description")
-          .setLabel("Description (optional)")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(false)
-          .setMaxLength(1000),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("location")
-          .setLabel("Location or link (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setPlaceholder("e.g. Discord Stage, https://meet.google.com/..."),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("image")
-          .setLabel("Banner image URL (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setPlaceholder("https://example.com/banner.png"),
-      ),
+    // Read all options
+    const eventType = interaction.options.getString("type", true);
+    const title = interaction.options.getString("title", true).trim();
+    const rawTime = interaction.options.getString("when", true).trim();
+    const desc = interaction.options.getString("description")?.trim() || null;
+    const location = interaction.options.getString("location")?.trim() || null;
+    const game = interaction.options.getString("game")?.trim() || null;
+    const customType =
+      interaction.options.getString("custom_type")?.trim() || null;
+    const teamSize =
+      eventType === "BATTLE"
+        ? (interaction.options.getInteger("team_size") ?? null)
+        : null;
+    const colorChoice = interaction.options.getString("color") || null;
+    const tagRole = interaction.options.getRole("tag_role");
+    const tagRole2 = interaction.options.getRole("tag_role_2");
+    const tagRole3 = interaction.options.getRole("tag_role_3");
+    const tagOnCreate = tagRole
+      ? (interaction.options.getBoolean("tag_on_create") ?? true)
+      : false;
+    const tagOnStart = interaction.options.getBoolean("tag_on_start") ?? false;
+    const reminderStr = interaction.options.getString("reminder_before") ?? "0";
+    const reminderMin = parseInt(reminderStr, 10) || 0;
+    const thumbAttach = interaction.options.getAttachment("thumbnail");
+    const imgAttach = interaction.options.getAttachment("image");
+
+    // Build role ID array (dedup, filter null)
+    const tagRoleIds = [
+      ...new Set([tagRole?.id, tagRole2?.id, tagRole3?.id].filter(Boolean)),
+    ];
+
+    // Color: preset key or null (custom means user adds hex manually to title)
+    const color = colorChoice && colorChoice !== "custom" ? colorChoice : null;
+
+    // Validate images
+    const thumbCheck = isValidImageAttachment(thumbAttach);
+    if (thumbCheck === "too_large")
+      return interaction.editReply({
+        content: "⚠️ Thumbnail is too large. Max 8 MB.",
+      });
+    if (thumbCheck === "wrong_type")
+      return interaction.editReply({
+        content: "⚠️ Thumbnail must be PNG, JPG, GIF, or WEBP.",
+      });
+
+    const imgCheck = isValidImageAttachment(imgAttach);
+    if (imgCheck === "too_large")
+      return interaction.editReply({
+        content: "⚠️ Banner image is too large. Max 8 MB.",
+      });
+    if (imgCheck === "wrong_type")
+      return interaction.editReply({
+        content: "⚠️ Banner must be PNG, JPG, GIF, or WEBP.",
+      });
+
+    // Parse time
+    const settings = await getGuildSettings(interaction.guildId).catch(
+      () => null,
     );
+    const parsed = parseDateTime(rawTime, {
+      timezone: settings?.timezone || "UTC",
+    });
+    if (!parsed.ok) {
+      return interaction.editReply({
+        content: `${parsed.reason}\n\n**Examples:**\n• \`in 3 hours\`\n• \`tomorrow 8pm UTC\`\n• \`24/7/26 3pm Paris time\`\n• \`1800 UTC\``,
+      });
+    }
 
-    await interaction.showModal(modal);
+    // Create event
+    const event = await createEvent({
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      createdBy: interaction.user.id,
+      title,
+      description: desc,
+      location,
+      game,
+      customTypeName: customType,
+      eventType,
+      teamSize,
+      color,
+      scheduledAt: parsed.date,
+      timezoneUsed: parsed.timezone,
+      tagRoleIds,
+      tagOnCreate,
+      tagOnStart,
+      reminderBeforeMinutes: reminderMin > 0 ? reminderMin : null,
+      thumbnailUrl: thumbAttach?.url ?? null,
+      imageUrl: imgAttach?.url ?? null,
+    });
+
+    const full = await getEvent(event.id);
+    const embed = await buildEventEmbed(interaction, full);
+
+    // Post to channel
+    const pingIds = tagOnCreate ? tagRoleIds : [];
+    const pingContent = pingIds.length
+      ? pingIds.map((id) => `<@&${id}>`).join(" ") + " —"
+      : undefined;
+
+    const message = await interaction.channel
+      .send({
+        content: pingContent,
+        embeds: [embed],
+        components: eventButtons(event.id, false, eventType, teamSize),
+        allowedMentions: pingIds.length ? { roles: pingIds } : { parse: [] },
+      })
+      .catch((err) => {
+        throw new Error(`⚠️ Couldn't post the event: ${err.message}`);
+      });
+
+    // Save messageId
+    await prisma.event
+      .update({ where: { id: event.id }, data: { messageId: message.id } })
+      .catch(() => {});
+
+    // Dedup notification log
+    if (pingIds.length && tagOnCreate) {
+      await claimNotification(event.id, interaction.guildId, "CREATE", {
+        channelId: interaction.channelId,
+        roleId: pingIds[0],
+        messageId: message.id,
+      });
+    }
+
+    const remLabel =
+      reminderMin >= 60 ? `${reminderMin / 60}h` : `${reminderMin}m`;
+    const idLabel = full.eventNumber
+      ? `#${full.eventNumber}`
+      : (full.publicId ?? full.id.slice(0, 6));
+    const notifLines =
+      [
+        tagOnCreate && pingIds.length
+          ? `📣 Pinged ${pingIds.map((id) => `<@&${id}>`).join(" ")} on creation`
+          : null,
+        tagOnStart && pingIds.length
+          ? `🔔 Will ping ${pingIds.map((id) => `<@&${id}>`).join(" ")} when live`
+          : null,
+        reminderMin > 0
+          ? `⏰ Channel reminder set for ${remLabel} before start`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n") || "No pings configured";
+
+    return interaction.editReply({
+      content: [
+        `✅ **${title}** posted!`,
+        `> Starts: ${parsed.discord.full} (${parsed.discord.relative})`,
+        `> ID: \`${idLabel}\``,
+        ``,
+        notifLines,
+      ].join("\n"),
+    });
   },
 };

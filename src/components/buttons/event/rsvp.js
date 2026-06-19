@@ -45,10 +45,17 @@ module.exports = {
     }
 
     const updated = await getEvent(eventId);
+    const isLive = updated.status === "LIVE";
     const embed = await buildEventEmbed(interaction, updated);
     await interaction.update({
       embeds: [embed],
-      components: eventButtons(eventId),
+      components: eventButtons(
+        eventId,
+        false,
+        updated.eventType,
+        updated.teamSize,
+        isLive,
+      ),
     });
   },
 };

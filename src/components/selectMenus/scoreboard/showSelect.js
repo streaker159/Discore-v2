@@ -1,29 +1,10 @@
 "use strict";
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const {
   getScoreboardById,
   buildScoreboardPage,
+  buildScoreboardComponents,
 } = require("../../../modules/scoreboards/service");
-
-function pageButtons(boardId, currentPage, totalPages) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:page:${boardId}:${currentPage - 1}`)
-      .setLabel("◀ Prev")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage <= 1),
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:page:${boardId}:${currentPage + 1}`)
-      .setLabel("Next ▶")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage >= totalPages),
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:refresh:${boardId}:1`)
-      .setLabel("🔄 Refresh")
-      .setStyle(ButtonStyle.Primary),
-  );
-}
 
 module.exports = {
   customIdPrefix: "scoreboard:show_select:",
@@ -48,11 +29,16 @@ module.exports = {
     const { embed, page, totalPages } = buildScoreboardPage(board, 1, {
       guildIconUrl,
       discoreIconUrl,
+      sortBy: "WINS",
     });
-    const components =
-      totalPages > 1 ? [pageButtons(board.id, page, totalPages)] : [];
+    const components = buildScoreboardComponents(
+      board.id,
+      page,
+      totalPages,
+      board.metric,
+      "WINS",
+    );
 
-    // Update the ephemeral picker → replace with a public reply
     await interaction
       .update({ content: null, components: [], embeds: [], flags: 64 })
       .catch(() => {});

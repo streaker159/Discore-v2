@@ -7,6 +7,7 @@ module.exports = {
   // Battle & events
   "battle.signup": "FREE",
   "events.create": "FREE",
+  "events.liveLimit": "FREE",
   // Game data
   "game.lookup": "FREE",
   // AI strategy

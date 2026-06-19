@@ -1,66 +1,126 @@
+"use strict";
+
 const prisma = require("../lib/prisma");
 const { reminderQueue } = require("../lib/queue");
 const {
   buildEventEmbed,
   buildEventReminderEmbed,
+  eventButtons,
+  claimNotification,
+  getTypeInfo,
 } = require("../modules/events/service");
 const logger = require("../lib/logger");
+
+/** Format tagRoleIds array into a ping string */
+function rolePing(roleIds) {
+  if (!Array.isArray(roleIds) || !roleIds.length) return null;
+  return roleIds.map((id) => `<@&${id}>`).join(" ") + " �";
+}
 
 module.exports = {
   name: "eventReminderJob",
   intervalMs: 60_000,
   enabled: true,
+
   async run(client) {
     const now = new Date();
-    const in31Min = new Date(now.getTime() + 31 * 60 * 1000);
 
-    // Find UPCOMING events starting within the next 30 minutes, reminder not yet sent
-    const upcoming = await prisma.event.findMany({
+    // -- Pass 1: Global channel reminders (X minutes before start) ---------
+    const pendingReminders = await prisma.event.findMany({
       where: {
         status: "UPCOMING",
-        reminderSent: false,
-        scheduledAt: { gte: now, lte: in31Min },
+        reminderBeforeMinutes: { not: null },
+        scheduledAt: { gt: now },
       },
       include: { rsvps: true, guild: true },
     });
 
-    for (const event of upcoming) {
+    for (const event of pendingReminders) {
+      const reminderAt = new Date(
+        new Date(event.scheduledAt).getTime() -
+          event.reminderBeforeMinutes * 60_000,
+      );
+      if (reminderAt > now) continue;
+
       reminderQueue.add(async () => {
+        const claimed = await claimNotification(
+          event.id,
+          event.guildId,
+          "REMINDER",
+          {
+            channelId: event.channelId,
+            roleId: (event.tagRoleIds ?? [])[0] ?? null,
+          },
+        );
+        if (!claimed) return;
+
         try {
-          const minsUntil = Math.round(
-            (new Date(event.scheduledAt).getTime() - Date.now()) / 60_000,
+          const minsLeft = Math.max(
+            1,
+            Math.round(
+              (new Date(event.scheduledAt).getTime() - Date.now()) / 60_000,
+            ),
           );
-          const dmEmbed = buildEventReminderEmbed(
-            event,
-            Math.max(minsUntil, 1),
-          );
+          const remEmbed = buildEventReminderEmbed(event, minsLeft);
+          const ch = await client.channels
+            .fetch(event.channelId)
+            .catch(() => null);
+          if (!ch) return;
 
-          // DM every RSVP'd user (GOING or MAYBE)
-          const userIds = event.rsvps
-            .filter((r) => r.status === "GOING" || r.status === "MAYBE")
-            .map((r) => r.userId);
+          const ping = rolePing(event.tagRoleIds);
+          await ch.send({
+            content: ping ?? undefined,
+            embeds: [remEmbed],
+            allowedMentions: event.tagRoleIds?.length
+              ? { roles: event.tagRoleIds }
+              : { parse: [] },
+          });
+          logger.info("eventReminderJob: sent channel reminder", {
+            id: event.id,
+          });
+        } catch (err) {
+          logger.error("eventReminderJob: reminder failed", {
+            id: event.id,
+            error: err.message,
+          });
+        }
+      });
+    }
 
-          for (const userId of userIds) {
-            const user = await client.users.fetch(userId).catch(() => null);
-            if (user) await user.send({ embeds: [dmEmbed] }).catch(() => {});
-          }
+    // -- Pass 2: Transition UPCOMING ? LIVE --------------------------------
+    const starting = await prisma.event.findMany({
+      where: { status: "UPCOMING", scheduledAt: { lte: now } },
+      include: { rsvps: true, guild: true },
+    });
 
-          // Mark event as LIVE
-          await prisma.event.update({
+    for (const event of starting) {
+      reminderQueue.add(async () => {
+        const claimed = await claimNotification(
+          event.id,
+          event.guildId,
+          "START",
+          {
+            channelId: event.channelId,
+            roleId: (event.tagRoleIds ?? [])[0] ?? null,
+          },
+        );
+        if (!claimed) return;
+
+        try {
+          const liveEvent = await prisma.event.update({
             where: { id: event.id },
-            data: { status: "LIVE", reminderSent: true },
+            data: {
+              status: "LIVE",
+              cleanupAfter: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            },
+            include: { rsvps: true, guild: true },
           });
 
-          // Update the live channel message — remove buttons, add "starting now" banner
-          if (event.messageId && event.channelId) {
-            const liveEvent = await prisma.event.findUnique({
-              where: { id: event.id },
-              include: { rsvps: true, guild: true },
-            });
-            const ch = await client.channels
-              .fetch(event.channelId)
-              .catch(() => null);
-            if (ch && liveEvent) {
+          const ch = await client.channels
+            .fetch(event.channelId)
+            .catch(() => null);
+          if (ch) {
+            if (event.messageId) {
               const msg = await ch.messages
                 .fetch(event.messageId)
                 .catch(() => null);
@@ -70,29 +130,88 @@ module.exports = {
                   liveEvent,
                 );
                 await msg
-                  .edit({ embeds: [updatedEmbed], components: [] })
-                  .catch(() => {});
-              }
-
-              // Ping tagOnStart role if set
-              if (event.tagOnStart) {
-                await ch
-                  .send(
-                    `<@&${event.tagOnStart}> — 🚀 **${event.title}** is starting now!`,
-                  )
+                  .edit({
+                    embeds: [updatedEmbed],
+                    components: eventButtons(
+                      event.id,
+                      false,
+                      event.eventType,
+                      event.teamSize,
+                      true, // isLive
+                    ),
+                  })
                   .catch(() => {});
               }
             }
+
+            if (event.tagRoleIds?.length && event.tagOnStart) {
+              const { icon, label } = getTypeInfo(event);
+              await ch
+                .send({
+                  content: `${event.tagRoleIds.map((id) => `<@&${id}>`).join(" ")} � ${icon} **${label}: ${event.title}** is starting now!`,
+                  allowedMentions: { roles: event.tagRoleIds },
+                })
+                .catch(() => {});
+            }
           }
 
-          logger.info("eventReminderJob: sent reminders", {
+          // DM going users that it's starting
+          const goingUsers = liveEvent.rsvps
+            .filter((r) => r.status === "GOING" || r.status === "MAYBE")
+            .map((r) => r.userId);
+          for (const userId of goingUsers) {
+            const user = await client.users.fetch(userId).catch(() => null);
+            if (user)
+              await user
+                .send({ embeds: [buildEventReminderEmbed(event, 0)] })
+                .catch(() => {});
+          }
+
+          logger.info("eventReminderJob: transitioned to LIVE", {
             id: event.id,
-            dmCount: userIds.length,
           });
-        } catch (error) {
-          logger.error("eventReminderJob failed for event", {
+        } catch (err) {
+          logger.error("eventReminderJob: start transition failed", {
             id: event.id,
-            error: error.message,
+            error: err.message,
+          });
+        }
+      });
+    }
+
+    // -- Pass 3: Personal user reminders -----------------------------------
+    const personalDue = await prisma.eventReminder.findMany({
+      where: { sentAt: null, remindAt: { lte: now } },
+      include: { event: true },
+    });
+
+    for (const reminder of personalDue) {
+      reminderQueue.add(async () => {
+        try {
+          const user = await client.users
+            .fetch(reminder.userId)
+            .catch(() => null);
+          if (user && reminder.event) {
+            // Calculate actual minutes remaining until the event starts
+            const minsUntil = Math.max(
+              0,
+              Math.round(
+                (new Date(reminder.event.scheduledAt).getTime() - Date.now()) /
+                  60_000,
+              ),
+            );
+            const embed = buildEventReminderEmbed(reminder.event, minsUntil);
+            embed.setTitle("?? Your Event Reminder");
+            await user.send({ embeds: [embed] }).catch(() => {});
+          }
+          await prisma.eventReminder.update({
+            where: { id: reminder.id },
+            data: { sentAt: now },
+          });
+        } catch (err) {
+          logger.error("eventReminderJob: personal reminder failed", {
+            id: reminder.id,
+            error: err.message,
           });
         }
       });

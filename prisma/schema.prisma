@@ -308,40 +308,91 @@ enum ParticipantStatus {
 // ── EVENTS ───────────────────────────────────────────────
 
 model Event {
-  id            String    @id @default(cuid())
-  publicId      String?   @unique
-  guildId       String
-  guild         Guild     @relation(fields: [guildId], references: [id])
-  title         String
-  description   String?
-  location      String?
-  imageUrl      String?   // banner (set_image — full width)
-  thumbnailUrl  String?   // small icon (set_thumbnail)
-  eventType     String    @default("EVENT")    // EVENT | BATTLE | TRAINING | CUSTOM
-  channelId     String
-  messageId     String?
-  scheduledAt   DateTime
-  createdBy     String
-  tagOnCreate   String?   // role ID to ping when event is posted
-  tagOnStart    String?   // role ID to ping when event starts
-  reminderSent  Boolean   @default(false)
-  status        EventStatus @default(UPCOMING)
-  cleanupAfter  DateTime?                      // set when completed/cancelled; cleanup job deletes after this
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String      @id @default(cuid())
+  publicId              String?     @unique
+  guildId               String
+  guild                 Guild       @relation(fields: [guildId], references: [id])
+  title                 String
+  description           String?
+  location              String?
+  game                  String?     // game name (optional)
+  customTypeName        String?     // label used when eventType = CUSTOM
+  imageUrl              String?     // banner — full-width at bottom of embed
+  thumbnailUrl          String?     // small thumbnail — top-right of embed
+  eventType             String      @default("EVENT")  // EVENT|BATTLE|TEAM|COMMUNITY|TRAINING|GAME_START|CUSTOM
+  teamSize              Int?        // for battle/signup events: slots per side
+  color                 String?     // custom hex color overrides default (e.g. "#e74c3c")
+  channelId             String
+  messageId             String?
+  scheduledAt           DateTime
+  timezoneUsed          String?     // detected or explicit timezone
+  reminderBeforeMinutes Int?        // minutes before start for global channel reminder
+  createdBy             String
+  tagRoleIds            String[]    @default([])  // role IDs to ping (up to 5)
+  tagOnCreate           Boolean     @default(false)   // ping on creation
+  tagOnStart            Boolean     @default(false)   // ping when event goes LIVE
+  eventNumber           Int?        @unique          // sequential display ID
+  status                EventStatus @default(UPCOMING)
+  cleanupAfter          DateTime?   // cleanup job deletes DB row after this date
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
-  rsvps         EventRsvp[]
+  rsvps                 EventRsvp[]
+  notificationLogs      EventNotificationLog[]
+  reminders             EventReminder[]
 
   @@index([guildId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@index([cleanupAfter])
 }
 
 model EventRsvp {
-  id        String  @id @default(cuid())
+  id        String     @id @default(cuid())
   eventId   String
-  event     Event   @relation(fields: [eventId], references: [id])
+  event     Event      @relation(fields: [eventId], references: [id])
   userId    String
   status    RsvpStatus
+  updatedAt DateTime   @updatedAt
   @@unique([eventId, userId])
+  @@index([eventId])
+}
+
+/**
+ * Tracks each notification type that has been sent for an event.
+ * Unique constraint on (eventId, notificationType) prevents double-sends
+ * even if the bot restarts or the job fires twice.
+ */
+model EventNotificationLog {
+  id               String   @id @default(cuid())
+  eventId          String
+  event            Event    @relation(fields: [eventId], references: [id])
+  guildId          String
+  notificationType String   // CREATE | REMINDER | START
+  channelId        String?
+  messageId        String?
+  roleId           String?
+  sentAt           DateTime @default(now())
+
+  @@unique([eventId, notificationType])
+  @@index([eventId])
+}
+
+/**
+ * Per-user personal reminders set via the "Remind Me" button.
+ */
+model EventReminder {
+  id        String    @id @default(cuid())
+  eventId   String
+  event     Event     @relation(fields: [eventId], references: [id])
+  userId    String
+  remindAt  DateTime
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([eventId, userId])
+  @@index([remindAt])
+  @@index([eventId])
 }
 
 enum EventStatus {
@@ -349,6 +400,7 @@ enum EventStatus {
   LIVE
   COMPLETED
   CANCELLED
+  EXPIRED
 }
 
 enum RsvpStatus {

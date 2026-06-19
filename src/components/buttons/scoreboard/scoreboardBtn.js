@@ -1,83 +1,84 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+"use strict";
+
 const {
   getScoreboardById,
   archiveScoreboard,
   buildScoreboardPage,
+  buildScoreboardComponents,
 } = require("../../../modules/scoreboards/service");
 
-// ─── page button row builder ──────────────────────────────────────────────────
+// ─── shared handler helper ────────────────────────────────────────────────────
 
-function pageButtons(boardId, currentPage, totalPages) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:page:${boardId}:${currentPage - 1}`)
-      .setLabel("◀ Prev")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage <= 1),
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:page:${boardId}:${currentPage + 1}`)
-      .setLabel("Next ▶")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(currentPage >= totalPages),
-    new ButtonBuilder()
-      .setCustomId(`scoreboard:refresh:${boardId}:${currentPage}`)
-      .setLabel("🔄 Refresh")
-      .setStyle(ButtonStyle.Primary),
+async function handleShow(interaction, boardId, page, sortBy) {
+  const board = await getScoreboardById(boardId);
+  if (!board)
+    return interaction.update({
+      content: "Scoreboard no longer exists.",
+      components: [],
+      embeds: [],
+    });
+
+  const guildIconUrl =
+    interaction.guild?.iconURL({ size: 128, extension: "png" }) ?? undefined;
+  const discoreIconUrl =
+    interaction.client.user?.displayAvatarURL({ size: 64, extension: "png" }) ??
+    undefined;
+
+  const {
+    embed,
+    page: safePage,
+    totalPages,
+  } = buildScoreboardPage(board, page, {
+    guildIconUrl,
+    discoreIconUrl,
+    sortBy,
+  });
+  const components = buildScoreboardComponents(
+    board.id,
+    safePage,
+    totalPages,
+    board.metric,
+    sortBy,
   );
+  return interaction.update({ embeds: [embed], components });
 }
 
-// ─── pagination handler ───────────────────────────────────────────────────────
+// ─── handlers ─────────────────────────────────────────────────────────────────
 
 module.exports = [
   {
     customIdPrefix: "scoreboard:page:",
     async execute(interaction) {
-      // customId: scoreboard:page:{boardId}:{page}
+      // customId: scoreboard:page:{boardId}:{page}:{sortBy?}
       const parts = interaction.customId.split(":");
       const boardId = parts[2];
       const page = parseInt(parts[3], 10) || 1;
+      const sortBy = parts[4] || "WINS";
+      return handleShow(interaction, boardId, page, sortBy);
+    },
+  },
 
-      const board = await getScoreboardById(boardId);
-      if (!board)
-        return interaction.update({
-          content: "Scoreboard no longer exists.",
-          components: [],
-        });
-
-      const {
-        embed,
-        page: safePage,
-        totalPages,
-      } = buildScoreboardPage(board, page);
-      const components =
-        totalPages > 1 ? [pageButtons(boardId, safePage, totalPages)] : [];
-      return interaction.update({ embeds: [embed], components });
+  {
+    customIdPrefix: "scoreboard:sort:",
+    async execute(interaction) {
+      // customId: scoreboard:sort:{boardId}:{page}:{sortBy}
+      const parts = interaction.customId.split(":");
+      const boardId = parts[2];
+      const page = parseInt(parts[3], 10) || 1;
+      const sortBy = parts[4] || "WINS";
+      return handleShow(interaction, boardId, page, sortBy);
     },
   },
 
   {
     customIdPrefix: "scoreboard:refresh:",
     async execute(interaction) {
-      // customId: scoreboard:refresh:{boardId}:{page}
+      // customId: scoreboard:refresh:{boardId}:{page}:{sortBy?}
       const parts = interaction.customId.split(":");
       const boardId = parts[2];
       const page = parseInt(parts[3], 10) || 1;
-
-      const board = await getScoreboardById(boardId);
-      if (!board)
-        return interaction.update({
-          content: "Scoreboard no longer exists.",
-          components: [],
-        });
-
-      const {
-        embed,
-        page: safePage,
-        totalPages,
-      } = buildScoreboardPage(board, page);
-      const components =
-        totalPages > 1 ? [pageButtons(boardId, safePage, totalPages)] : [];
-      return interaction.update({ embeds: [embed], components });
+      const sortBy = parts[4] || "WINS";
+      return handleShow(interaction, boardId, page, sortBy);
     },
   },
 
@@ -99,9 +100,8 @@ module.exports = [
           components: [],
         });
 
-      if (board.guildId !== interaction.guildId) {
+      if (board.guildId !== interaction.guildId)
         return interaction.update({ content: "Unauthorised.", components: [] });
-      }
 
       await archiveScoreboard({
         guildId: board.guildId,

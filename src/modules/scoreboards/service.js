@@ -1,7 +1,13 @@
 ﻿"use strict";
 
 const { randomBytes } = require("crypto");
-const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
+const {
+  EmbedBuilder,
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const prisma = require("../../lib/prisma");
 const { getGuildPlan } = require("../../lib/premiumGate");
 
@@ -16,13 +22,19 @@ function ratio(wins, losses) {
   return (wins / losses).toFixed(2);
 }
 
-function sortEntries(board) {
+function sortEntries(board, sortBy = "WINS") {
   if (board.metric === "POINTS")
     return [...board.entries].sort((a, b) => b.points - a.points);
-  // WIN_LOSS: sort by score (wins - losses)
-  return [...board.entries].sort(
-    (a, b) => b.wins - b.losses - (a.wins - a.losses),
-  );
+  const r = (e) =>
+    e.losses === 0 ? (e.wins > 0 ? 9999 : 0) : e.wins / e.losses;
+  if (sortBy === "RATIO")
+    return [...board.entries].sort((a, b) => r(b) - r(a) || b.wins - a.wins);
+  if (sortBy === "LOSSES")
+    return [...board.entries].sort(
+      (a, b) => b.losses - a.losses || r(b) - r(a),
+    );
+  // Default WINS
+  return [...board.entries].sort((a, b) => b.wins - a.wins || r(b) - r(a));
 }
 
 function makeBoardColor(board) {
@@ -101,8 +113,8 @@ const PAGE_SIZE = 10;
 const DIVIDER = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬";
 
 function buildScoreboardPage(board, page = 1, opts = {}) {
-  const { guildIconUrl, discoreIconUrl } = opts;
-  const sorted = sortEntries(board);
+  const { guildIconUrl, discoreIconUrl, sortBy = "WINS" } = opts;
+  const sorted = sortEntries(board, sortBy);
   const total = sorted.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safeP = Math.min(Math.max(page, 1), pages);
@@ -118,7 +130,7 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
         : `<@${entry.targetId}>`;
 
     if (board.metric === "POINTS") {
-      return `${medal}  ${mention}\n> 💯 \`${entry.points}\` points`;
+      return `${medal}  ${mention}\n> 💯 \`${entry.points}\` pts`;
     }
     const streakBit =
       entry.winStreak > 1
@@ -127,61 +139,135 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
           ? `  💀 \`${entry.lossStreak}\` ls`
           : "";
     const r = ratio(entry.wins, entry.losses);
-    return `${medal}  ${mention}\n> \`${entry.wins}W\` / \`${entry.losses}L\`  ·  ratio \`${r}\`${streakBit}`;
+    return `${medal}  ${mention}\n> \`${entry.wins}W\` / \`${entry.losses}L\`  ·  ⚖️ \`${r}\`${streakBit}`;
   });
 
   const archiveLine = board.isArchived
-    ? `📦 **Archived**${board.archivedAt ? " · " + new Date(board.archivedAt).toLocaleDateString() : ""}${board.archiveNote ? " — " + board.archiveNote : ""}`
+    ? `📦 **Archived**${
+        board.archivedAt
+          ? " · " + new Date(board.archivedAt).toLocaleDateString()
+          : ""
+      }${board.archiveNote ? " — " + board.archiveNote : ""}`
     : null;
 
   const descParts = [
     board.description ? `*${board.description}*` : null,
     archiveLine,
-    DIVIDER,
     lines.length
       ? lines.join("\n")
       : "_No entries yet.  Use `/scoreboard addwin` to get started._",
-    DIVIDER,
   ].filter(Boolean);
 
   const lastUpdatedUnix = board.lastUpdatedAt
     ? Math.floor(new Date(board.lastUpdatedAt).getTime() / 1000)
     : null;
 
+  const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win / Loss";
+  const typeLabel = board.type === "ROLE" ? "👥 Roles" : "👤 Users";
+  const sortLabel =
+    board.metric !== "POINTS"
+      ? sortBy === "RATIO"
+        ? "sorted by ratio"
+        : sortBy === "LOSSES"
+          ? "sorted by losses"
+          : "sorted by wins"
+      : null;
+
   const footerParts = [
-    "Powered by Discore",
+    modeLabel,
+    typeLabel,
+    `${total} ${total === 1 ? "entry" : "entries"}`,
+    total > PAGE_SIZE && `Page ${safeP}/${pages}`,
+    sortLabel,
     board.publicId && `ID: ${board.publicId}`,
-    total > PAGE_SIZE && `Page ${safeP}/${pages} of ${total} entries`,
     lastUpdatedUnix && `Updated <t:${lastUpdatedUnix}:R>`,
   ].filter(Boolean);
 
-  const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win / Loss";
-  const typeLabel = board.type === "ROLE" ? "👥 Roles" : "👤 Users";
-
   const embed = new EmbedBuilder()
-    .setAuthor({
-      name: "Discore Scoreboards",
-      iconURL: discoreIconUrl || undefined,
-    })
     .setTitle(`🏆  ${board.liveTitle || board.name}`)
     .setDescription(descParts.join("\n"))
     .setColor(makeBoardColor(board))
-    .addFields(
-      { name: "Mode", value: modeLabel, inline: true },
-      { name: "Type", value: typeLabel, inline: true },
-      { name: "Entries", value: String(total), inline: true },
-    )
     .setFooter({
       text: footerParts.join("  ·  "),
       iconURL: discoreIconUrl || undefined,
     })
     .setTimestamp();
 
-  // Thumbnail: role image > server icon > nothing
   if (board.roleImageUrl) embed.setThumbnail(board.roleImageUrl);
   else if (guildIconUrl) embed.setThumbnail(guildIconUrl);
 
   return { embed, page: safeP, totalPages: pages };
+}
+
+/**
+ * Build the action row components for a scoreboard display.
+ * Sort row (WIN_LOSS boards) + optional pagination row.
+ */
+function buildScoreboardComponents(
+  boardId,
+  page,
+  totalPages,
+  metric,
+  sortBy = "WINS",
+) {
+  const rows = [];
+
+  if (metric === "WIN_LOSS") {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:sort:${boardId}:${page}:WINS`)
+          .setLabel("🏆 Most Wins")
+          .setStyle(
+            sortBy === "WINS" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:sort:${boardId}:${page}:RATIO`)
+          .setLabel("⚖️ Best Ratio")
+          .setStyle(
+            sortBy === "RATIO" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:sort:${boardId}:${page}:LOSSES`)
+          .setLabel("💀 Most Losses")
+          .setStyle(
+            sortBy === "LOSSES" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:refresh:${boardId}:${page}:${sortBy}`)
+          .setLabel("🔄 Refresh")
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    );
+  } else {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:refresh:${boardId}:${page}:POINTS`)
+          .setLabel("🔄 Refresh")
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    );
+  }
+
+  if (totalPages > 1) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:page:${boardId}:${page - 1}:${sortBy}`)
+          .setLabel("◀  Prev")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page <= 1),
+        new ButtonBuilder()
+          .setCustomId(`scoreboard:page:${boardId}:${page + 1}:${sortBy}`)
+          .setLabel("Next  ▶")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page >= totalPages),
+      ),
+    );
+  }
+
+  return rows;
 }
 
 function buildScoreboardEmbedDirect(board) {
@@ -920,6 +1006,7 @@ module.exports = {
   pushEntryLiveEmbed,
   repairLiveEmbed,
   buildScoreboardPage,
+  buildScoreboardComponents,
   buildScoreboardEmbedDirect,
   buildScoreboardEmbed,
   buildEntryEmbed,

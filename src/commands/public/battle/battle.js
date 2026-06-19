@@ -1,16 +1,30 @@
-const {
-  SlashCommandBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  ActionRowBuilder,
-} = require("discord.js");
-const prisma = require("../../../lib/prisma");
-const {
-  getSignup,
-  buildBattleSignupEmbed,
-  battleSignupButtons,
-} = require("../../../modules/battleSignup/service");
+"use strict";
+
+const { SlashCommandBuilder } = require("discord.js");
+
+/**
+ * Battle signups are now handled by the event system.
+ * Use: /event create type:battle
+ *
+ * This command is kept as a stub to guide users.
+ */
+module.exports = {
+  scope: "PUBLIC",
+  enabled: false, // disabled — handled by /event create type:battle
+  data: new SlashCommandBuilder()
+    .setName("battle")
+    .setDescription("[Moved] Battle signups are now part of /event create."),
+
+  async execute(interaction) {
+    return interaction.reply({
+      content:
+        "⚔️ **Battle signups have moved!**\n" +
+        "Use `/event create` and choose **type: Battle** to create a battle signup.\n\n" +
+        "All the same features are there — RSVP, reminders, role pings, and images.",
+      ephemeral: true,
+    });
+  },
+};
 
 module.exports = {
   scope: "PUBLIC",
