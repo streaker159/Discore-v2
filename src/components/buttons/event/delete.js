@@ -1,190 +1,157 @@
 "use strict";
 
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require("discord.js");
 const prisma = require("../../../lib/prisma");
+const { notificationQueue } = require("../../../lib/queue");
 const {
   getEvent,
   buildEventEmbed,
-  closeEvent,
   eventButtons,
+  closeEvent,
 } = require("../../../modules/events/service");
 
-/**
- * Hard-delete all DB rows for an event and optionally delete the Discord message.
- */
-async function hardDelete(eventId, interaction) {
-  await prisma.eventReminder.deleteMany({ where: { eventId } }).catch(() => {});
-  await prisma.eventNotificationLog
-    .deleteMany({ where: { eventId } })
+function canManageEvent(interaction, event) {
+  if (event.createdBy === interaction.user.id) return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return true;
+  return false;
+}
+
+async function hardDelete(eventId) {
+  await prisma
+    .$transaction([
+      prisma.eventReminder.deleteMany({ where: { eventId } }),
+      prisma.eventNotificationLog.deleteMany({ where: { eventId } }),
+      prisma.eventRsvp.deleteMany({ where: { eventId } }),
+      prisma.event.delete({ where: { id: eventId } }),
+    ])
     .catch(() => {});
-  await prisma.eventRsvp.deleteMany({ where: { eventId } }).catch(() => {});
-  await prisma.event.delete({ where: { id: eventId } }).catch(() => {});
 }
 
 // customId: event:delete:{eventId}
-// customId for confirm: event:delete:confirm:{eventId}
+// customId confirm: event:delete:confirm:{eventId}
+// customId dismiss: event:delete:cancel:{eventId}
 module.exports = {
   customIdPrefix: "event:delete:",
+
   async execute(interaction) {
     const parts = interaction.customId.split(":");
 
-    // ── confirm step (for UPCOMING events only) ──────────────────────────
+    // Dismiss — user clicked "No, keep it"
+    if (parts[2] === "cancel") {
+      return interaction.update({
+        content: "OK, the event was kept.",
+        components: [],
+        embeds: [],
+      });
+    }
+
+    // Confirm step (event:delete:confirm:{eventId})
     if (parts[2] === "confirm" && parts[3]) {
       const eventId = parts[3];
       const event = await getEvent(eventId);
       if (!event)
-        return interaction.reply({
-          content: "⚠️ Event not found.",
-          ephemeral: true,
+        return interaction.update({
+          content: "Event not found — it may already have been deleted.",
+          components: [],
+          embeds: [],
         });
 
-      if (
-        event.createdBy !== interaction.user.id &&
-        !interaction.memberPermissions?.has(8n)
-      ) {
+      if (!canManageEvent(interaction, event)) {
         return interaction.reply({
-          content:
-            "🚫 Only the event creator or an admin can delete this event.",
+          content: "Only the event creator or a server admin (Manage Server / Administrator) can do that.",
           ephemeral: true,
         });
       }
 
-      // Update embed to CANCELLED then hard-delete DB rows
-      const embed = await buildEventEmbed(interaction, {
-        ...event,
-        status: "CANCELLED",
+      // Mark CANCELLED — keep the embed visible but greyed out, strip buttons to Refresh only
+      await closeEvent(eventId, "CANCELLED");
+      const cancelled = await getEvent(eventId);
+      const embed = await buildEventEmbed(interaction, cancelled);
+      const isEnded = true;
+
+      // Update the original event message in the channel
+      let originalMsg = null;
+      if (event.channelId && event.messageId) {
+        try {
+          const ch =
+            interaction.guild.channels.cache.get(event.channelId) ??
+            (await interaction.guild.channels.fetch(event.channelId).catch(() => null));
+          if (ch) {
+            originalMsg = await ch.messages.fetch(event.messageId).catch(() => null);
+            if (originalMsg) {
+              await originalMsg
+                .edit({
+                  embeds: [embed],
+                  components: eventButtons(eventId, isEnded, event.eventType, event.teamSize),
+                })
+                .catch(() => {});
+            }
+
+            // Send cancellation ping — queue it so we don't spam the API
+            const roles = event.tagRoleIds ?? [];
+            const pingStr = roles.length
+              ? roles.map((id) => `<@&${id}>`).join(" ") + " "
+              : "";
+            notificationQueue.add(() =>
+              ch
+                .send({
+                  content: `${pingStr}**${event.title}** has been cancelled.`,
+                  allowedMentions: roles.length ? { roles } : { parse: [] },
+                })
+                .catch(() => {}),
+            );
+          }
+        } catch {
+          // channel/message may be gone — no problem
+        }
+      }
+
+      // Dismiss the ephemeral confirmation prompt
+      return interaction.update({
+        content: `Event **${event.title}** has been marked as cancelled and all attendees notified.`,
+        components: [],
+        embeds: [],
       });
-      await interaction.update({ embeds: [embed], components: [] });
-      await hardDelete(eventId, interaction);
-      return;
     }
 
-    // ── initial click ─────────────────────────────────────────────────────
+    // Initial click — show confirmation dialog
     const eventId = parts[2];
     const event = await getEvent(eventId);
     if (!event)
-      return interaction.reply({
-        content: "⚠️ Event not found.",
-        ephemeral: true,
-      });
+      return interaction.reply({ content: "Event not found.", ephemeral: true });
 
-    if (
-      event.createdBy !== interaction.user.id &&
-      !interaction.memberPermissions?.has(8n)
-    ) {
+    if (!canManageEvent(interaction, event)) {
       return interaction.reply({
-        content: "🚫 Only the event creator or an admin can delete this event.",
+        content: "Only the event creator or a server admin (Manage Server / Administrator) can cancel this event.",
         ephemeral: true,
       });
     }
 
-    // ── LIVE events: no confirmation — just wipe DB and delete message ────
+    // LIVE events — no confirmation needed, immediate cancel + notify
     if (event.status === "LIVE") {
-      await hardDelete(eventId, interaction);
-      // Delete the Discord message entirely (the embed disappears)
+      await hardDelete(eventId);
       await interaction.message.delete().catch(() => {});
       return interaction.reply({
-        content: "🗑️ Event embed removed and all data deleted.",
+        content: "Event embed removed and all data deleted.",
         ephemeral: true,
       });
     }
 
-    // ── UPCOMING: ask for confirmation ────────────────────────────────────
-    const {
-      ActionRowBuilder,
-      ButtonBuilder,
-      ButtonStyle,
-    } = require("discord.js");
+    // UPCOMING — confirmation dialog
     const confirmRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`event:delete:confirm:${eventId}`)
         .setLabel("Yes, cancel it")
-        .setEmoji("🗑️")
         .setStyle(ButtonStyle.Danger),
-    );
-
-    await interaction.reply({
-      content: `⚠️ Are you sure you want to cancel **${event.title}**? The embed will be updated to Cancelled and all data removed.`,
-      components: [confirmRow],
-      ephemeral: true,
-    });
-  },
-};
-
-// customId: event:delete:{eventId}
-// customId for confirm: event:delete:confirm:{eventId}
-module.exports = {
-  customIdPrefix: "event:delete:",
-  async execute(interaction) {
-    const parts = interaction.customId.split(":");
-
-    // ── confirm step ─────────────────────────────────────────────────────
-    if (parts[3] && parts[2] === "confirm") {
-      // event:delete:confirm:{eventId}
-      const eventId = parts[3];
-      const event = await getEvent(eventId);
-      if (!event)
-        return interaction.reply({
-          content: "⚠️ Event not found.",
-          ephemeral: true,
-        });
-
-      if (
-        event.createdBy !== interaction.user.id &&
-        !interaction.memberPermissions?.has(8n)
-      ) {
-        return interaction.reply({
-          content:
-            "🚫 Only the event creator or an admin can delete this event.",
-          ephemeral: true,
-        });
-      }
-
-      // Edit the original message to a "deleted" state and remove buttons
-      const embed = await buildEventEmbed(interaction, {
-        ...event,
-        status: "CANCELLED",
-      });
-      await interaction.update({ embeds: [embed], components: [] });
-
-      // Schedule for cleanup instead of hard-deleting immediately
-      await closeEvent(eventId, "CANCELLED");
-      return;
-    }
-
-    // ── initial click — ask for confirm ──────────────────────────────────
-    const eventId = parts[2];
-    const event = await getEvent(eventId);
-    if (!event)
-      return interaction.reply({
-        content: "⚠️ Event not found.",
-        ephemeral: true,
-      });
-
-    if (
-      event.createdBy !== interaction.user.id &&
-      !interaction.memberPermissions?.has(8n)
-    ) {
-      return interaction.reply({
-        content: "🚫 Only the event creator or an admin can delete this event.",
-        ephemeral: true,
-      });
-    }
-
-    const {
-      ActionRowBuilder,
-      ButtonBuilder,
-      ButtonStyle,
-    } = require("discord.js");
-    const confirmRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`event:delete:confirm:${eventId}`)
-        .setLabel("Yes, delete it")
-        .setEmoji("🗑️")
-        .setStyle(ButtonStyle.Danger),
+        .setCustomId(`event:delete:cancel:${eventId}`)
+        .setLabel("No, keep it")
+        .setStyle(ButtonStyle.Secondary),
     );
 
-    await interaction.reply({
-      content: `⚠️ Are you sure you want to delete **${event.title}**? This cannot be undone.`,
+    return interaction.reply({
+      content: `Are you sure you want to cancel **${event.title}**?\nThe embed will be updated to Cancelled and all tagged roles will be notified.`,
       components: [confirmRow],
       ephemeral: true,
     });

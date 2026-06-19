@@ -1,11 +1,21 @@
 const { parseDateTime, detectTimezone } = require("../../../lib/timeParser");
 const { getGuildSettings } = require("../../../lib/embedBuilder");
+const { PermissionFlagsBits } = require("discord.js");
 const {
   getEvent,
   updateEvent,
   buildEventEmbed,
   eventButtons,
 } = require("../../../modules/events/service");
+
+function canManageEvent(interaction, event) {
+  if (event.createdBy === interaction.user.id) return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator))
+    return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+    return true;
+  return false;
+}
 
 // customId format: event:edit:modal:{eventId}
 module.exports = {
@@ -18,12 +28,10 @@ module.exports = {
     if (!event)
       return interaction.editReply({ content: "⚠️ Event not found." });
 
-    if (
-      event.createdBy !== interaction.user.id &&
-      !interaction.memberPermissions?.has(8n)
-    ) {
+    if (!canManageEvent(interaction, event)) {
       return interaction.editReply({
-        content: "🚫 Only the event creator or an admin can edit this event.",
+        content:
+          "Only the event creator or a server admin (Manage Server / Administrator) can edit this event.",
       });
     }
 

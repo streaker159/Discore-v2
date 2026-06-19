@@ -158,6 +158,22 @@ module.exports = {
         )
         .addStringOption((o) =>
           o
+            .setName("delete_after")
+            .setDescription(
+              "How long after the event starts before the embed is auto-deleted (default: 7 days)",
+            )
+            .addChoices(
+              { name: "Immediately when event starts", value: "0" },
+              { name: "1 hour after start", value: "1" },
+              { name: "6 hours after start", value: "6" },
+              { name: "12 hours after start", value: "12" },
+              { name: "1 day after start", value: "24" },
+              { name: "3 days after start", value: "72" },
+              { name: "7 days after start", value: "168" },
+            ),
+        )
+        .addStringOption((o) =>
+          o
             .setName("color")
             .setDescription("Embed accent color (optional)")
             .addChoices(
@@ -217,10 +233,126 @@ module.exports = {
             .setDescription("Event number (e.g. #1042) or public ID")
             .setRequired(true),
         ),
+    )
+
+    // ── delete (admin) ──────────────────────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("delete")
+        .setDescription(
+          "[Admin] Permanently delete an event and all its data by ID.",
+        )
+        .addStringOption((o) =>
+          o
+            .setName("id")
+            .setDescription("Event number (e.g. #1004) or public ID")
+            .setRequired(true),
+        ),
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
+
+    // ── delete (admin) ───────────────────────────────────────────────────────
+    if (sub === "delete") {
+      // Require ManageGuild or Administrator
+      if (
+        !interaction.memberPermissions?.has(8n) &&
+        !interaction.memberPermissions?.has(
+          require("discord.js").PermissionFlagsBits.ManageGuild,
+        )
+      ) {
+        return interaction.reply({
+          content: "🚫 You need **Manage Server** permission to use this.",
+          ephemeral: true,
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const rawId = interaction.options.getString("id", true).replace(/^#/, "");
+
+      // Try by eventNumber first, then by id/publicId
+      let event = null;
+      const asNum = parseInt(rawId, 10);
+      if (!isNaN(asNum)) {
+        event = await prisma.event.findFirst({
+          where: { guildId: interaction.guildId, eventNumber: asNum },
+          select: {
+            id: true,
+            title: true,
+            eventNumber: true,
+            publicId: true,
+            channelId: true,
+            messageId: true,
+            status: true,
+            guildId: true,
+          },
+        });
+      }
+      if (!event) {
+        event = await prisma.event.findFirst({
+          where: {
+            guildId: interaction.guildId,
+            OR: [{ id: rawId }, { publicId: rawId }],
+          },
+          select: {
+            id: true,
+            title: true,
+            eventNumber: true,
+            publicId: true,
+            channelId: true,
+            messageId: true,
+            status: true,
+            guildId: true,
+          },
+        });
+      }
+
+      if (!event) {
+        return interaction.editReply({
+          content:
+            "⚠️ Event not found. Use the event number (e.g. `#1004`) or public ID.",
+        });
+      }
+
+      // Best-effort: delete the Discord embed
+      if (event.channelId && event.messageId) {
+        try {
+          const ch =
+            interaction.guild.channels.cache.get(event.channelId) ??
+            (await interaction.guild.channels
+              .fetch(event.channelId)
+              .catch(() => null));
+          if (ch) {
+            const msg = await ch.messages
+              .fetch(event.messageId)
+              .catch(() => null);
+            if (msg) await msg.delete().catch(() => {});
+          }
+        } catch {
+          // ignore — message/channel may already be gone
+        }
+      }
+
+      // Hard-delete all DB rows
+      await prisma
+        .$transaction([
+          prisma.eventReminder.deleteMany({ where: { eventId: event.id } }),
+          prisma.eventNotificationLog.deleteMany({
+            where: { eventId: event.id },
+          }),
+          prisma.eventRsvp.deleteMany({ where: { eventId: event.id } }),
+          prisma.event.delete({ where: { id: event.id } }),
+        ])
+        .catch(() => {});
+
+      const idLabel = event.eventNumber
+        ? `#${event.eventNumber}`
+        : (event.publicId ?? event.id.slice(0, 6));
+      return interaction.editReply({
+        content: `🗑️ **${event.title}** (${idLabel}) has been permanently deleted — all RSVP data and reminders removed.`,
+      });
+    }
 
     // ── show ─────────────────────────────────────────────────────────────────
     if (sub === "show") {
@@ -324,6 +456,10 @@ module.exports = {
     const tagOnStart = interaction.options.getBoolean("tag_on_start") ?? false;
     const reminderStr = interaction.options.getString("reminder_before") ?? "0";
     const reminderMin = parseInt(reminderStr, 10) || 0;
+    const deleteAfterHours = parseInt(
+      interaction.options.getString("delete_after") ?? "168",
+      10,
+    );
     const thumbAttach = interaction.options.getAttachment("thumbnail");
     const imgAttach = interaction.options.getAttachment("image");
 
@@ -388,6 +524,9 @@ module.exports = {
       tagOnCreate,
       tagOnStart,
       reminderBeforeMinutes: reminderMin > 0 ? reminderMin : null,
+      cleanupAfter: new Date(
+        parsed.date.getTime() + deleteAfterHours * 60 * 60 * 1000,
+      ),
       thumbnailUrl: thumbAttach?.url ?? null,
       imageUrl: imgAttach?.url ?? null,
     });
@@ -442,6 +581,9 @@ module.exports = {
         reminderMin > 0
           ? `⏰ Channel reminder set for ${remLabel} before start`
           : null,
+        deleteAfterHours === 0
+          ? `🗑️ Embed will be deleted immediately when event starts`
+          : `🗑️ Embed auto-deletes ${deleteAfterHours < 24 ? `${deleteAfterHours}h` : `${deleteAfterHours / 24}d`} after start`,
       ]
         .filter(Boolean)
         .join("\n") || "No pings configured";

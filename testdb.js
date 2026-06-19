@@ -1,9 +1,10 @@
 require("dotenv").config();
 const { PrismaClient } = require("@prisma/client");
 const p = new PrismaClient();
-p.guild
-  .upsert({
-    where: { id: "1366566263048110125" },
+const q = "SELECT column_name FROM information_schema.columns WHERE table_name='Event' ORDER BY column_name";
+p.$queryRawUnsafe(q)
+  .then(r => { console.log("COLUMNS:", r.map(c=>c.column_name).join(", ")); p.$disconnect(); })
+  .catch(e => { console.error("ERROR:", e.message); p.$disconnect(); });
     update: {},
     create: { id: "1366566263048110125" },
   })

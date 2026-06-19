@@ -28,7 +28,9 @@ class SimpleQueue {
 }
 
 module.exports = {
-  broadcastQueue: new SimpleQueue('broadcast', 1500),
-  reminderQueue: new SimpleQueue('reminder', 1000),
-  rankingQueue: new SimpleQueue('ranking', 2000),
+  broadcastQueue: new SimpleQueue("broadcast", 1500),
+  reminderQueue: new SimpleQueue("reminder", 1000),
+  rankingQueue: new SimpleQueue("ranking", 2000),
+  // Used for DM notifications — 600ms between each send keeps well under Discord's rate limits
+  notificationQueue: new SimpleQueue("notification", 600),
 };

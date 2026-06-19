@@ -3,8 +3,18 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  PermissionFlagsBits,
 } = require("discord.js");
 const { getEvent } = require("../../../modules/events/service");
+
+function canManageEvent(interaction, event) {
+  if (event.createdBy === interaction.user.id) return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator))
+    return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))
+    return true;
+  return false;
+}
 
 // customId: event:edit:{eventId}
 // Note: event:edit:modal: is handled separately in modals/event/editEvent.js
@@ -19,12 +29,10 @@ module.exports = {
         ephemeral: true,
       });
 
-    if (
-      event.createdBy !== interaction.user.id &&
-      !interaction.memberPermissions?.has(8n)
-    ) {
+    if (!canManageEvent(interaction, event)) {
       return interaction.reply({
-        content: "🚫 Only the event creator or an admin can edit this event.",
+        content:
+          "Only the event creator or a server admin (Manage Server / Administrator) can edit this event.",
         ephemeral: true,
       });
     }

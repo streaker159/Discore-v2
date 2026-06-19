@@ -21,13 +21,13 @@ function genPublicId() {
 // -----------------------------------------------------------------------------
 
 const EVENT_TYPES = {
-  EVENT: { icon: "??", label: "Event", color: 0x5865f2 },
-  BATTLE: { icon: "??", label: "Game Sign-On", color: 0xe74c3c },
-  TEAM: { icon: "???", label: "Team Event", color: 0x9b59b6 },
-  COMMUNITY: { icon: "??", label: "Community Event", color: 0x27ae60 },
-  TRAINING: { icon: "??", label: "Training", color: 0xf39c12 },
-  GAME_START: { icon: "??", label: "Game Start", color: 0x1abc9c },
-  CUSTOM: { icon: "??", label: "Custom", color: 0x5865f2 },
+  EVENT: { icon: "📅", label: "Event", color: 0x5865f2 },
+  BATTLE: { icon: "⚔️", label: "Game Sign-On", color: 0xe74c3c },
+  TEAM: { icon: "🛡️", label: "Team Event", color: 0x9b59b6 },
+  COMMUNITY: { icon: "🌍", label: "Community Event", color: 0x27ae60 },
+  TRAINING: { icon: "🎯", label: "Training", color: 0xf39c12 },
+  GAME_START: { icon: "🚀", label: "Game Start", color: 0x1abc9c },
+  CUSTOM: { icon: "📌", label: "Custom", color: 0x5865f2 },
 };
 
 const COLOR_PRESETS = {
@@ -51,11 +51,11 @@ const STATUS_COLORS = {
 };
 
 const STATUS_LABELS = {
-  UPCOMING: "?? Upcoming",
-  LIVE: "?? Live Now",
-  COMPLETED: "? Completed",
-  CANCELLED: "?? Cancelled",
-  EXPIRED: "? Expired",
+  UPCOMING: "🔵 Upcoming",
+  LIVE: "🟢 Live Now",
+  COMPLETED: "✅ Completed",
+  CANCELLED: "🚫 Cancelled",
+  EXPIRED: "⌛ Expired",
 };
 
 function getEventColor(event) {
@@ -101,9 +101,14 @@ async function updateEvent(eventId, data) {
 }
 
 async function closeEvent(eventId, status = "COMPLETED") {
-  const cleanupAfter = new Date(
-    Date.now() + CLEANUP_DAYS * 24 * 60 * 60 * 1000,
-  );
+  // Respect cleanupAfter already chosen at event creation; fall back to default
+  const existing = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { cleanupAfter: true },
+  });
+  const cleanupAfter =
+    existing?.cleanupAfter ??
+    new Date(Date.now() + CLEANUP_DAYS * 24 * 60 * 60 * 1000);
   return prisma.event.update({
     where: { id: eventId },
     data: { status, cleanupAfter },
@@ -190,7 +195,7 @@ function rsvpList(event, status, max = 8) {
   const items = event.rsvps
     .filter((r) => r.status === status)
     .map((r) => `<@${r.userId}>`);
-  if (!items.length) return "*�*";
+  if (!items.length) return "*none*";
   const shown = items.slice(0, max).join(" ");
   return items.length > max ? `${shown}\n*+${items.length - max} more*` : shown;
 }
@@ -215,117 +220,119 @@ async function buildEventEmbed(guildIdOrInteraction, event) {
   const isBattle = event.eventType === "BATTLE";
   const fields = [];
 
-  // -- Row 1: Status / Type / When -----------------------------
+  // ── Row 1: Status | Type | When ──────────────────────────────────────────
   fields.push({
-    name: "?? Status",
+    name: "Status",
     value: STATUS_LABELS[event.status] ?? "Unknown",
     inline: true,
   });
 
-  const typeLines = [`${icon} ${label}`];
-  if (event.game) typeLines.push(`?? ${event.game}`);
-  fields.push({ name: "??? Type", value: typeLines.join("\n"), inline: true });
+  const typeVal = [
+    `${icon} ${label}`,
+    event.game ? `🎮 ${event.game}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  fields.push({ name: "Type", value: typeVal, inline: true });
 
   fields.push({
-    name: "?? When",
+    name: "When",
     value: `<t:${unix}:F>\n<t:${unix}:R>`,
     inline: true,
   });
 
-  // -- Row 2: Location / Reminder -------------------------------
+  // ── Row 2: Location | Reminder (optional inline pair) ────────────────────
   if (event.location) {
     const locVal = event.location.startsWith("http")
-      ? `[?? Open link](${event.location})`
-      : `?? ${event.location}`;
-    fields.push({ name: "?? Location", value: locVal, inline: true });
+      ? `[🔗 Open link](${event.location})`
+      : `📍 ${event.location}`;
+    fields.push({ name: "📍 Location", value: locVal, inline: true });
   }
   if (!isEnded && event.reminderBeforeMinutes) {
     const m = event.reminderBeforeMinutes;
     fields.push({
-      name: "?? Channel Reminder",
+      name: "⏰ Channel Reminder",
       value: `${m >= 60 ? `${m / 60}h` : `${m}m`} before start`,
       inline: true,
     });
   }
 
-  // -- Battle slot indicator ----------------------------------
+  // ── Battle slot bar ───────────────────────────────────────────────────────
   if (!isEnded && isBattle && event.teamSize) {
-    const filled = going;
-    const slots = event.teamSize;
-    const bar = buildSlotBar(filled, slots);
+    const bar = buildSlotBar(going, event.teamSize);
     fields.push({
-      name: "?? Slots",
-      value: `${bar}\n**${filled} / ${slots}** signed on`,
+      name: "⚔️ Slots",
+      value: `${bar}\n**${going} / ${event.teamSize}** signed on`,
       inline: false,
     });
   }
 
-  // -- RSVP sections ------------------------------------------
+  // ── RSVP sections ─────────────────────────────────────────────────────────
   if (!isEnded) {
     if (isBattle) {
-      // Battle: Available / Reserve / Not Available
       fields.push({
-        name: `? Available (${going}${event.teamSize ? `/${event.teamSize}` : ""})`,
+        name: `✅ Available (${going}${event.teamSize ? `/${event.teamSize}` : ""})`,
         value: rsvpList(event, "GOING"),
         inline: false,
       });
-      if (maybe > 0) {
+      if (maybe > 0)
         fields.push({
-          name: `?? Reserve (${maybe})`,
+          name: `🔄 Reserve (${maybe})`,
           value: rsvpList(event, "MAYBE"),
           inline: true,
         });
-      }
-      if (notGoing > 0) {
+      if (notGoing > 0)
         fields.push({
-          name: `? Not Available (${notGoing})`,
+          name: `❌ Not Available (${notGoing})`,
           value: rsvpList(event, "NOT_GOING"),
           inline: true,
         });
-      }
     } else {
-      // Regular events: Going / Maybe / Not Going
       fields.push({
-        name: `? Going (${going})`,
+        name: `✅ Going (${going})`,
         value: rsvpList(event, "GOING"),
         inline: false,
       });
-      if (maybe > 0) {
+      if (maybe > 0)
         fields.push({
-          name: `?? Maybe (${maybe})`,
+          name: `🤔 Maybe (${maybe})`,
           value: rsvpList(event, "MAYBE"),
           inline: true,
         });
-      }
-      if (notGoing > 0) {
+      if (notGoing > 0)
         fields.push({
-          name: `? Not Going (${notGoing})`,
+          name: `❌ Not Going (${notGoing})`,
           value: rsvpList(event, "NOT_GOING"),
           inline: true,
         });
-      }
     }
   } else {
     const goingLabel = isBattle ? "signed on" : "went";
     fields.push({
-      name: "?? Final Attendance",
-      value: `? **${going}** ${goingLabel}  �  ?? **${maybe}** reserve  �  ? **${notGoing}** declined`,
+      name: "📋 Final Attendance",
+      value: [
+        `✅ **${going}** ${goingLabel}`,
+        maybe > 0 ? `🔄 **${maybe}** reserve` : null,
+        notGoing > 0 ? `❌ **${notGoing}** declined` : null,
+      ]
+        .filter(Boolean)
+        .join("  •  "),
       inline: false,
     });
   }
 
-  // -- Build footer -------------------------------------------
+  // ── Footer ───────────────────────────────────────────────────────────────
   const footerParts = ["Powered by Discore"];
   if (event.eventNumber) footerParts.push(`#${event.eventNumber}`);
   else if (event.publicId) footerParts.push(`ID: ${event.publicId}`);
   if (event.timezoneUsed && event.timezoneUsed !== "UTC")
-    footerParts.push(`?? ${event.timezoneUsed}`);
+    footerParts.push(`🌍 ${event.timezoneUsed}`);
 
   const embed = new EmbedBuilder()
     .setTitle(`${icon} ${label}: ${event.title}`)
     .setColor(color)
     .addFields(fields)
-    .setFooter({ text: footerParts.join("  �  ") })
+    .setFooter({ text: footerParts.join(" • ") })
     .setTimestamp();
 
   if (event.description) embed.setDescription(event.description);
@@ -336,13 +343,13 @@ async function buildEventEmbed(guildIdOrInteraction, event) {
   return embed;
 }
 
-/** Visual slot progress bar � 10 segments */
+/** Visual slot-fill bar — 10 segments using block characters */
 function buildSlotBar(filled, total) {
   if (!total || total <= 0) return "";
   const pct = Math.min(1, filled / total);
-  const filled_segments = Math.round(pct * 10);
-  const bar = "�".repeat(filled_segments) + "�".repeat(10 - filled_segments);
-  return `\`${bar}\``;
+  const on = Math.round(pct * 10);
+  const bar = "█".repeat(on) + "░".repeat(10 - on);
+  return `\`[${bar}]\``;
 }
 
 function buildEventReminderEmbed(event, minsUntil) {
@@ -354,27 +361,20 @@ function buildEventReminderEmbed(event, minsUntil) {
       ? "**starting now!**"
       : `in **${minsUntil} minute${minsUntil !== 1 ? "s" : ""}**`;
 
-  const title = isBattle
-    ? `?? Battle Starting Soon!`
-    : `? ${label} Starting Soon!`;
-
   const embed = new EmbedBuilder()
     .setColor(isBattle ? 0xe74c3c : 0xf1c40f)
-    .setTitle(title)
+    .setTitle(`⏰ ${isBattle ? "Battle" : label} Starting Soon!`)
     .setDescription(`**${icon} ${event.title}**\n\nStarts ${timeStr}`)
-    .addFields({
-      name: "When",
-      value: `<t:${unix}:F>\n<t:${unix}:R>`,
-      inline: false,
-    })
+    .addFields({ name: "When", value: `<t:${unix}:F>\n<t:${unix}:R>`, inline: false })
     .setFooter({ text: "Powered by Discore" })
     .setTimestamp();
 
   if (event.location)
-    embed.addFields({ name: "Location", value: event.location, inline: false });
+    embed.addFields({ name: "📍 Location", value: event.location, inline: false });
   if (event.thumbnailUrl) embed.setThumbnail(event.thumbnailUrl);
   return embed;
 }
+
 
 // -----------------------------------------------------------------------------
 // Button builders
@@ -401,14 +401,12 @@ function eventButtons(
   teamSize = null,
   isLive = false,
 ) {
-  // LIVE — all interaction disabled, only a delete-embed button
   if (isLive) {
     return [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`event:delete:${eventId}`)
           .setLabel("Delete Embed")
-          .setEmoji("🗑️")
           .setStyle(ButtonStyle.Danger),
       ),
     ];
@@ -419,7 +417,6 @@ function eventButtons(
         new ButtonBuilder()
           .setCustomId(`event:refresh:${eventId}`)
           .setLabel("Refresh")
-          .setEmoji("🔄")
           .setStyle(ButtonStyle.Secondary),
       ),
     ];
@@ -427,77 +424,63 @@ function eventButtons(
 
   const isBattle = eventType === "BATTLE";
 
-  // Row 1 � RSVP buttons (vary by type)
   const rsvpRow = new ActionRowBuilder().addComponents(
     isBattle
       ? [
           new ButtonBuilder()
             .setCustomId(`event:rsvp:going:${eventId}`)
             .setLabel("Available")
-            .setEmoji("?")
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
             .setCustomId(`event:rsvp:not:${eventId}`)
             .setLabel("Not Available")
-            .setEmoji("?")
             .setStyle(ButtonStyle.Danger),
           new ButtonBuilder()
             .setCustomId(`event:rsvp:maybe:${eventId}`)
             .setLabel("Reserve")
-            .setEmoji("??")
             .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
             .setCustomId(`event:remind:${eventId}`)
             .setLabel("Remind Me")
-            .setEmoji("??")
             .setStyle(ButtonStyle.Primary),
         ]
       : [
           new ButtonBuilder()
             .setCustomId(`event:rsvp:going:${eventId}`)
             .setLabel("Going")
-            .setEmoji("?")
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
             .setCustomId(`event:rsvp:maybe:${eventId}`)
             .setLabel("Maybe")
-            .setEmoji("??")
             .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
             .setCustomId(`event:rsvp:not:${eventId}`)
             .setLabel("Not Going")
-            .setEmoji("?")
             .setStyle(ButtonStyle.Danger),
           new ButtonBuilder()
             .setCustomId(`event:remind:${eventId}`)
             .setLabel("Remind Me")
-            .setEmoji("??")
             .setStyle(ButtonStyle.Primary),
         ],
   );
 
-  // Row 2 � Management
   const mgmtRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`event:refresh:${eventId}`)
       .setLabel("Refresh")
-      .setEmoji("??")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`event:edit:${eventId}`)
       .setLabel("Edit")
-      .setEmoji("??")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`event:delete:${eventId}`)
       .setLabel("Cancel")
-      .setEmoji("???")
       .setStyle(ButtonStyle.Danger),
   );
 
   return [rsvpRow, mgmtRow];
 }
-
 module.exports = {
   createEvent,
   updateEvent,

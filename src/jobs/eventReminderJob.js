@@ -1,7 +1,7 @@
 "use strict";
 
 const prisma = require("../lib/prisma");
-const { reminderQueue } = require("../lib/queue");
+const { reminderQueue, notificationQueue } = require("../lib/queue");
 const {
   buildEventEmbed,
   buildEventReminderEmbed,
@@ -14,7 +14,7 @@ const logger = require("../lib/logger");
 /** Format tagRoleIds array into a ping string */
 function rolePing(roleIds) {
   if (!Array.isArray(roleIds) || !roleIds.length) return null;
-  return roleIds.map((id) => `<@&${id}>`).join(" ") + " �";
+  return roleIds.map((id) => `<@&${id}>`).join(" ");
 }
 
 module.exports = {
@@ -146,25 +146,27 @@ module.exports = {
 
             if (event.tagRoleIds?.length && event.tagOnStart) {
               const { icon, label } = getTypeInfo(event);
-              await ch
-                .send({
-                  content: `${event.tagRoleIds.map((id) => `<@&${id}>`).join(" ")} � ${icon} **${label}: ${event.title}** is starting now!`,
-                  allowedMentions: { roles: event.tagRoleIds },
-                })
-                .catch(() => {});
+              notificationQueue.add(() =>
+                ch
+                  .send({
+                    content: `${event.tagRoleIds.map((id) => `<@&${id}>`).join(" ")} — ${icon} **${label}: ${event.title}** is starting now!`,
+                    allowedMentions: { roles: event.tagRoleIds },
+                  })
+                  .catch(() => {}),
+              );
             }
           }
 
-          // DM going users that it's starting
+          // DM going/maybe users — each gets its own queue slot (600ms apart)
           const goingUsers = liveEvent.rsvps
             .filter((r) => r.status === "GOING" || r.status === "MAYBE")
             .map((r) => r.userId);
+          const dmEmbed = buildEventReminderEmbed(event, 0);
           for (const userId of goingUsers) {
-            const user = await client.users.fetch(userId).catch(() => null);
-            if (user)
-              await user
-                .send({ embeds: [buildEventReminderEmbed(event, 0)] })
-                .catch(() => {});
+            notificationQueue.add(async () => {
+              const user = await client.users.fetch(userId).catch(() => null);
+              if (user) await user.send({ embeds: [dmEmbed] }).catch(() => {});
+            });
           }
 
           logger.info("eventReminderJob: transitioned to LIVE", {
@@ -192,7 +194,6 @@ module.exports = {
             .fetch(reminder.userId)
             .catch(() => null);
           if (user && reminder.event) {
-            // Calculate actual minutes remaining until the event starts
             const minsUntil = Math.max(
               0,
               Math.round(
@@ -201,7 +202,7 @@ module.exports = {
               ),
             );
             const embed = buildEventReminderEmbed(reminder.event, minsUntil);
-            embed.setTitle("?? Your Event Reminder");
+            embed.setTitle("\u23F0 Your Event Reminder");
             await user.send({ embeds: [embed] }).catch(() => {});
           }
           await prisma.eventReminder.update({
