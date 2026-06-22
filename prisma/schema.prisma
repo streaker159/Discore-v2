@@ -15,16 +15,34 @@ model Guild {
   defaultGame       String?
   timezone          String    @default("UTC")
   allianceName      String?
+  allianceCode      String?   @unique         // 1-6 chars A-Z0-9 for AvA matching
   allianceLogo      String?
   themeColor        String    @default("#1a7a9e")
   scoreboardChan    String?
-  adminLogChan      String?
+  logChannelId      String?                   // Replaces adminLogChan
+  adminLogChan      String?                   // DEPRECATED - use logChannelId
   premiumNoticeChan String?
   battleSignupChan        String?
   language                String    @default("en")
   customFooter            String?
   scoreboardManagerRoleId String?
   disAdminRoleId          String?
+  
+  // AvA Configuration
+  avaCategoryId           String?
+  avaRequestChannelId     String?
+  avaChatChannelId        String?
+  avaAlertRoleId          String?
+  
+  // Required Roles
+  discoreManagerRoleId    String?
+  discoreAvaRoleId        String?
+  discoreAppealRoleId     String?
+  discoreMutedRoleId      String?
+  
+  // Maintenance
+  maintainRolesAndChannels Boolean  @default(true)
+  
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -34,8 +52,14 @@ model Guild {
   battleSignups     BattleSignup[]
   suggestions       Suggestion[]
   auditLogs         AuditLog[]
+  moderationCases   ModerationCase[]
+  appeals           Appeal[]
+  autoModRules      AutoModRule[]
+  autoModCases      AutoModCase[]
+  userActivities    UserActivity[]
 
   @@index([id])
+  @@index([allianceCode])
 }
 
 // ── PREMIUM ──────────────────────────────────────────────
@@ -734,4 +758,200 @@ model BattleReminder {
 
   @@unique([signupId, userId])
   @@index([remindAt, sent])
+}
+
+// ── USER ACTIVITY TRACKING ────────────────────────────────
+
+model UserActivity {
+  id                    String    @id @default(cuid())
+  guildId               String
+  guild                 Guild     @relation(fields: [guildId], references: [id])
+  userId                String
+  lastMessageAt         DateTime?
+  lastReactionAt        DateTime?
+  lastInteractionAt     DateTime?
+  lastActiveAt          DateTime?
+  activeDayStreak       Int       @default(0)
+  lastActiveDate        DateTime?
+  mostActiveChannelId   String?
+  mostUsedReaction      String?
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([guildId, userId])
+  @@index([guildId, userId])
+  @@index([lastActiveAt])
+}
+
+// ── MODERATION SYSTEM ─────────────────────────────────────
+
+model ModerationCase {
+  id              String         @id @default(cuid())
+  publicId        String         @unique  // MOD-xxxxx
+  guildId         String
+  guild           Guild          @relation(fields: [guildId], references: [id])
+  userId          String
+  moderatorId     String
+  actionType      ModActionType
+  reason          String         @db.Text
+  durationSeconds Int?
+  expiresAt       DateTime?
+  status          CaseStatus     @default(ACTIVE)
+  appealStatus    AppealStatus?  // Track appeal state
+  staffNote       String?        @db.Text  // Internal staff notes
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  revokedAt       DateTime?
+  revokedBy       String?
+
+  appeals         Appeal[]
+  roleSnapshot    UserRoleSnapshot?
+
+  @@index([guildId])
+  @@index([userId])
+  @@index([publicId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([appealStatus])
+}
+
+model Appeal {
+  id          String         @id @default(cuid())
+  publicId    String         @unique  // APL-xxxxx
+  caseId      String
+  case        ModerationCase @relation(fields: [caseId], references: [id])
+  guildId     String
+  guild       Guild          @relation(fields: [guildId], references: [id])
+  userId      String
+  appealText  String         @db.Text
+  status      AppealStatus   @default(OPEN)
+  channelId   String?
+  staffNotes  String?        @db.Text  // Internal staff notes
+  createdAt   DateTime       @default(now())
+  closedAt    DateTime?
+  closedBy    String?
+  outcome     String?        @db.Text
+
+  @@index([caseId])
+  @@index([guildId])
+  @@index([publicId])
+  @@index([status])
+}
+
+model UserRoleSnapshot {
+  id           String         @id @default(cuid())
+  guildId      String
+  userId       String
+  caseId       String         @unique
+  case         ModerationCase @relation(fields: [caseId], references: [id])
+  roleIds      String[]
+  createdAt    DateTime       @default(now())
+  cleanupAfter DateTime?
+
+  @@index([caseId])
+  @@index([cleanupAfter])
+}
+
+enum ModActionType {
+  WARN
+  MUTE
+  TIMEOUT
+  BAN
+  PROBATION
+}
+
+enum CaseStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  APPEALED
+  UPHELD
+}
+
+enum AppealStatus {
+  NONE
+  OPEN
+  PENDING
+  ACCEPTED
+  REJECTED
+  REDUCED
+  CLOSED
+}
+
+// ── AUTOMOD SYSTEM ────────────────────────────────────────
+
+model AutoModRule {
+  id         String         @id @default(cuid())
+  guildId    String
+  guild      Guild          @relation(fields: [guildId], references: [id])
+  phrase     String
+  matchType  MatchType      @default(CONTAINS)
+  action     AutoModAction  @default(REVIEW)
+  enabled    Boolean        @default(true)
+  createdBy  String
+  createdAt  DateTime       @default(now())
+
+  cases      AutoModCase[]
+
+  @@index([guildId])
+  @@index([enabled])
+}
+
+model AutoModCase {
+  id              String         @id @default(cuid())
+  publicId        String         @unique  // AMC-xxxxx
+  guildId         String
+  guild           Guild          @relation(fields: [guildId], references: [id])
+  userId          String
+  channelId       String
+  messageId       String?
+  ruleId          String
+  rule            AutoModRule    @relation(fields: [ruleId], references: [id])
+  messageExcerpt  String         @db.Text
+  actionTaken     AutoModAction
+  status          ReviewStatus   @default(PENDING)
+  reviewMessageId String?
+  cleanupAfter    DateTime?
+  createdAt       DateTime       @default(now())
+  reviewedAt      DateTime?
+  reviewedBy      String?
+
+  @@index([guildId])
+  @@index([status])
+  @@index([cleanupAfter])
+}
+
+enum MatchType {
+  EXACT
+  CONTAINS
+  STARTS_WITH
+  REGEX
+}
+
+enum AutoModAction {
+  DELETE
+  REVIEW
+  MUTE
+  TIMEOUT
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+// ── AI USAGE TRACKING ─────────────────────────────────────
+
+model AiUsage {
+  id           String   @id @default(cuid())
+  guildId      String
+  userId       String
+  month        String   // YYYY-MM
+  creditsUsed  Int      @default(0)
+  requestCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([guildId, month])
+  @@index([guildId, month])
 }

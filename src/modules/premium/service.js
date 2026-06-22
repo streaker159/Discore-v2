@@ -10,11 +10,27 @@ async function writeAuditLog({ guildId, action, actorId, targetId, meta }) {
 
 async function getPremiumStatus(guildId) {
   const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
-  const tier =
-    premium?.expiresAt && premium.expiresAt < new Date()
-      ? "FREE"
-      : premium?.tier || "FREE";
-  return { tier, premium, limits: getPlanLimits(tier) };
+
+  // Determine actual tier
+  let tier = premium?.tier || "FREE";
+
+  // LIFETIME never expires
+  if (tier === "LIFETIME") {
+    return { tier, premium, limits: getPlanLimits(tier), isLifetime: true };
+  }
+
+  // Check expiry for non-LIFETIME tiers
+  if (premium?.expiresAt && premium.expiresAt < new Date()) {
+    tier = "FREE";
+  }
+
+  return {
+    tier,
+    premium,
+    limits: getPlanLimits(tier),
+    isLifetime: false,
+    expiresAt: premium?.expiresAt,
+  };
 }
 
 async function grantPremium({

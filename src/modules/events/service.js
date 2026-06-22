@@ -127,7 +127,18 @@ async function removeRsvp(eventId, userId) {
   return prisma.eventRsvp.deleteMany({ where: { eventId, userId } });
 }
 
-async function getEvent(eventId) {
+async function getEvent(eventId, guildId = null) {
+  // Try to parse as event number first
+  const asNum = parseInt(eventId, 10);
+  if (!isNaN(asNum) && guildId) {
+    const event = await prisma.event.findFirst({
+      where: { guildId, eventNumber: asNum },
+      include: { rsvps: true, guild: true },
+    });
+    if (event) return event;
+  }
+
+  // Fall back to ID or publicId lookup
   return prisma.event.findFirst({
     where: { OR: [{ id: eventId }, { publicId: eventId }] },
     include: { rsvps: true, guild: true },
@@ -227,10 +238,7 @@ async function buildEventEmbed(guildIdOrInteraction, event) {
     inline: true,
   });
 
-  const typeVal = [
-    `${icon} ${label}`,
-    event.game ? `🎮 ${event.game}` : null,
-  ]
+  const typeVal = [`${icon} ${label}`, event.game ? `🎮 ${event.game}` : null]
     .filter(Boolean)
     .join("\n");
   fields.push({ name: "Type", value: typeVal, inline: true });
@@ -365,16 +373,23 @@ function buildEventReminderEmbed(event, minsUntil) {
     .setColor(isBattle ? 0xe74c3c : 0xf1c40f)
     .setTitle(`⏰ ${isBattle ? "Battle" : label} Starting Soon!`)
     .setDescription(`**${icon} ${event.title}**\n\nStarts ${timeStr}`)
-    .addFields({ name: "When", value: `<t:${unix}:F>\n<t:${unix}:R>`, inline: false })
+    .addFields({
+      name: "When",
+      value: `<t:${unix}:F>\n<t:${unix}:R>`,
+      inline: false,
+    })
     .setFooter({ text: "Powered by Discore" })
     .setTimestamp();
 
   if (event.location)
-    embed.addFields({ name: "📍 Location", value: event.location, inline: false });
+    embed.addFields({
+      name: "📍 Location",
+      value: event.location,
+      inline: false,
+    });
   if (event.thumbnailUrl) embed.setThumbnail(event.thumbnailUrl);
   return embed;
 }
-
 
 // -----------------------------------------------------------------------------
 // Button builders

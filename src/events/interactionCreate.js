@@ -1,6 +1,9 @@
 const { findComponent } = require("../loaders/componentLoader");
 const { friendlyError } = require("../lib/errors");
 const logger = require("../lib/logger");
+const {
+  trackInteraction,
+} = require("../modules/player/services/userActivityService");
 
 async function safeReply(interaction, payload) {
   if (interaction.deferred || interaction.replied)
@@ -23,6 +26,14 @@ module.exports = {
       if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
+
+        // Track activity
+        if (interaction.guildId && interaction.user) {
+          trackInteraction(interaction.guildId, interaction.user.id).catch(
+            () => {},
+          );
+        }
+
         await command.execute(interaction, client);
         return;
       }
@@ -32,6 +43,13 @@ module.exports = {
         interaction.isStringSelectMenu() ||
         interaction.isModalSubmit()
       ) {
+        // Track activity
+        if (interaction.guildId && interaction.user) {
+          trackInteraction(interaction.guildId, interaction.user.id).catch(
+            () => {},
+          );
+        }
+
         const component = findComponent(client, interaction.customId);
         if (!component) {
           await safeReply(interaction, {

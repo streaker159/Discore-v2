@@ -357,7 +357,7 @@ module.exports = {
     // ── show ─────────────────────────────────────────────────────────────────
     if (sub === "show") {
       const rawId = interaction.options.getString("id", true).replace(/^#/, "");
-      const event = await getEvent(rawId);
+      const event = await getEvent(rawId, interaction.guildId);
       if (!event)
         return interaction.reply({
           content: "⚠️ Event not found. Check the ID and try again.",
@@ -367,7 +367,19 @@ module.exports = {
         event.status,
       );
       const embed = await buildEventEmbed(interaction, event);
+
+      // For free tier servers, show event count and upgrade message
+      const { tier, limits } = await getGuildPlan(interaction.guildId);
+      let extraContent = "";
+      if (tier === "FREE") {
+        const upcomingCount = await prisma.event.count({
+          where: { guildId: interaction.guildId, status: "UPCOMING" },
+        });
+        extraContent = `📊 **Active Events:** ${upcomingCount}/${limits.liveEvents}\n> 💎 Upgrade to **Discore Pro** for up to 50 events and help support Discore! Use \`/premium info\` to learn more.`;
+      }
+
       return interaction.reply({
+        content: extraContent || undefined,
         embeds: [embed],
         components: eventButtons(
           event.id,
@@ -381,11 +393,21 @@ module.exports = {
     // ── list ─────────────────────────────────────────────────────────────────
     if (sub === "list") {
       const events = await getUpcomingEvents(interaction.guildId);
-      if (!events.length)
+
+      // Get tier info for free tier servers
+      const { tier, limits } = await getGuildPlan(interaction.guildId);
+
+      if (!events.length) {
+        let noEventsMsg =
+          "📭 No upcoming events. Create one with `/event create`.";
+        if (tier === "FREE") {
+          noEventsMsg += `\n\n📊 **Active Events:** 0/${limits.liveEvents}\n> 💎 Upgrade to **Discore Pro** for up to 50 events and help support Discore! Use \`/premium info\` to learn more.`;
+        }
         return interaction.reply({
-          content: "📭 No upcoming events. Create one with `/event create`.",
+          content: noEventsMsg,
           ephemeral: true,
         });
+      }
 
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
@@ -406,9 +428,30 @@ module.exports = {
           inline: false,
         });
       }
-      if (events.length > 10)
-        embed.setDescription(`Showing 10 of ${events.length} events.`);
-      return interaction.reply({ embeds: [embed] });
+
+      // Build description with event count for free tier
+      let description =
+        events.length > 10 ? `Showing 10 of ${events.length} events.` : "";
+      if (tier === "FREE") {
+        const upcomingCount = events.filter(
+          (e) => e.status === "UPCOMING",
+        ).length;
+        const tierInfo = `📊 **Active Events:** ${upcomingCount}/${limits.liveEvents}`;
+        description = description ? `${description}\n\n${tierInfo}` : tierInfo;
+      }
+      if (description) embed.setDescription(description);
+
+      // Add content message for free tier with upgrade prompt
+      let extraContent = "";
+      if (tier === "FREE") {
+        extraContent =
+          "> 💎 Upgrade to **Discore Pro** for up to 50 events and help support Discore! Use `/premium info\` to learn more.";
+      }
+
+      return interaction.reply({
+        content: extraContent || undefined,
+        embeds: [embed],
+      });
     }
 
     // ── create ────────────────────────────────────────────────────────────────
@@ -425,7 +468,7 @@ module.exports = {
         content: [
           `🔒 **Scheduled event limit reached.** Your server has **${liveCount}/${limits.liveEvents}** upcoming events.`,
           limits.liveEvents <= 5
-            ? `> Upgrade to **Discore Pro** for up to 50 scheduled events at once. Use \`/premium info\` to learn more.`
+            ? `> 💎 Upgrade to **Discore Pro** for up to 50 scheduled events and help support Discore! Use \`/premium info\` to learn more.`
             : "",
         ]
           .filter(Boolean)

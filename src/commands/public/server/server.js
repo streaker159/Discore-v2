@@ -11,6 +11,7 @@ const {
 } = require("../../../modules/serverSettings/service");
 const { requireFeature } = require("../../../lib/premiumGate");
 const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
+const { getPremiumStatus } = require("../../../modules/premium/service");
 
 module.exports = {
   scope: "SERVER_ADMIN",
@@ -101,7 +102,7 @@ module.exports = {
 
     // ── info ───────────────────────────────────────────────────────────────
     if (sub === "info") {
-      const [dbGuild, scoreboards, events] = await Promise.all([
+      const [dbGuild, scoreboards, events, premiumStatus] = await Promise.all([
         ensureGuild(interaction.guildId),
         prisma.scoreboard.findMany({
           where: { guildId: interaction.guildId },
@@ -114,6 +115,7 @@ module.exports = {
           },
           select: { id: true },
         }),
+        getPremiumStatus(interaction.guildId),
       ]);
 
       const discordGuild = interaction.guild;
@@ -162,7 +164,15 @@ module.exports = {
             inline: true,
           },
           { name: "Timezone", value: dbGuild.timezone || "UTC", inline: true },
-          { name: "Premium", value: "—", inline: true },
+          {
+            name: "Premium",
+            value: premiumStatus.isLifetime
+              ? "🌟 LIFETIME"
+              : premiumStatus.tier === "FREE"
+                ? "Free"
+                : `${premiumStatus.tier}${premiumStatus.expiresAt ? ` (expires <t:${Math.floor(new Date(premiumStatus.expiresAt).getTime() / 1000)}:R>)` : ""}`,
+            inline: true,
+          },
           {
             name: "Scoreboards",
             value: `${activeBoards} active · ${archivedBoards} archived · ${liveBoards} live`,

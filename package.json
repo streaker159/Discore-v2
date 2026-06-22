@@ -20,11 +20,14 @@
     "check": "node scripts/checkSyntax.js"
   },
   "dependencies": {
+    "@google/genai": "^2.9.0",
+    "@google/generative-ai": "^0.21.0",
     "@prisma/client": "^6",
     "chrono-node": "latest",
     "discord.js": "^14.17.3",
     "dotenv": "latest",
     "luxon": "latest",
+    "node-cron": "^4.5.0",
     "stripe": "latest"
   },
   "devDependencies": {
