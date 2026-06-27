@@ -12,14 +12,16 @@ module.exports = {
       const appealId = interaction.customId.split(":")[1];
       const note = interaction.fields.getTextInputValue("staff_note");
 
-      // Add the note
-      await appealService.addStaffNote(appealId, note);
+      await appealService.addStaffNote(appealId, note, interaction.user.id);
 
       return interaction.editReply({
-        content: `✅ **Staff Note Added**\n\nYour internal note has been added to appeal **${appealId}**.`,
+        content:
+          `✅ **Staff Note Added**\n\n` +
+          `Your internal note has been added to appeal **${appealId}** and the linked case.`,
       });
     } catch (error) {
       console.error("[Appeal Add Note Confirm Error]", error);
+
       return interaction.editReply({
         content: `⚠️ Error: ${error.message}`,
       });

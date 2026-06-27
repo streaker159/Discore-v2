@@ -1,19 +1,17 @@
 "use strict";
 
-const { generateModerationId } = require("../../../lib/publicIdGenerator");
 const caseRepo = require("../repositories/moderationCaseRepository");
 const roleSnapshotRepo = require("../repositories/roleSnapshotRepository");
 
 /**
- * Create a new moderation case
+ * Create a new moderation case.
+ *
+ * Important:
+ * Public ID generation happens inside moderationCaseRepository.
+ * Do not generate MOD1/MOD-001 here.
  */
 async function createCase(data) {
-  // Get next sequential case number for this guild
-  const caseNumber = await caseRepo.getNextCaseNumber(data.guildId);
-  const publicId = generateModerationId(caseNumber);
-
   const caseData = {
-    publicId,
     guildId: data.guildId,
     userId: data.userId,
     moderatorId: data.moderatorId,
@@ -22,11 +20,10 @@ async function createCase(data) {
     durationSeconds: data.durationSeconds || null,
     expiresAt: data.expiresAt || null,
     status: "ACTIVE",
-    appealStatus: data.actionType === "WARN" ? "NONE" : null,
+    appealStatus: "NONE",
   };
 
-  const moderationCase = await caseRepo.createModerationCase(caseData);
-  return moderationCase;
+  return caseRepo.createModerationCase(caseData);
 }
 
 /**
@@ -60,47 +57,14 @@ async function getActiveProbation(guildId, userId) {
 /**
  * Revoke a case
  */
-async function revokeCase(publicId, revokedBy, guild = null) {
+async function revokeCase(publicId, revokedBy, guild = null, reason = null) {
   const moderationCase = await caseRepo.getCaseByPublicId(publicId);
+
   if (!moderationCase) {
     throw new Error("Case not found");
   }
 
-  // Revoke the case
-  const revokedCase = await caseRepo.revokeCase(publicId, revokedBy);
-
-  // Send DM to user notifying them their case was revoked
-  if (guild) {
-    try {
-      const user = await guild.client.users.fetch(moderationCase.userId);
-      const { EmbedBuilder } = require("discord.js");
-
-      const embed = new EmbedBuilder()
-        .setColor("#2ecc71")
-        .setTitle("✅ Moderation Case Revoked")
-        .setDescription(
-          `Your case **${moderationCase.publicId}** has been overturned`,
-        )
-        .addFields(
-          { name: "Server", value: guild.name },
-          { name: "Original Action", value: moderationCase.actionType },
-          {
-            name: "Original Reason",
-            value: moderationCase.reason || "No reason provided",
-          },
-          {
-            name: "Status",
-            value: "This case has been removed from your record",
-          },
-        )
-        .setFooter({ text: `Powered by Discore • Case deleted from database` })
-        .setTimestamp();
-
-      await user.send({ embeds: [embed] });
-    } catch (error) {
-      console.log("[Revoke] Could not DM user:", error.message);
-    }
-  }
+  const revokedCase = await caseRepo.revokeCase(publicId, revokedBy, reason);
 
   // Attempt to restore roles if snapshot exists
   if (guild && moderationCase.roleSnapshot) {
@@ -113,7 +77,7 @@ async function revokeCase(publicId, revokedBy, guild = null) {
       });
 
       if (rolesToRestore.length > 0) {
-        await member.roles.add(rolesToRestore);
+        await member.roles.add(rolesToRestore, "Moderation case revoked");
       }
     } catch (error) {
       console.error("[Revoke] Could not restore roles:", error.message);
@@ -123,35 +87,86 @@ async function revokeCase(publicId, revokedBy, guild = null) {
   // Remove active punishment if applicable
   if (guild) {
     try {
-      const member = await guild.members.fetch(moderationCase.userId);
+      const member = await guild.members
+        .fetch(moderationCase.userId)
+        .catch(() => null);
 
       switch (moderationCase.actionType) {
         case "TIMEOUT":
-          if (member.communicationDisabledUntil) {
-            await member.timeout(null, "Case revoked");
+          if (member?.communicationDisabledUntil) {
+            await member.timeout(null, "Moderation case revoked");
           }
           break;
-        case "MUTE":
-          // If using muted role, remove it
-          const dbGuild = await require("../../../lib/prisma").guild.findUnique(
-            {
-              where: { id: guild.id },
-            },
-          );
+
+        case "MUTE": {
+          if (!member) break;
+
+          const prisma = require("../../../lib/prisma");
+          const dbGuild = await prisma.guild.findUnique({
+            where: { id: guild.id },
+          });
+
           if (dbGuild?.discoreMutedRoleId) {
-            await member.roles.remove(dbGuild.discoreMutedRoleId);
+            await member.roles
+              .remove(dbGuild.discoreMutedRoleId, "Moderation case revoked")
+              .catch(() => {});
           }
           break;
+        }
+
         case "BAN":
-          try {
-            await guild.members.unban(moderationCase.userId, "Case revoked");
-          } catch {
-            // Already unbanned or not found
-          }
+        case "TEMP_BAN":
+          await guild.members
+            .unban(moderationCase.userId, "Moderation case revoked")
+            .catch(() => {});
+          break;
+
+        case "PROBATION":
+        case "WARN":
+        default:
           break;
       }
     } catch (error) {
       console.error("[Revoke] Could not remove punishment:", error.message);
+    }
+  }
+
+  // DM user notifying them their case was revoked
+  if (guild) {
+    try {
+      const user = await guild.client.users.fetch(moderationCase.userId);
+      const { EmbedBuilder } = require("discord.js");
+
+      const embed = new EmbedBuilder()
+        .setColor("#2ecc71")
+        .setTitle("✅ Moderation Case Revoked")
+        .setDescription(
+          `Your case **${moderationCase.publicId}** in **${guild.name}** has been reviewed and revoked.`,
+        )
+        .addFields(
+          {
+            name: "Original Action",
+            value: moderationCase.actionType,
+            inline: true,
+          },
+          { name: "Case ID", value: moderationCase.publicId, inline: true },
+          {
+            name: "Original Reason",
+            value: moderationCase.reason || "No reason provided",
+          },
+          {
+            name: "Status",
+            value: "This case has been marked as revoked.",
+          },
+        )
+        .setFooter({
+          text: `Powered by Discore • ID: ${moderationCase.publicId}`,
+        })
+        .setTimestamp();
+
+      await user.send({ embeds: [embed] });
+    } catch (error) {
+      console.error("[Revoke] Could not DM user:", error.message);
     }
   }
 

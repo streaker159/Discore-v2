@@ -1,108 +1,172 @@
-const { SlashCommandBuilder } = require("discord.js");
-const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
+"use strict";
+
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  MessageFlags,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const {
   getPremiumStatus,
-  redeemPremiumCode,
+  getPremiumSource,
+  getAiCreditStatus,
 } = require("../../../modules/premium/service");
+
+function buildPremiumDashboard(status, aiCredits, guildName) {
+  const premium = status.premium;
+  const limits = status.limits;
+
+  const fields = [
+    {
+      name: "Status",
+      value: status.isActive ? "✅ Premium Active" : "Free",
+      inline: true,
+    },
+    {
+      name: "Current Package",
+      value: status.isActive ? "Discore Premium" : "None",
+      inline: true,
+    },
+    {
+      name: "Source",
+      value: getPremiumSource(premium),
+      inline: true,
+    },
+    {
+      name: "Live Scoreboards",
+      value: `${limits.liveScoreboards} limit`,
+      inline: true,
+    },
+    {
+      name: "Monthly AI Allowance",
+      value: aiCredits.monthlyAllowance.toLocaleString(),
+      inline: true,
+    },
+    {
+      name: "AI Credits Used This Month",
+      value: aiCredits.monthlyUsed.toLocaleString(),
+      inline: true,
+    },
+  ];
+
+  if (status.isActive) {
+    fields.push(
+      {
+        name: "Monthly AI Remaining",
+        value: aiCredits.monthlyRemaining.toLocaleString(),
+        inline: true,
+      },
+      {
+        name: "Extra Purchased AI Credits",
+        value: aiCredits.extraCredits.toLocaleString(),
+        inline: true,
+      },
+      {
+        name: "Total AI Credits Available",
+        value: aiCredits.totalAvailable.toLocaleString(),
+        inline: true,
+      },
+    );
+
+    if (aiCredits.monthlyPeriodEnd) {
+      fields.push({
+        name: "Next Monthly Refill",
+        value: `<t:${Math.floor(new Date(aiCredits.monthlyPeriodEnd).getTime() / 1000)}:R>`,
+        inline: true,
+      });
+    }
+
+    if (status.isLifetime) {
+      fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
+    }
+
+    fields.push({
+      name: "Premium Features",
+      value:
+        "✅ Expanded scoreboards\n✅ Archives\n✅ Scoreboard merging\n✅ Premium branding\n✅ Advanced setup tools\n✅ Monthly AI starter credits",
+      inline: false,
+    });
+  } else {
+    fields.push({
+      name: "Upgrade",
+      value:
+        "Upgrade to Discore Premium to unlock expanded scoreboards, archives, merging, premium branding, advanced setup tools, and 2,000 monthly AI credits.",
+      inline: false,
+    });
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle("💎 Discore Premium")
+    .setColor(0x1a7a9e)
+    .setFooter({ text: guildName || "Discore" })
+    .setTimestamp()
+    .addFields(fields);
+
+  return embed;
+}
+
+function buildDashboardButtons() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("premium:manage")
+        .setLabel("Upgrade / Manage Premium")
+        .setEmoji("💎")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("premium:buy_ai_credits")
+        .setLabel("Buy 3,000 AI Credits")
+        .setEmoji("🤖")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("premium:refresh")
+        .setLabel("Refresh Status")
+        .setEmoji("🔄")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("premium:ai_admin")
+        .setLabel("AI Admin Settings")
+        .setEmoji("⚙️")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("premium:usage")
+        .setLabel("Usage Details")
+        .setEmoji("📊")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("premium:contact_dev")
+        .setLabel("Contact Developer")
+        .setEmoji("✉️")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+}
 
 module.exports = {
   scope: "PUBLIC",
   data: new SlashCommandBuilder()
     .setName("premium")
-    .setDescription("View or manage Discore premium.")
-    .addSubcommand((s) =>
-      s.setName("status").setDescription("Show this server's premium status."),
-    )
-    .addSubcommand((s) =>
-      s.setName("features").setDescription("Show premium feature tiers."),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("redeem")
-        .setDescription("Redeem a premium code.")
-        .addStringOption((o) =>
-          o.setName("code").setDescription("Premium code").setRequired(true),
-        ),
-    ),
+    .setDescription("View Discore premium status and manage subscription."),
+
   async execute(interaction) {
-    const sub = interaction.options.getSubcommand();
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
-    if (sub === "features") {
-      const embed = await createDiscoreEmbed(interaction, {
-        title: "💎 Discore Premium Features",
-        description:
-          "**Free:** 5 live scoreboards, battle signup, game lookups.\n**Pro:** archives, game finder, AI credits, branding.\n**Elite:** advanced AI, global intelligence, analytics, full branding.",
-      });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
-    }
+    const [status, aiCredits] = await Promise.all([
+      getPremiumStatus(interaction.guildId),
+      getAiCreditStatus(interaction.guildId),
+    ]);
 
-    if (sub === "redeem") {
-      const code = interaction.options.getString("code", true);
-      const premium = await redeemPremiumCode({
-        guildId: interaction.guildId,
-        userId: interaction.user.id,
-        code,
-      });
-      const embed = await createDiscoreEmbed(interaction, {
-        title: "✅ Premium code redeemed",
-        description: `This server is now on **${premium.tier}**.`,
-      });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
-    }
+    const embed = buildPremiumDashboard(
+      status,
+      aiCredits,
+      interaction.guild.name,
+    );
+    const buttons = buildDashboardButtons();
 
-    const status = await getPremiumStatus(interaction.guildId);
-
-    // Build fields based on tier
-    const fields = [
-      { name: "Tier", value: status.tier, inline: true },
-      {
-        name: "Live scoreboard limit",
-        value: String(status.limits.liveScoreboards),
-        inline: true,
-      },
-      {
-        name: "Monthly AI credits",
-        value: String(status.limits.aiCreditsMonthly),
-        inline: true,
-      },
-    ];
-
-    // Add expiry info
-    if (status.isLifetime) {
-      fields.push({ name: "Expires", value: "Never", inline: true });
-      fields.push({
-        name: "Subscription",
-        value: "Lifetime Access",
-        inline: true,
-      });
-    } else if (status.expiresAt) {
-      const expiryDate = new Date(status.expiresAt);
-      fields.push({
-        name: "Expires",
-        value: `<t:${Math.floor(expiryDate.getTime() / 1000)}:R>`,
-        inline: true,
-      });
-    } else if (status.tier !== "FREE") {
-      fields.push({ name: "Expires", value: "Active", inline: true });
-    }
-
-    // Add AI usage if available
-    if (status.limits.aiCreditsMonthly > 0) {
-      // TODO: Get actual usage from database when AI tracking is implemented
-      fields.push({
-        name: "AI Credits Used This Month",
-        value: "Coming soon",
-        inline: true,
-      });
-    }
-
-    const embed = await createDiscoreEmbed(interaction, {
-      title: "💎 Premium Status",
-      description: status.isLifetime
-        ? "✨ **Thank you for your lifetime support!**"
-        : null,
-      fields,
-    });
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.editReply({ embeds: [embed], components: buttons });
   },
 };

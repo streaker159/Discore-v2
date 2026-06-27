@@ -1,10 +1,6 @@
 "use strict";
 
 const appealService = require("../../../modules/moderation/services/appealService");
-const {
-  createAppealOutcomeEmbed,
-  updateAppealChannelEmbed,
-} = require("../../../modules/moderation/embeds/appealEmbed");
 
 module.exports = {
   customId: "appeal_reject_confirm",
@@ -16,35 +12,23 @@ module.exports = {
       const appealId = interaction.customId.split(":")[1];
       const reason = interaction.fields.getTextInputValue("reject_reason");
 
-      // Reject the appeal
       const appeal = await appealService.rejectAppeal(
         appealId,
         interaction.user.id,
         reason,
+        interaction.guild,
       );
 
-      // Update channel embed
-      await updateAppealChannelEmbed(interaction.channel, appeal, appeal.case);
-
-      // Try to DM user
-      try {
-        const user = await interaction.client.users.fetch(appeal.userId);
-        const outcomeEmbed = createAppealOutcomeEmbed(
-          appeal,
-          reason,
-          interaction.guild.name,
-        );
-
-        await user.send({ embeds: [outcomeEmbed] });
-      } catch (error) {
-        console.log("[Appeal Reject] Could not DM user:", error.message);
-      }
-
       return interaction.editReply({
-        content: `✅ **Appeal Rejected**\n\nThe appeal has been rejected and the case remains active.\n\nAppeal ID: ${appealId}\nCase ID: ${appeal.case?.publicId}`,
+        content:
+          `❌ **Appeal Rejected**\n\n` +
+          `Appeal **${appeal.publicId}** was rejected.\n` +
+          `Case **${appeal.case?.publicId || "Unknown"}** remains upheld.\n` +
+          `The ticket will delete automatically.`,
       });
     } catch (error) {
       console.error("[Appeal Reject Confirm Error]", error);
+
       return interaction.editReply({
         content: `⚠️ Error: ${error.message}`,
       });

@@ -1,6 +1,10 @@
 "use strict";
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  MessageFlags,
+} = require("discord.js");
 const {
   executeModAction,
 } = require("../../../modules/moderation/services/moderationActionService");
@@ -8,12 +12,34 @@ const caseService = require("../../../modules/moderation/services/moderationCase
 const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
 const prisma = require("../../../lib/prisma");
 
+function canUseModeratorActions(interaction) {
+  return interaction.memberPermissions?.has(
+    PermissionFlagsBits.ModerateMembers,
+  );
+}
+
+function isPublicLookupSubcommand(sub) {
+  return sub === "case" || sub === "cases";
+}
+
+function isRevokedOrCleared(moderationCase) {
+  return moderationCase?.status === "REVOKED";
+}
+
+function getLatestAppeal(moderationCase) {
+  const appeals = moderationCase?.appeals || [];
+  return (
+    appeals
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null
+  );
+}
+
 module.exports = {
   scope: "PUBLIC",
   data: new SlashCommandBuilder()
     .setName("mod")
     .setDescription("Moderation commands")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addSubcommand((sub) =>
       sub
         .setName("warn")
@@ -172,10 +198,31 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // Defer reply immediately to prevent timeout
-    await interaction.deferReply({ ephemeral: true });
+    // Public case lookups should be visible to everyone.
+    // Moderator actions stay private to staff.
+    await interaction.deferReply({
+      flags: [MessageFlags.Ephemeral],
+      ephemeral: !isPublicLookupSubcommand(sub),
+    });
 
     try {
+      const moderatorOnlySubs = new Set([
+        "warn",
+        "mute",
+        "timeout",
+        "ban",
+        "unban",
+        "probation",
+        "revoke",
+      ]);
+
+      if (moderatorOnlySubs.has(sub) && !canUseModeratorActions(interaction)) {
+        return interaction.editReply({
+          content:
+            "🚫 You need the Moderate Members permission to use this moderation action.",
+        });
+      }
+
       // ═══════════════════════════════════════════════════════
       // WARN
       // ═══════════════════════════════════════════════════════
@@ -254,7 +301,7 @@ module.exports = {
         if (result.actionError) {
           return interaction.reply({
             content: `⚠️ ${result.actionError}`,
-            ephemeral: true,
+            flags: [MessageFlags.Ephemeral],
           });
         }
 
@@ -464,10 +511,13 @@ module.exports = {
       // ═══════════════════════════════════════════════════════
       if (sub === "cases") {
         const user = interaction.options.getUser("user", true);
-        const cases = await caseService.getUserCases(
+        const allCases = await caseService.getUserCases(
           interaction.guildId,
           user.id,
         );
+
+        // Revoked cases are treated as cleared and hidden from public case lists.
+        const cases = allCases.filter((c) => c.status !== "REVOKED");
 
         if (cases.length === 0) {
           return interaction.editReply({
@@ -541,6 +591,12 @@ module.exports = {
           });
         }
 
+        if (isRevokedOrCleared(moderationCase)) {
+          return interaction.editReply({
+            content: `📋 Case **${caseId}** was cleared and is no longer on the public record.`,
+          });
+        }
+
         const {
           formatDuration,
         } = require("../../../modules/moderation/utils/durationParser");
@@ -580,11 +636,14 @@ module.exports = {
           color: moderationCase.status === "ACTIVE" ? "#e74c3c" : "#95a5a6",
         });
 
-        if (moderationCase.appeals && moderationCase.appeals.length > 0) {
-          const latestAppeal = moderationCase.appeals[0];
+        const latestAppeal = getLatestAppeal(moderationCase);
+
+        if (latestAppeal) {
           embed.addFields({
             name: "Latest Appeal",
-            value: `${latestAppeal.publicId} - ${latestAppeal.status}`,
+            value:
+              `**${latestAppeal.publicId}** — ${latestAppeal.status}` +
+              (latestAppeal.outcome ? `\n${latestAppeal.outcome}` : ""),
           });
         }
 
@@ -602,7 +661,7 @@ module.exports = {
 
       return interaction.reply({
         content: `⚠️ **Error:** ${error.message}`,
-        ephemeral: true,
+        flags: [MessageFlags.Ephemeral],
       });
     }
   },

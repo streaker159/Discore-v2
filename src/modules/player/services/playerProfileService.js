@@ -7,7 +7,7 @@ const caseRepo = require("../../moderation/repositories/moderationCaseRepository
 /**
  * Get player profile stats for a guild member
  */
-async function getPlayerProfileStats(guildId, userId) {
+async function getPlayerProfileStats(guildId, userId, member = null) {
   // Get scoreboard stats
   const scoreboardEntries = await prisma.scoreboardEntry.findMany({
     where: {
@@ -58,6 +58,55 @@ async function getPlayerProfileStats(guildId, userId) {
         ? activeStats.wins.toFixed(2)
         : "0.00";
 
+  // Get user role-based scores
+  const userRoleScores = await prisma.userRoleScore.findMany({
+    where: {
+      userId,
+      scoreboard: {
+        guildId,
+      },
+    },
+    include: {
+      scoreboard: true,
+    },
+  });
+
+  const activeRoleScores = [];
+  const previousRoleScores = [];
+
+  for (const rs of userRoleScores) {
+    const stillHasRole = member && member.roles.cache.has(rs.roleId);
+    let finalScore = { wins: rs.wins, losses: rs.losses, points: rs.points };
+
+    if (stillHasRole) {
+      const liveEntry = await prisma.scoreboardEntry.findFirst({
+        where: { scoreboardId: rs.scoreboardId, targetId: rs.roleId },
+      });
+      if (liveEntry) {
+        finalScore = {
+          wins: liveEntry.wins,
+          losses: liveEntry.losses,
+          points: liveEntry.points,
+        };
+      }
+    }
+
+    const payload = {
+      roleId: rs.roleId,
+      scoreboardName: rs.scoreboard.liveTitle || rs.scoreboard.name,
+      metric: rs.scoreboard.metric,
+      wins: finalScore.wins,
+      losses: finalScore.losses,
+      points: finalScore.points,
+    };
+
+    if (stillHasRole) {
+      activeRoleScores.push(payload);
+    } else {
+      previousRoleScores.push(payload);
+    }
+  }
+
   // Get activity
   const activity = await getUserActivity(guildId, userId);
 
@@ -69,6 +118,8 @@ async function getPlayerProfileStats(guildId, userId) {
       active: activeStats,
       archived: archivedStats,
       ratio,
+      activeRoleScores,
+      previousRoleScores,
     },
     activity,
     activeProbation,

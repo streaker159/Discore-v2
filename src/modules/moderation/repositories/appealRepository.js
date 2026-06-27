@@ -1,9 +1,27 @@
 "use strict";
 
 const prisma = require("../../../lib/prisma");
+const { generateAppealId } = require("../../../lib/publicIdGenerator");
 
 /**
- * Get next appeal number for a guild
+ * Prisma unique collision helper.
+ */
+function isPublicIdCollision(error) {
+  const target = error?.meta?.target;
+
+  return (
+    error?.code === "P2002" &&
+    (target === "publicId" ||
+      (Array.isArray(target) && target.includes("publicId")) ||
+      String(target || "").includes("publicId"))
+  );
+}
+
+/**
+ * Legacy helper.
+ *
+ * Keep this temporarily so old imports do not crash.
+ * Do NOT use this for new appeal creation.
  */
 async function getNextAppealNumber(guildId) {
   const lastAppeal = await prisma.appeal.findFirst({
@@ -15,25 +33,63 @@ async function getNextAppealNumber(guildId) {
     return 1;
   }
 
-  // Extract number from publicId (e.g., "APL123" -> 123)
   const match = lastAppeal.publicId.match(/\d+$/);
   if (match) {
-    return parseInt(match[0]) + 1;
+    return parseInt(match[0], 10) + 1;
   }
 
   return 1;
 }
 
 /**
- * Create an appeal
+ * Global count helper.
+ *
+ * No Prisma schema change required.
+ * Generates global APP-001, APP-002, etc.
+ */
+async function getNextGlobalAppealNumber() {
+  const count = await prisma.appeal.count();
+  return count + 1;
+}
+
+/**
+ * Create an appeal.
+ *
+ * Ignores unsafe old publicIds passed from service code.
  */
 async function createAppeal(data) {
-  return prisma.appeal.create({
-    data,
-    include: {
-      case: true,
-    },
-  });
+  const maxAttempts = 50;
+  const startNumber = await getNextGlobalAppealNumber();
+
+  const cleanData = { ...data };
+  delete cleanData.publicId;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const publicId = generateAppealId(startNumber + attempt);
+
+    try {
+      return await prisma.appeal.create({
+        data: {
+          ...cleanData,
+          publicId,
+        },
+        include: {
+          case: true,
+        },
+      });
+    } catch (error) {
+      if (isPublicIdCollision(error) && attempt < maxAttempts - 1) {
+        console.warn(
+          `[Appeal] publicId collision for ${publicId}. Trying next ID...`,
+        );
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error("Failed to create appeal after publicId retries.");
 }
 
 /**
@@ -116,6 +172,10 @@ async function addStaffNote(appealId, note) {
   const appeal = await prisma.appeal.findUnique({
     where: { id: appealId },
   });
+
+  if (!appeal) {
+    throw new Error("Appeal not found");
+  }
 
   const existingNotes = appeal.staffNotes || "";
   const timestamp = new Date().toISOString();

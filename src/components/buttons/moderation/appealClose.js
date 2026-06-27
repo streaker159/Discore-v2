@@ -1,14 +1,10 @@
 "use strict";
 
-const { PermissionFlagsBits } = require("discord.js");
 const appealService = require("../../../modules/moderation/services/appealService");
 const {
   canHandleAppeals,
 } = require("../../../modules/moderation/utils/permissions");
 const prisma = require("../../../lib/prisma");
-const {
-  updateAppealChannelEmbed,
-} = require("../../../modules/moderation/embeds/appealEmbed");
 
 module.exports = {
   customId: "appeal_close",
@@ -19,7 +15,6 @@ module.exports = {
     try {
       const appealId = interaction.customId.split(":")[1];
 
-      // Check permissions
       const dbGuild = await prisma.guild.findUnique({
         where: { id: interaction.guildId },
       });
@@ -30,48 +25,22 @@ module.exports = {
         });
       }
 
-      // Close the appeal
       const appeal = await appealService.closeAppeal(
         appealId,
         interaction.user.id,
+        interaction.guild,
+        "Appeal closed by staff.",
       );
 
-      // Update channel embed
-      await updateAppealChannelEmbed(interaction.channel, appeal, appeal.case);
-
-      // Lock the channel
-      try {
-        await interaction.channel.permissionOverwrites.edit(
-          interaction.guild.id,
-          {
-            [PermissionFlagsBits.SendMessages]: false,
-          },
-        );
-
-        // Also lock for the user if they were added
-        if (appeal.userId) {
-          const userOverwrite =
-            interaction.channel.permissionOverwrites.cache.get(appeal.userId);
-          if (userOverwrite) {
-            await interaction.channel.permissionOverwrites.edit(appeal.userId, {
-              [PermissionFlagsBits.SendMessages]: false,
-            });
-          }
-        }
-
-        await interaction.channel.send({
-          content:
-            "🔒 **This appeal has been closed and the channel has been locked.**",
-        });
-      } catch (error) {
-        console.error("[Close Appeal] Could not lock channel:", error);
-      }
-
       return interaction.editReply({
-        content: `✅ **Appeal Closed**\n\nThe appeal has been closed and the channel has been locked.\n\nAppeal ID: ${appealId}`,
+        content:
+          `🔒 **Appeal Closed**\n\n` +
+          `Appeal **${appeal.publicId}** has been closed.\n` +
+          `The ticket will delete automatically.`,
       });
     } catch (error) {
       console.error("[Appeal Close Error]", error);
+
       return interaction.editReply({
         content: `⚠️ Error: ${error.message}`,
       });

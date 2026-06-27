@@ -1,6 +1,10 @@
 "use strict";
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  MessageFlags,
+} = require("discord.js");
 const {
   addRule,
   removeRule,
@@ -90,7 +94,10 @@ module.exports = {
           color: "#2ecc71",
         });
 
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({
+          embeds: [embed],
+          flags: [MessageFlags.Ephemeral],
+        });
       }
 
       if (sub === "remove-rule") {
@@ -104,7 +111,10 @@ module.exports = {
           color: "#e74c3c",
         });
 
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({
+          embeds: [embed],
+          flags: [MessageFlags.Ephemeral],
+        });
       }
 
       if (sub === "list-rules") {
@@ -114,7 +124,7 @@ module.exports = {
           return interaction.reply({
             content:
               "No automod rules configured. Use `/automod add-rule` to create one.",
-            ephemeral: true,
+            flags: [MessageFlags.Ephemeral],
           });
         }
 
@@ -132,13 +142,16 @@ module.exports = {
           footer: `Total: ${rules.length} rule(s)`,
         });
 
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({
+          embeds: [embed],
+          flags: [MessageFlags.Ephemeral],
+        });
       }
     } catch (error) {
       console.error("[Automod Command Error]", error);
       return interaction.reply({
         content: `Error: ${error.message}`,
-        ephemeral: true,
+        flags: [MessageFlags.Ephemeral],
       });
     }
   },

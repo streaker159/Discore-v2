@@ -16,6 +16,7 @@ module.exports = {
   // Game finder
   "match.finder": "PRO",
   // Branding
+  "branding.basic": "PRO",
   "branding.customNickname": "PRO",
   "branding.customFooter": "PRO",
   "branding.full": "ELITE",

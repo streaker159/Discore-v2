@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, MessageFlags } = require("discord.js");
 const { requireFeature } = require("../../../lib/premiumGate");
 const {
   createAvaMatch,
@@ -125,12 +125,15 @@ module.exports = {
       if (!home || !away)
         return interaction.reply({
           content: "Both alliances must be registered first.",
-          ephemeral: true,
+          flags: [MessageFlags.Ephemeral],
         });
       const timeInput = interaction.options.getString("time");
       const parsed = timeInput ? parseDateTime(timeInput) : null;
       if (parsed && !parsed.ok)
-        return interaction.reply({ content: parsed.reason, ephemeral: true });
+        return interaction.reply({
+          content: parsed.reason,
+          flags: [MessageFlags.Ephemeral],
+        });
       const match = await createAvaMatch({
         homeAllianceId: home.id,
         awayAllianceId: away.id,
@@ -193,7 +196,10 @@ module.exports = {
         title: "🚫 Match voided",
         description: `Match \`${match.id}\` has been voided and will not count toward rankings.`,
       });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({
+        embeds: [embed],
+        flags: [MessageFlags.Ephemeral],
+      });
     }
 
     if (sub === "cancel") {
@@ -214,7 +220,7 @@ module.exports = {
       if (!match)
         return interaction.reply({
           content: "Match not found.",
-          ephemeral: true,
+          flags: [MessageFlags.Ephemeral],
         });
       const embed = await createDiscoreEmbed(interaction, {
         title: "⚔️ AvA Match",

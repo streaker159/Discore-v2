@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, MessageFlags } = require("discord.js");
 
 module.exports = {
   scope: "PUBLIC",
@@ -9,9 +9,14 @@ module.exports = {
     const start = Date.now();
 
     try {
-      await interaction.reply("Pong!");
+      await interaction.reply({
+        content: "Pong!",
+        flags: [MessageFlags.Ephemeral],
+      });
       const latency = Date.now() - start;
-      await interaction.editReply(`🏓 Pong! Latency: ${latency}ms`);
+      await interaction.editReply(`🏓 Pong! Latency: ${latency}ms`, {
+        flags: [MessageFlags.Ephemeral],
+      });
     } catch (err) {
       console.error("[Ping] Failed:", err.message);
     }

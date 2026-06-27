@@ -2,12 +2,12 @@
 
 const {
   getScoreboardById,
-  buildScoreboardPage,
-  buildScoreboardComponents,
+  buildInteractiveShowEmbed,
+  buildShowComponents,
 } = require("../../../modules/scoreboards/service");
 
 module.exports = {
-  customIdPrefix: "scoreboard:show_select:",
+  customIdPrefix: "sb:show_select:",
   async execute(interaction) {
     const boardId = interaction.values[0];
     const board = await getScoreboardById(boardId);
@@ -26,22 +26,29 @@ module.exports = {
         extension: "png",
       }) ?? undefined;
 
-    const { embed, page, totalPages } = buildScoreboardPage(board, 1, {
-      guildIconUrl,
-      discoreIconUrl,
-      sortBy: "WINS",
-    });
-    const components = buildScoreboardComponents(
+    const viewMode = board.hasCategories ? "combined" : "flat";
+
+    const { embed, page, totalPages } = buildInteractiveShowEmbed(
+      board,
+      viewMode,
+      1,
+      "WINS",
+      { guildIconUrl, discoreIconUrl },
+    );
+    const components = buildShowComponents(
       board.id,
       page,
       totalPages,
       board.metric,
       "WINS",
+      viewMode,
+      board,
     );
 
-    await interaction
-      .update({ content: null, components: [], embeds: [], flags: 64 })
-      .catch(() => {});
-    return interaction.followUp({ embeds: [embed], components });
+    return interaction.update({
+      content: null,
+      embeds: [embed],
+      components,
+    });
   },
 };

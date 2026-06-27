@@ -7,95 +7,166 @@ const {
   ButtonStyle,
   ActionRowBuilder,
 } = require("discord.js");
-const { generateAppealId } = require("../../../lib/publicIdGenerator");
+
+const prisma = require("../../../lib/prisma");
 const appealRepo = require("../repositories/appealRepository");
 const caseService = require("./moderationCaseService");
-const { createAppealEmbed } = require("../embeds/appealEmbed");
+const {
+  createAppealControlEmbed,
+  createAppealTicketEmbed,
+  createAppealDecisionEmbed,
+  createAppealOutcomeEmbed,
+} = require("../embeds/appealEmbed");
+const { formatDuration } = require("../utils/durationParser");
 
-/**
- * Create an appeal
- */
-async function createAppeal(caseId, userId, appealText, guild) {
-  const moderationCase = await caseService.getCaseByPublicId(caseId);
-  if (!moderationCase) {
-    throw new Error("Case not found");
-  }
+const CLOSED_STATUSES = ["ACCEPTED", "REJECTED", "REDUCED", "CLOSED"];
 
-  // Check if already has open appeal
-  const hasOpen = await appealRepo.hasOpenAppeal(moderationCase.id);
-  if (hasOpen) {
-    throw new Error("This case already has an open appeal");
-  }
-
-  // Check if case is appealable
-  if (moderationCase.status === "REVOKED") {
-    throw new Error("This case has already been revoked");
-  }
-
-  const appealNumber = await appealRepo.getNextAppealNumber(
-    moderationCase.guildId,
-  );
-  const publicId = generateAppealId(appealNumber);
-
-  const appealData = {
-    publicId,
-    caseId: moderationCase.id,
-    guildId: moderationCase.guildId,
-    userId,
-    appealText,
-    status: "OPEN",
-  };
-
-  const appeal = await appealRepo.createAppeal(appealData);
-
-  // Update case appeal status
-  await caseService.updateCaseAppealStatus(moderationCase.id, "OPEN");
-
-  // Create appeal channel
-  try {
-    const channel = await createAppealChannel(guild, appeal, moderationCase);
-
-    // Update appeal with channel ID
-    await appealRepo.updateAppealStatus(appeal.id, "OPEN", {
-      channelId: channel.id,
-    });
-
-    appeal.channelId = channel.id;
-  } catch (error) {
-    console.error("[Appeal] Could not create channel:", error);
-    throw new Error("Failed to create appeal channel");
-  }
-
-  return appeal;
+function isClosedStatus(status) {
+  return CLOSED_STATUSES.includes(status);
 }
 
-/**
- * Create appeal channel
- */
-async function createAppealChannel(guild, appeal, moderationCase) {
-  const dbGuild = await require("../../../lib/prisma").guild.findUnique({
-    where: { id: guild.id },
-  });
+function appendNote(existing, label, note, adminId = null) {
+  const cleanNote = String(note || "").trim();
+  const when = new Date().toISOString();
+  const by = adminId ? ` by ${adminId}` : "";
+  const line = `[${when}] ${label}${by}: ${cleanNote || "No note provided"}`;
 
-  // Find or create Appeals category
-  let category = guild.channels.cache.find(
-    (c) => c.type === ChannelType.GuildCategory && c.name === "Appeals",
+  return existing ? `${existing}\n${line}` : line;
+}
+
+async function getDbGuild(guildId) {
+  return prisma.guild
+    .findUnique({
+      where: { id: guildId },
+    })
+    .catch(() => null);
+}
+
+async function fetchChannel(guild, channelId) {
+  if (!guild || !channelId) return null;
+  return guild.channels.fetch(channelId).catch(() => null);
+}
+
+async function getConfiguredAppealCategory(guild, dbGuild) {
+  const category = await fetchChannel(guild, dbGuild?.appealCategoryId);
+  return category?.type === ChannelType.GuildCategory ? category : null;
+}
+
+async function getConfiguredAppealChannel(guild, dbGuild) {
+  const channel = await fetchChannel(guild, dbGuild?.appealChannelId);
+  return channel?.isTextBased?.() ? channel : null;
+}
+
+function getAppealPingRoleId(dbGuild) {
+  return dbGuild?.discoreAppealRoleId || dbGuild?.discoreManagerRoleId || null;
+}
+
+function createAppealAdminButtons(appealId, disabled = false) {
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`appeal_accept:${appealId}`)
+      .setLabel("Accept Appeal")
+      .setEmoji("✅")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(disabled),
+
+    new ButtonBuilder()
+      .setCustomId(`appeal_reject:${appealId}`)
+      .setLabel("Reject Appeal")
+      .setEmoji("❌")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(disabled),
+
+    new ButtonBuilder()
+      .setCustomId(`appeal_reduce:${appealId}`)
+      .setLabel("Reduce")
+      .setEmoji("🔁")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(disabled),
   );
 
-  if (!category) {
-    category = await guild.channels.create({
-      name: "Appeals",
-      type: ChannelType.GuildCategory,
-      permissionOverwrites: [
-        {
-          id: guild.id,
-          deny: [PermissionFlagsBits.ViewChannel],
-        },
-      ],
-    });
-  }
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`appeal_bring_member:${appealId}`)
+      .setLabel("Bring Member")
+      .setEmoji("🎟️")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(disabled),
 
-  // Create channel
+    new ButtonBuilder()
+      .setCustomId(`appeal_add_note:${appealId}`)
+      .setLabel("Add Note")
+      .setEmoji("📝")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(disabled),
+
+    new ButtonBuilder()
+      .setCustomId(`appeal_close:${appealId}`)
+      .setLabel("Close")
+      .setEmoji("🔒")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(disabled),
+  );
+
+  return [row1, row2];
+}
+
+async function findAppealControlMessage(guild, appeal) {
+  const dbGuild = await getDbGuild(guild.id);
+  const controlChannel = await getConfiguredAppealChannel(guild, dbGuild);
+  if (!controlChannel) return null;
+
+  const messages = await controlChannel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!messages) return null;
+
+  return (
+    messages.find((message) => {
+      if (message.author.id !== guild.client.user.id) return false;
+
+      const content = message.content || "";
+      const embed = message.embeds?.[0];
+      const title = embed?.title || "";
+      const footer = embed?.footer?.text || "";
+
+      return (
+        content.includes(appeal.publicId) ||
+        title.includes(appeal.publicId) ||
+        footer.includes(appeal.publicId)
+      );
+    }) || null
+  );
+}
+
+async function updateAppealControlMessage(guild, appeal, removeButtons = false) {
+  if (!guild || !appeal?.case) return null;
+
+  const message = await findAppealControlMessage(guild, appeal);
+  if (!message) return null;
+
+  const ticketChannel = appeal.channelId
+    ? await guild.channels.fetch(appeal.channelId).catch(() => null)
+    : null;
+
+  const embed = await createAppealControlEmbed(
+    appeal,
+    appeal.case,
+    guild,
+    ticketChannel,
+  );
+
+  await message.edit({
+    embeds: [embed],
+    components: removeButtons || isClosedStatus(appeal.status)
+      ? []
+      : createAppealAdminButtons(appeal.publicId),
+  });
+
+  return message;
+}
+
+async function createAppealTicketChannel(guild, dbGuild, appeal, moderationCase) {
+  const category = await getConfiguredAppealCategory(guild, dbGuild);
+
   const permissionOverwrites = [
     {
       id: guild.id,
@@ -107,142 +178,305 @@ async function createAppealChannel(guild, appeal, moderationCase) {
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ManageChannels,
+        PermissionFlagsBits.EmbedLinks,
+        PermissionFlagsBits.ReadMessageHistory,
       ],
     },
   ];
 
-  // Add Discore Manager role if exists
-  if (dbGuild?.discoreManagerRoleId) {
-    permissionOverwrites.push({
-      id: dbGuild.discoreManagerRoleId,
-      allow: [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
-      ],
-    });
+  const managerRoleId = dbGuild?.discoreManagerRoleId;
+  const appealRoleId = dbGuild?.discoreAppealRoleId;
+
+  for (const roleId of [managerRoleId, appealRoleId].filter(Boolean)) {
+    if (!permissionOverwrites.some((overwrite) => overwrite.id === roleId)) {
+      permissionOverwrites.push({
+        id: roleId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      });
+    }
   }
 
-  const channel = await guild.channels.create({
-    name: `appeal-${appeal.publicId.toLowerCase()}`,
-    type: ChannelType.GuildText,
-    parent: category.id,
-    permissionOverwrites,
-  });
+  const safeAppealId = String(appeal.publicId || "appeal")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-");
 
-  // Post appeal embed
-  const embed = await createAppealEmbed(appeal, moderationCase, guild);
-  const buttons = createAppealAdminButtons(appeal.publicId);
+  const createPayload = {
+    name: `appeal-${safeAppealId}`,
+    type: ChannelType.GuildText,
+    permissionOverwrites,
+    reason: `Discore appeal ticket ${appeal.publicId}`,
+  };
+
+  if (category?.id) {
+    createPayload.parent = category.id;
+  }
+
+  const channel = await guild.channels.create(createPayload);
+
+  const ticketEmbed = await createAppealTicketEmbed(appeal, moderationCase, guild);
 
   await channel.send({
-    embeds: [embed],
-    components: buttons,
+    embeds: [ticketEmbed],
   });
 
   return channel;
 }
 
-/**
- * Create admin buttons for appeal channel
- */
-function createAppealAdminButtons(appealId) {
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`appeal_accept:${appealId}`)
-      .setLabel("✅ Accept Appeal")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`appeal_reject:${appealId}`)
-      .setLabel("❌ Reject Appeal")
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId(`appeal_reduce:${appealId}`)
-      .setLabel("🔁 Reduce Punishment")
-      .setStyle(ButtonStyle.Primary),
+async function postAppealControlMessage(guild, dbGuild, appeal, moderationCase, ticketChannel) {
+  const controlChannel = await getConfiguredAppealChannel(guild, dbGuild);
+  if (!controlChannel) return null;
+
+  const pingRoleId = getAppealPingRoleId(dbGuild);
+  const controlEmbed = await createAppealControlEmbed(
+    appeal,
+    moderationCase,
+    guild,
+    ticketChannel,
   );
 
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`appeal_bring_member:${appealId}`)
-      .setLabel("🎟️ Bring Member")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`appeal_add_note:${appealId}`)
-      .setLabel("📝 Add Note")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`appeal_close:${appealId}`)
-      .setLabel("🔒 Close")
-      .setStyle(ButtonStyle.Secondary),
-  );
-
-  return [row1, row2];
+  return controlChannel.send({
+    content: `${pingRoleId ? `<@&${pingRoleId}>\n` : ""}🧾 New appeal opened: **${appeal.publicId}**\nTicket: <#${ticketChannel.id}>`,
+    embeds: [controlEmbed],
+    components: createAppealAdminButtons(appeal.publicId),
+    allowedMentions: {
+      roles: pingRoleId ? [pingRoleId] : [],
+    },
+  });
 }
 
 /**
- * Accept an appeal
+ * Create an appeal from a moderation case public ID.
  */
-async function acceptAppeal(appealId, adminId, guild) {
-  const appeal = await appealRepo.getAppealByPublicId(appealId);
-  if (!appeal) {
-    throw new Error("Appeal not found");
+async function createAppeal(casePublicId, userId, appealText, guild) {
+  if (!guild) {
+    throw new Error("Guild is required to create appeal channel");
   }
 
-  // Update appeal status
+  const moderationCase = await caseService.getCaseByPublicId(casePublicId);
+
+  if (!moderationCase) {
+    throw new Error("Case not found");
+  }
+
+  if (moderationCase.userId !== userId) {
+    throw new Error("You can only appeal your own moderation case");
+  }
+
+  if (moderationCase.status === "REVOKED") {
+    throw new Error("This case has already been revoked");
+  }
+
+  const hasOpen = await appealRepo.hasOpenAppeal(moderationCase.id);
+  if (hasOpen) {
+    throw new Error("This case already has an open appeal");
+  }
+
+  const dbGuild = await getDbGuild(guild.id);
+  const controlChannel = await getConfiguredAppealChannel(guild, dbGuild);
+
+  if (!controlChannel) {
+    throw new Error("Appeals channel is not configured. Run /server channels appeals:#channel.");
+  }
+
+  const appeal = await appealRepo.createAppeal({
+    caseId: moderationCase.id,
+    guildId: moderationCase.guildId,
+    userId,
+    appealText,
+    status: "OPEN",
+  });
+
+  await caseService.updateCaseAppealStatus(moderationCase.id, "OPEN");
+
+  try {
+    const ticketChannel = await createAppealTicketChannel(
+      guild,
+      dbGuild,
+      appeal,
+      moderationCase,
+    );
+
+    await appealRepo.updateAppealStatus(appeal.id, "OPEN", {
+      channelId: ticketChannel.id,
+    });
+
+    const fullAppeal = await appealRepo.getAppealByPublicId(appeal.publicId);
+
+    await postAppealControlMessage(
+      guild,
+      dbGuild,
+      fullAppeal || appeal,
+      moderationCase,
+      ticketChannel,
+    );
+
+    return fullAppeal || { ...appeal, channelId: ticketChannel.id, case: moderationCase };
+  } catch (error) {
+    console.error("[Appeal] Could not create appeal ticket/control message:", error);
+
+    await appealRepo
+      .updateAppealStatus(appeal.id, "CLOSED", {
+        outcome: "Appeal channel could not be created.",
+        closedAt: new Date(),
+      })
+      .catch(() => {});
+
+    await caseService
+      .updateCaseAppealStatus(moderationCase.id, "NONE")
+      .catch(() => {});
+
+    throw new Error(
+      "Failed to create appeal channel. Please check that Discore has Manage Channels, Send Messages, Embed Links, Read Message History, and View Channel permissions.",
+    );
+  }
+}
+
+function assertAppealCanBeDecided(appeal) {
+  if (!appeal) throw new Error("Appeal not found");
+
+  if (isClosedStatus(appeal.status)) {
+    throw new Error(`Appeal ${appeal.publicId} is already ${appeal.status}.`);
+  }
+}
+
+async function updateCaseStaffNote(caseId, label, note, adminId) {
+  const moderationCase = await prisma.moderationCase.findUnique({
+    where: { id: caseId },
+  });
+
+  if (!moderationCase) return null;
+
+  return prisma.moderationCase.update({
+    where: { id: caseId },
+    data: {
+      staffNote: appendNote(moderationCase.staffNote, label, note, adminId),
+    },
+  });
+}
+
+async function dmAppealOutcome(guild, appeal, note) {
+  try {
+    const user = await guild.client.users.fetch(appeal.userId);
+    const embed = createAppealOutcomeEmbed(appeal, note, guild.name);
+    await user.send({ embeds: [embed] });
+    return true;
+  } catch (error) {
+    console.log("[Appeal] Could not DM appeal outcome:", error.message);
+    return false;
+  }
+}
+
+async function postDecisionToTicketAndDelete(guild, appeal, decision, note, adminId) {
+  if (!appeal.channelId) return false;
+
+  const channel = await guild.channels.fetch(appeal.channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) return false;
+
+  const embed = createAppealDecisionEmbed(
+    appeal,
+    decision,
+    note,
+    guild.name,
+    adminId,
+  );
+
+  await channel.send({
+    content:
+      `📌 **Appeal decision recorded.**\n` +
+      `This ticket will be deleted in **5 seconds**.`,
+    embeds: [embed],
+  });
+
+  setTimeout(() => {
+    channel
+      .delete(`Appeal ${appeal.publicId} ${decision} — cleanup`)
+      .catch((error) =>
+        console.error("[Appeal] Could not delete appeal ticket:", error.message),
+      );
+  }, 5000);
+
+  return true;
+}
+
+async function acceptAppeal(appealId, adminId, guild, decisionNote = null) {
+  const appeal = await appealRepo.getAppealByPublicId(appealId);
+  assertAppealCanBeDecided(appeal);
+
+  const note =
+    decisionNote ||
+    "Appeal accepted. The moderation case was revoked and removed from the public record.";
+
   await appealRepo.updateAppealStatus(appeal.id, "ACCEPTED", {
     closedAt: new Date(),
     closedBy: adminId,
-    outcome: "Appeal accepted - case revoked",
+    outcome: note,
   });
 
-  // Revoke the case
   await caseService.revokeCase(appeal.case.publicId, adminId, guild);
-
-  // Update case appeal status
+  await updateCaseStaffNote(appeal.caseId, "Appeal accepted", note, adminId);
   await caseService.updateCaseAppealStatus(appeal.caseId, "ACCEPTED");
 
-  return appeal;
+  const updated = await appealRepo.getAppealByPublicId(appealId);
+
+  await updateAppealControlMessage(guild, updated, true);
+  await dmAppealOutcome(guild, updated, note);
+  await postDecisionToTicketAndDelete(guild, updated, "ACCEPTED", note, adminId);
+
+  return updated;
 }
 
-/**
- * Reject an appeal
- */
-async function rejectAppeal(appealId, adminId, reason = null) {
+async function rejectAppeal(appealId, adminId, reason = null, guild = null) {
   const appeal = await appealRepo.getAppealByPublicId(appealId);
-  if (!appeal) {
-    throw new Error("Appeal not found");
-  }
+  assertAppealCanBeDecided(appeal);
 
-  const outcome = reason || "Appeal rejected - case upheld";
+  const note = reason || "Appeal rejected. The moderation case was upheld.";
 
   await appealRepo.updateAppealStatus(appeal.id, "REJECTED", {
     closedAt: new Date(),
     closedBy: adminId,
-    outcome,
+    outcome: note,
   });
 
-  // Update case status
-  await caseService.updateCaseAppealStatus(appeal.caseId, "REJECTED");
   await require("../repositories/moderationCaseRepository").updateCaseStatus(
     appeal.caseId,
     "UPHELD",
   );
 
-  return appeal;
+  await updateCaseStaffNote(appeal.caseId, "Appeal rejected", note, adminId);
+  await caseService.updateCaseAppealStatus(appeal.caseId, "REJECTED");
+
+  const updated = await appealRepo.getAppealByPublicId(appealId);
+
+  if (guild) {
+    await updateAppealControlMessage(guild, updated, true);
+    await dmAppealOutcome(guild, updated, note);
+    await postDecisionToTicketAndDelete(guild, updated, "REJECTED", note, adminId);
+  }
+
+  return updated;
 }
 
-/**
- * Reduce punishment
- */
-async function reducePunishment(appealId, adminId, newDurationSeconds, guild) {
+async function reducePunishment(
+  appealId,
+  adminId,
+  newDurationSeconds,
+  guild,
+  reason = null,
+) {
   const appeal = await appealRepo.getAppealByPublicId(appealId);
-  if (!appeal) {
-    throw new Error("Appeal not found");
-  }
+  assertAppealCanBeDecided(appeal);
 
   const moderationCase = appeal.case;
   const newExpiresAt = new Date(Date.now() + newDurationSeconds * 1000);
+  const durationText = formatDuration(newDurationSeconds);
+  const note =
+    reason ||
+    `Appeal partially accepted. Punishment reduced to ${durationText}.`;
 
-  // Update case
   await require("../repositories/moderationCaseRepository").updateCaseStatus(
     moderationCase.id,
     "ACTIVE",
@@ -252,16 +486,21 @@ async function reducePunishment(appealId, adminId, newDurationSeconds, guild) {
     },
   );
 
-  // Update appeal
   await appealRepo.updateAppealStatus(appeal.id, "REDUCED", {
     closedAt: new Date(),
     closedBy: adminId,
-    outcome: `Punishment reduced to ${newDurationSeconds} seconds`,
+    outcome: `Punishment reduced to ${durationText}.\n\n${note}`,
   });
+
+  await updateCaseStaffNote(
+    moderationCase.id,
+    "Appeal reduced",
+    `Punishment reduced to ${durationText}. ${note}`,
+    adminId,
+  );
 
   await caseService.updateCaseAppealStatus(moderationCase.id, "REDUCED");
 
-  // Apply reduced timeout if applicable
   if (guild && moderationCase.actionType === "TIMEOUT") {
     try {
       const member = await guild.members.fetch(moderationCase.userId);
@@ -270,30 +509,114 @@ async function reducePunishment(appealId, adminId, newDurationSeconds, guild) {
         "Punishment reduced via appeal",
       );
     } catch (error) {
-      console.error("[Reduce] Could not apply reduced timeout:", error);
+      console.error(
+        "[Appeal Reduce] Could not apply reduced timeout:",
+        error.message,
+      );
     }
   }
 
-  return appeal;
+  const updated = await appealRepo.getAppealByPublicId(appealId);
+
+  if (guild) {
+    await updateAppealControlMessage(guild, updated, true);
+    await dmAppealOutcome(guild, updated, `Punishment reduced to ${durationText}.\n\n${note}`);
+    await postDecisionToTicketAndDelete(guild, updated, "REDUCED", note, adminId);
+  }
+
+  return updated;
 }
 
-/**
- * Close appeal
- */
-async function closeAppeal(appealId, adminId) {
-  return appealRepo.closeAppeal(appealId, adminId, "Appeal closed by staff");
+async function closeAppeal(appealId, adminId, guild = null, note = null) {
+  const appeal = await appealRepo.getAppealByPublicId(appealId);
+  assertAppealCanBeDecided(appeal);
+
+  const outcome = note || "Appeal closed by staff without changing the case.";
+
+  await appealRepo.updateAppealStatus(appeal.id, "CLOSED", {
+    closedAt: new Date(),
+    closedBy: adminId,
+    outcome,
+  });
+
+  await updateCaseStaffNote(appeal.caseId, "Appeal closed", outcome, adminId);
+  await caseService.updateCaseAppealStatus(appeal.caseId, "CLOSED");
+
+  const updated = await appealRepo.getAppealByPublicId(appealId);
+
+  if (guild) {
+    await updateAppealControlMessage(guild, updated, true);
+    await postDecisionToTicketAndDelete(guild, updated, "CLOSED", outcome, adminId);
+  }
+
+  return updated;
 }
 
-/**
- * Add staff note
- */
-async function addStaffNote(appealId, note) {
-  return appealRepo.addStaffNote(appealId, note);
+async function addStaffNote(appealId, note, adminId = null) {
+  const appeal = await appealRepo.getAppealByPublicId(appealId);
+
+  if (!appeal) {
+    throw new Error("Appeal not found");
+  }
+
+  const saved = await appealRepo.addStaffNote(appeal.id, note);
+
+  if (appeal.caseId) {
+    await updateCaseStaffNote(appeal.caseId, "Staff note", note, adminId);
+  }
+
+  return saved;
 }
 
-/**
- * Get appeal by public ID
- */
+async function bringMemberToTicket(appealId, guild, actorId = null) {
+  const appeal = await appealRepo.getAppealByPublicId(appealId);
+  if (!appeal) throw new Error("Appeal not found");
+
+  if (!appeal.channelId) {
+    throw new Error("This appeal does not have a ticket channel.");
+  }
+
+  const channel = await guild.channels.fetch(appeal.channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) {
+    throw new Error("Appeal ticket channel could not be found.");
+  }
+
+  let isBanned = false;
+  try {
+    await guild.bans.fetch(appeal.userId);
+    isBanned = true;
+  } catch {
+    isBanned = false;
+  }
+
+  if (isBanned) {
+    throw new Error(
+      "User is currently banned and cannot see server channels. Temporarily unban them first if staff want them in the ticket.",
+    );
+  }
+
+  await channel.permissionOverwrites.edit(appeal.userId, {
+    [PermissionFlagsBits.ViewChannel]: true,
+    [PermissionFlagsBits.SendMessages]: true,
+    [PermissionFlagsBits.ReadMessageHistory]: true,
+  });
+
+  await channel.send({
+    content: `<@${appeal.userId}>, you have been added to this appeal ticket. You can now discuss your appeal with staff directly.`,
+  });
+
+  try {
+    const user = await guild.client.users.fetch(appeal.userId);
+    await user.send(
+      `You have been added to your appeal ticket in **${guild.name}**: <#${channel.id}>`,
+    );
+  } catch {
+    // DM failures are fine.
+  }
+
+  return { appeal, channel };
+}
+
 async function getAppealByPublicId(publicId) {
   return appealRepo.getAppealByPublicId(publicId);
 }
@@ -305,6 +628,8 @@ module.exports = {
   reducePunishment,
   closeAppeal,
   addStaffNote,
+  bringMemberToTicket,
   getAppealByPublicId,
   createAppealAdminButtons,
+  updateAppealControlMessage,
 };

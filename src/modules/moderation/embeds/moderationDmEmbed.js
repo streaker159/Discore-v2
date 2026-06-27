@@ -6,19 +6,11 @@ const {
   ButtonStyle,
   ActionRowBuilder,
 } = require("discord.js");
+
 const { formatDuration } = require("../utils/durationParser");
 
 /**
- * Create DM embed for moderation action
- * @param {Object} options
- * @param {string} options.guildName
- * @param {string} options.actionType - WARN, MUTE, TIMEOUT, BAN, PROBATION
- * @param {string} options.reason
- * @param {string} options.caseId - MOD-xxxxx
- * @param {number} options.durationSeconds
- * @param {string} options.moderatorName
- * @param {boolean} options.canAppeal
- * @returns {{embed: EmbedBuilder, components: ActionRowBuilder[]}}
+ * Create DM embed for moderation action.
  */
 function createModerationDmEmbed(options) {
   const {
@@ -36,6 +28,7 @@ function createModerationDmEmbed(options) {
     MUTE: "🔇",
     TIMEOUT: "⏳",
     BAN: "🔨",
+    TEMP_BAN: "🔨",
     PROBATION: "🟡",
   };
 
@@ -44,6 +37,7 @@ function createModerationDmEmbed(options) {
     MUTE: "You have been muted",
     TIMEOUT: "You have been timed out",
     BAN: "You have been banned",
+    TEMP_BAN: "You have been temporarily banned",
     PROBATION: "You have been placed on probation",
   };
 
@@ -52,44 +46,73 @@ function createModerationDmEmbed(options) {
     MUTE: "#e67e22",
     TIMEOUT: "#e67e22",
     BAN: "#e74c3c",
-    PROBATION: "#95a5a6",
+    TEMP_BAN: "#e74c3c",
+    PROBATION: "#f1c40f",
   };
 
   const emoji = actionEmojis[actionType] || "⚠️";
   const title = `${emoji} ${actionTitles[actionType] || "Moderation Action"}`;
   const color = actionColors[actionType] || "#95a5a6";
 
+  const durationText = durationSeconds
+    ? formatDuration(durationSeconds)
+    : "Permanent / no set expiry";
+
   const embed = new EmbedBuilder()
     .setTitle(title)
-    .setDescription(`You have received a moderation action in **${guildName}**`)
+    .setDescription(
+      `You have received a moderation action in **${guildName}**.`,
+    )
     .setColor(color)
     .addFields(
-      { name: "Reason", value: reason || "No reason provided" },
+      {
+        name: "Server",
+        value: guildName || "Unknown server",
+        inline: true,
+      },
+      {
+        name: "Action",
+        value: actionType || "UNKNOWN",
+        inline: true,
+      },
+      {
+        name: "Case ID",
+        value: caseId || "Unknown",
+        inline: true,
+      },
+      {
+        name: "Reason",
+        value: reason || "No reason provided",
+      },
       {
         name: "Duration",
-        value: durationSeconds ? formatDuration(durationSeconds) : "Permanent",
+        value: durationText,
+        inline: true,
       },
-      { name: "Moderator", value: moderatorName || "Unknown" },
-      { name: "Case ID", value: caseId },
+      {
+        name: "Moderator",
+        value: moderatorName || "Unknown",
+        inline: true,
+      },
     )
     .setFooter({ text: `Powered by Discore • ID: ${caseId}` })
     .setTimestamp();
 
-  // Add appeal info if applicable
-  if (canAppeal && actionType !== "WARN") {
+  if (canAppeal) {
     embed.addFields({
-      name: "Appeals",
-      value: "You may appeal this action using the button below.",
+      name: "Appeal",
+      value:
+        "You can appeal this action using the button below. Staff will review your appeal in a private moderation ticket.",
     });
   }
 
   const components = [];
 
-  // Add appeal button if allowed
-  if (canAppeal && actionType !== "WARN") {
+  if (canAppeal) {
     const appealButton = new ButtonBuilder()
       .setCustomId(`appeal_open:${caseId}`)
-      .setLabel("📝 Appeal")
+      .setLabel("Appeal")
+      .setEmoji("📝")
       .setStyle(ButtonStyle.Primary);
 
     components.push(new ActionRowBuilder().addComponents(appealButton));
@@ -99,9 +122,7 @@ function createModerationDmEmbed(options) {
 }
 
 /**
- * Create log embed for mod channel
- * @param {Object} options
- * @returns {EmbedBuilder}
+ * Create log embed for moderation channel.
  */
 function createModerationLogEmbed(options) {
   const {
@@ -113,26 +134,55 @@ function createModerationLogEmbed(options) {
     reason,
     caseId,
     durationSeconds,
+    dmSent,
+    actionSuccess,
+    actionError,
   } = options;
 
   const embed = new EmbedBuilder()
     .setTitle(`🛡️ Moderation Action: ${actionType}`)
-    .setColor("#3498db")
+    .setColor(actionSuccess === false ? "#e74c3c" : "#3498db")
     .addFields(
-      { name: "User", value: `<@${userId}> (${userName})`, inline: true },
       {
-        name: "Moderator",
-        value: `<@${moderatorId}> (${moderatorName})`,
+        name: "User",
+        value: `<@${userId}> (${userName || "Unknown"})`,
         inline: true,
       },
-      { name: "Case ID", value: caseId, inline: true },
-      { name: "Reason", value: reason || "No reason provided" },
+      {
+        name: "Moderator",
+        value: `<@${moderatorId}> (${moderatorName || "Unknown"})`,
+        inline: true,
+      },
+      {
+        name: "Case ID",
+        value: caseId || "Unknown",
+        inline: true,
+      },
+      {
+        name: "Reason",
+        value: reason || "No reason provided",
+      },
       {
         name: "Duration",
-        value: durationSeconds ? formatDuration(durationSeconds) : "Permanent",
+        value: durationSeconds
+          ? formatDuration(durationSeconds)
+          : "Permanent / no set expiry",
+        inline: true,
+      },
+      {
+        name: "User DM",
+        value: dmSent ? "✅ Sent" : "⚠️ Failed or unavailable",
+        inline: true,
+      },
+      {
+        name: "Discord Action",
+        value:
+          actionSuccess === false
+            ? `⚠️ Failed: ${actionError || "Unknown error"}`
+            : "✅ Completed",
       },
     )
-    .setFooter({ text: `Case ID: ${caseId}` })
+    .setFooter({ text: `Powered by Discore • ID: ${caseId}` })
     .setTimestamp();
 
   return embed;

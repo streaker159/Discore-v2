@@ -1,4 +1,8 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  MessageFlags,
+} = require("discord.js");
 const {
   getPlayerProfileStats,
   getModerationStats,
@@ -54,6 +58,7 @@ module.exports = {
         const profileStats = await getPlayerProfileStats(
           interaction.guildId,
           targetUser.id,
+          member,
         );
 
         // Check if viewer is admin

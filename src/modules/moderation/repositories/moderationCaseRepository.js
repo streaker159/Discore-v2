@@ -1,9 +1,27 @@
 "use strict";
 
 const prisma = require("../../../lib/prisma");
+const { generateModerationId } = require("../../../lib/publicIdGenerator");
 
 /**
- * Get next case number for a guild
+ * Prisma unique collision helper.
+ */
+function isPublicIdCollision(error) {
+  const target = error?.meta?.target;
+
+  return (
+    error?.code === "P2002" &&
+    (target === "publicId" ||
+      (Array.isArray(target) && target.includes("publicId")) ||
+      String(target || "").includes("publicId"))
+  );
+}
+
+/**
+ * Legacy helper.
+ *
+ * Keep this temporarily so old imports do not crash.
+ * Do NOT use this for new moderation case creation.
  */
 async function getNextCaseNumber(guildId) {
   const lastCase = await prisma.moderationCase.findFirst({
@@ -15,26 +33,68 @@ async function getNextCaseNumber(guildId) {
     return 1;
   }
 
-  // Extract number from publicId (e.g., "MOD123" -> 123)
   const match = lastCase.publicId.match(/\d+$/);
   if (match) {
-    return parseInt(match[0]) + 1;
+    return parseInt(match[0], 10) + 1;
   }
 
   return 1;
 }
 
 /**
- * Create a moderation case
+ * Global count helper.
+ *
+ * We are NOT changing Prisma yet, so publicId remains globally unique.
+ * This produces global MOD-001, MOD-002, etc.
+ */
+async function getNextGlobalCaseNumber() {
+  const count = await prisma.moderationCase.count();
+  return count + 1;
+}
+
+/**
+ * Create a moderation case.
+ *
+ * No Prisma schema changes required.
+ * Generates simple IDs like MOD-001, MOD-002.
+ *
+ * Important:
+ * This ignores any publicId passed from old service code so MOD1 never sneaks back in.
  */
 async function createModerationCase(data) {
-  return prisma.moderationCase.create({
-    data,
-    include: {
-      appeals: true,
-      roleSnapshot: true,
-    },
-  });
+  const maxAttempts = 50;
+  const startNumber = await getNextGlobalCaseNumber();
+
+  const cleanData = { ...data };
+  delete cleanData.publicId;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const publicId = generateModerationId(startNumber + attempt);
+
+    try {
+      return await prisma.moderationCase.create({
+        data: {
+          ...cleanData,
+          publicId,
+        },
+        include: {
+          appeals: true,
+          roleSnapshot: true,
+        },
+      });
+    } catch (error) {
+      if (isPublicIdCollision(error) && attempt < maxAttempts - 1) {
+        console.warn(
+          `[Moderation] publicId collision for ${publicId}. Trying next ID...`,
+        );
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error("Failed to create moderation case after publicId retries.");
 }
 
 /**
@@ -68,6 +128,7 @@ async function getCaseById(id) {
  */
 async function getUserCases(guildId, userId, options = {}) {
   const where = { guildId, userId };
+
   if (options.status) where.status = options.status;
   if (options.actionType) where.actionType = options.actionType;
 
@@ -96,7 +157,7 @@ async function getActiveCases(guildId, userId) {
 }
 
 /**
- * Get active probation for user (excludes revoked)
+ * Get active probation for user.
  */
 async function getActiveProbation(guildId, userId) {
   return prisma.moderationCase.findFirst({
@@ -104,7 +165,7 @@ async function getActiveProbation(guildId, userId) {
       guildId,
       userId,
       actionType: "PROBATION",
-      status: "ACTIVE", // Only ACTIVE, not REVOKED
+      status: "ACTIVE",
       expiresAt: {
         gt: new Date(),
       },
@@ -137,10 +198,12 @@ async function updateCaseAppealStatus(caseId, appealStatus) {
 }
 
 /**
- * Revoke a case (DELETES from database completely)
+ * Revoke a case — permanently deletes it from the database.
+ *
+ * Revoked cases are gone from everywhere: database, profiles, audit logs.
+ * This calls hardDeleteCase internally.
  */
-async function revokeCase(publicId, revokedBy) {
-  // Get the case first to return it
+async function revokeCase(publicId, revokedBy, reason = null) {
   const moderationCase = await prisma.moderationCase.findUnique({
     where: { publicId },
     include: {
@@ -153,23 +216,59 @@ async function revokeCase(publicId, revokedBy) {
     throw new Error("Case not found");
   }
 
-  // Delete associated appeals first (cascade)
-  if (moderationCase.appeals && moderationCase.appeals.length > 0) {
-    await prisma.appeal.deleteMany({
-      where: { caseId: moderationCase.id },
-    });
-  }
-
-  // Delete role snapshot if exists
-  if (moderationCase.roleSnapshot) {
-    await prisma.userRoleSnapshot
-      .delete({
-        where: { caseId: moderationCase.id },
+  // Log the revocation reason as staff note before deletion (for audit)
+  if (reason) {
+    const staffNote = `${moderationCase.staffNote ? `${moderationCase.staffNote}\n\n` : ""}Revoked by ${revokedBy}: ${reason}`;
+    await prisma.moderationCase
+      .update({
+        where: { publicId },
+        data: { staffNote },
       })
-      .catch(() => {}); // Ignore if doesn't exist
+      .catch(() => {});
   }
 
-  // Delete the case itself
+  // Hard delete: removes case, appeals, role snapshots permanently
+  await prisma.appeal.deleteMany({
+    where: { caseId: moderationCase.id },
+  });
+
+  await prisma.userRoleSnapshot
+    .delete({ where: { caseId: moderationCase.id } })
+    .catch(() => {});
+
+  await prisma.moderationCase.delete({ where: { publicId } });
+
+  return moderationCase;
+}
+
+/**
+ * Hard delete a case.
+ *
+ * Owner/admin cleanup only. Normal revoke should not hard delete.
+ */
+async function hardDeleteCase(publicId) {
+  const moderationCase = await prisma.moderationCase.findUnique({
+    where: { publicId },
+    include: {
+      appeals: true,
+      roleSnapshot: true,
+    },
+  });
+
+  if (!moderationCase) {
+    throw new Error("Case not found");
+  }
+
+  await prisma.appeal.deleteMany({
+    where: { caseId: moderationCase.id },
+  });
+
+  await prisma.userRoleSnapshot
+    .delete({
+      where: { caseId: moderationCase.id },
+    })
+    .catch(() => {});
+
   await prisma.moderationCase.delete({
     where: { publicId },
   });
@@ -188,6 +287,7 @@ async function getExpiredCases() {
         lte: new Date(),
       },
     },
+    orderBy: { expiresAt: "asc" },
   });
 }
 
@@ -197,21 +297,22 @@ async function getExpiredCases() {
 async function getUserModerationStats(guildId, userId) {
   const cases = await prisma.moderationCase.findMany({
     where: { guildId, userId },
+    orderBy: { createdAt: "desc" },
   });
 
-  const stats = {
+  return {
     total: cases.length,
     warns: cases.filter((c) => c.actionType === "WARN").length,
     mutes: cases.filter((c) => c.actionType === "MUTE").length,
     timeouts: cases.filter((c) => c.actionType === "TIMEOUT").length,
-    bans: cases.filter((c) => c.actionType === "BAN").length,
+    bans: cases.filter(
+      (c) => c.actionType === "BAN" || c.actionType === "TEMP_BAN",
+    ).length,
     probations: cases.filter((c) => c.actionType === "PROBATION").length,
     active: cases.filter((c) => c.status === "ACTIVE").length,
     revoked: cases.filter((c) => c.status === "REVOKED").length,
     latestCases: cases.slice(0, 5).map((c) => c.publicId),
   };
-
-  return stats;
 }
 
 module.exports = {
@@ -224,6 +325,7 @@ module.exports = {
   updateCaseStatus,
   updateCaseAppealStatus,
   revokeCase,
+  hardDeleteCase,
   getExpiredCases,
   getUserModerationStats,
   getNextCaseNumber,

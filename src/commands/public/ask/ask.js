@@ -1,6 +1,6 @@
 "use strict";
 
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, MessageFlags } = require("discord.js");
 const {
   getGameChoices,
   getGameData,
@@ -148,7 +148,10 @@ module.exports = {
     // Defer IMMEDIATELY - Must be absolute first thing to prevent timeout
     try {
       const isPrivate = interaction.options.getBoolean("private") || false;
-      await interaction.deferReply({ ephemeral: isPrivate });
+      await interaction.deferReply({
+        flags: [MessageFlags.Ephemeral],
+        ephemeral: isPrivate,
+      });
     } catch (deferError) {
       console.error(
         "[Ask] Defer failed - interaction expired:",

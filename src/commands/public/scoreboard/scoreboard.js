@@ -1,4 +1,6 @@
-﻿const {
+﻿"use strict";
+
+const {
   SlashCommandBuilder,
   PermissionFlagsBits,
   ChannelType,
@@ -6,6 +8,8 @@
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } = require("discord.js");
 const prisma = require("../../../lib/prisma");
 const {
@@ -34,6 +38,11 @@ const {
   buildEntryEmbed,
   repairLiveEmbed,
   getScoreboardById,
+  buildInteractiveShowEmbed,
+  buildShowComponents,
+  batchRefreshLiveEmbeds,
+  targetMention,
+  targetDisplay,
 } = require("../../../modules/scoreboards/service");
 const { requireFeature } = require("../../../lib/premiumGate");
 const {
@@ -46,30 +55,30 @@ const ADMIN_SUBS = [
   "addwin",
   "addloss",
   "addpoints",
-  "archive",
-  "restore",
-  "merge",
+  "edit",
+  "delete-entry",
   "set-theme",
   "set-description",
   "set-title",
   "set-image",
   "rename",
+  "merge",
   "delete",
-  "delete-entry",
-  "edit",
   "repair",
 ];
 
 // ── archive confirmation buttons ──────────────────────────────────────────────
 
-function archiveConfirmRow(boardId) {
+function archiveConfirmRow(boardId, archiveNote, deleteEmbeds) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`scoreboard:archive_confirm:${boardId}`)
+      .setCustomId(
+        `sb:archive_confirm:${boardId}:${archiveNote}:${deleteEmbeds ? "1" : "0"}`,
+      )
       .setLabel("Archive")
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
-      .setCustomId(`scoreboard:archive_cancel:${boardId}`)
+      .setCustomId(`sb:archive_cancel:${boardId}`)
       .setLabel("Cancel")
       .setStyle(ButtonStyle.Secondary),
   );
@@ -79,7 +88,11 @@ function archiveConfirmRow(boardId) {
 
 async function announceLeaderChange(interaction, board, newLeaderId) {
   const mention =
-    board.type === "ROLE" ? `<@&${newLeaderId}>` : `<@${newLeaderId}>`;
+    board.type === "ROLE"
+      ? `<@&${newLeaderId}>`
+      : board.type === "USER"
+        ? `<@${newLeaderId}>`
+        : newLeaderId;
   const embed = new EmbedBuilder()
     .setColor(0xffd700)
     .setTitle("👑 New Leader!")
@@ -89,7 +102,6 @@ async function announceLeaderChange(interaction, board, newLeaderId) {
     .setTimestamp()
     .setFooter({ text: "Powered by Discore" });
 
-  // Send to the board's live channel; fall back to command channel
   const targetChannel = board.channelId
     ? await interaction.client.channels.fetch(board.channelId).catch(() => null)
     : null;
@@ -103,11 +115,76 @@ async function announceLeaderChange(interaction, board, newLeaderId) {
 async function autocomplete(interaction) {
   const focused = interaction.options.getFocused().toLowerCase();
   const sub = interaction.options.getSubcommand(false);
-  const boards = await listActiveScoreboards(interaction.guildId).catch(
-    () => [],
-  );
+  const focusedOpt = interaction.options.getFocused(true);
 
-  // Filter by metric so addwin/addloss only show WIN_LOSS boards and addpoints only shows POINTS boards
+  // ── target autocomplete: show roles or users based on selected board type ─
+  if (focusedOpt?.name === "target") {
+    const boardName = interaction.options.getString("name");
+    if (!boardName) {
+      return interaction.respond([]).catch(() => {});
+    }
+
+    // Find the selected board to determine its type
+    const board = await prisma.scoreboard.findFirst({
+      where: {
+        guildId: interaction.guildId,
+        name: { equals: boardName, mode: "insensitive" },
+      },
+    });
+    if (!board) return interaction.respond([]).catch(() => {});
+
+    const guild = interaction.guild;
+    let choices = [];
+
+    if (board.type === "ROLE") {
+      // Show roles from the guild cache (Collection → array for slice)
+      const filtered = guild.roles.cache
+        .filter((r) => r.name !== "@everyone" && !r.managed)
+        .filter(
+          (r) =>
+            r.name.toLowerCase().includes(focused) || r.id.includes(focused),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name));
+      choices = Array.from(filtered.first(25).values()).map((r) => ({
+        name: `${r.name}  (${r.members?.size ?? 0} members)`,
+        value: r.id,
+      }));
+    } else if (board.type === "USER") {
+      // Show members from the guild cache
+      const filtered = guild.members.cache
+        .filter((m) => {
+          const name = (m.displayName || m.user?.username || "").toLowerCase();
+          return name.includes(focused) || m.id.includes(focused);
+        })
+        .sort((a, b) => {
+          const aName = a.displayName || a.user?.username || "";
+          const bName = b.displayName || b.user?.username || "";
+          return aName.localeCompare(bName);
+        });
+      choices = Array.from(filtered.first(25).values()).map((m) => ({
+        name: `${m.displayName || m.user?.username}  (${m.id})`,
+        value: m.id,
+      }));
+    }
+    // CUSTOM type gets no autocomplete — user types freely
+
+    return interaction.respond(choices).catch(() => {});
+  }
+
+  // ── scoreboard name autocomplete (existing logic) ────────────────────────
+  const includeArchived = false;
+
+  let boards;
+  if (includeArchived) {
+    boards = await prisma.scoreboard.findMany({
+      where: { guildId: interaction.guildId },
+      include: { entries: true },
+      orderBy: { name: "asc" },
+    });
+  } else {
+    boards = await listActiveScoreboards(interaction.guildId).catch(() => []);
+  }
+
   const metricFilter =
     sub === "addwin" || sub === "addloss"
       ? "WIN_LOSS"
@@ -121,9 +198,11 @@ async function autocomplete(interaction) {
     .slice(0, 25)
     .map((b) => {
       const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-      const typeLabel = b.type === "ROLE" ? "Roles" : "Users";
+      const typeLabel =
+        b.type === "ROLE" ? "Roles" : b.type === "CUSTOM" ? "Custom" : "Users";
+      const archivedLabel = b.isArchived ? " 📦" : "";
       return {
-        name: `${b.liveTitle || b.name}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
+        name: `${b.liveTitle || b.name}${archivedLabel}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
         value: b.name,
       };
     });
@@ -152,21 +231,10 @@ module.exports = {
             )
             .setRequired(false)
             .setAutocomplete(true),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("page")
-            .setDescription("Page number (default: 1)")
-            .setMinValue(1),
         ),
     )
     .addSubcommand((s) =>
       s.setName("list").setDescription("List all active scoreboards."),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("view-archive")
-        .setDescription("List all archived scoreboards."),
     )
     .addSubcommand((s) =>
       s
@@ -200,10 +268,11 @@ module.exports = {
         .addStringOption((o) =>
           o
             .setName("type")
-            .setDescription("Track users or roles")
+            .setDescription("Track users, roles, or custom targets")
             .addChoices(
               { name: "Users", value: "USER" },
               { name: "Roles", value: "ROLE" },
+              { name: "Custom Text", value: "CUSTOM" },
             ),
         )
         .addStringOption((o) =>
@@ -216,6 +285,11 @@ module.exports = {
             .setName("channel")
             .setDescription("Live scoreboard channel")
             .addChannelTypes(ChannelType.GuildText),
+        )
+        .addBooleanOption((o) =>
+          o
+            .setName("categories")
+            .setDescription("Enable category support? (default: false)"),
         ),
     )
     .addSubcommand((s) =>
@@ -229,11 +303,19 @@ module.exports = {
             .setRequired(true)
             .setAutocomplete(true),
         )
-        .addRoleOption((o) =>
+        .addStringOption((o) =>
           o
-            .setName("role")
-            .setDescription("Role to add the win to")
-            .setRequired(true),
+            .setName("target")
+            .setDescription(
+              "Target to add the win to (matches the scoreboard's type)",
+            )
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("category")
+            .setDescription("Category name (for category boards)"),
         ),
     )
     .addSubcommand((s) =>
@@ -247,11 +329,19 @@ module.exports = {
             .setRequired(true)
             .setAutocomplete(true),
         )
-        .addRoleOption((o) =>
+        .addStringOption((o) =>
           o
-            .setName("role")
-            .setDescription("Role to add the loss to")
-            .setRequired(true),
+            .setName("target")
+            .setDescription(
+              "Target to add the loss to (matches the scoreboard's type)",
+            )
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("category")
+            .setDescription("Category name (for category boards)"),
         ),
     )
     .addSubcommand((s) =>
@@ -265,14 +355,26 @@ module.exports = {
             .setRequired(true)
             .setAutocomplete(true),
         )
+        .addStringOption((o) =>
+          o
+            .setName("target")
+            .setDescription(
+              "Target to add points to (matches the scoreboard's type)",
+            )
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
         .addIntegerOption((o) =>
           o
             .setName("points")
             .setDescription("Points (negative = subtract)")
             .setRequired(true),
         )
-        .addUserOption((o) => o.setName("user").setDescription("User target"))
-        .addRoleOption((o) => o.setName("role").setDescription("Role target")),
+        .addStringOption((o) =>
+          o
+            .setName("category")
+            .setDescription("Category name (for category boards)"),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -287,6 +389,9 @@ module.exports = {
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
         .addRoleOption((o) => o.setName("role").setDescription("Role target"))
+        .addStringOption((o) =>
+          o.setName("custom").setDescription("Custom target name"),
+        )
         .addIntegerOption((o) => o.setName("wins").setDescription("Wins"))
         .addIntegerOption((o) => o.setName("losses").setDescription("Losses"))
         .addIntegerOption((o) =>
@@ -309,7 +414,10 @@ module.exports = {
             .setAutocomplete(true),
         )
         .addUserOption((o) => o.setName("user").setDescription("User target"))
-        .addRoleOption((o) => o.setName("role").setDescription("Role target")),
+        .addRoleOption((o) => o.setName("role").setDescription("Role target"))
+        .addStringOption((o) =>
+          o.setName("custom").setDescription("Custom target name"),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -398,48 +506,51 @@ module.exports = {
     )
     .addSubcommand((s) =>
       s
-        .setName("archive")
-        .setDescription("Archive a scoreboard.")
-        .addStringOption((o) =>
-          o
-            .setName("name")
-            .setDescription("Scoreboard name")
-            .setRequired(true)
-            .setAutocomplete(true),
-        )
-        .addStringOption((o) =>
-          o
-            .setName("note")
-            .setDescription("Optional archive note (e.g. 'Season 1 final')"),
-        ),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("restore")
-        .setDescription("Restore an archived scoreboard.")
-        .addStringOption((o) =>
-          o
-            .setName("name")
-            .setDescription("Scoreboard name")
-            .setRequired(true)
-            .setAutocomplete(true),
-        ),
-    )
-    .addSubcommand((s) =>
-      s
         .setName("merge")
-        .setDescription("Merge one scoreboard into another.")
+        .setDescription("Merge one scoreboard into another. (Premium feature)")
         .addStringOption((o) =>
           o
-            .setName("source")
-            .setDescription("Source scoreboard name")
-            .setRequired(true),
+            .setName("merging_board")
+            .setDescription(
+              "The scoreboard whose scores will be copied into the base board",
+            )
+            .setRequired(true)
+            .setAutocomplete(true),
         )
         .addStringOption((o) =>
           o
-            .setName("target")
-            .setDescription("Target scoreboard name")
-            .setRequired(true),
+            .setName("base_board")
+            .setDescription(
+              "The destination scoreboard that will receive the merged scores (keeps history)",
+            )
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("after_merge")
+            .setDescription(
+              "What should happen to the merging board after scores are copied?",
+            )
+            .setRequired(true)
+            .addChoices(
+              {
+                name: "📦 Archive — Save merging board to archives (recommended)",
+                value: "merge_archive",
+              },
+              {
+                name: "🗑️ Delete — Permanently remove the merging board",
+                value: "merge_delete",
+              },
+              {
+                name: "🧹 Clear & Keep Live — Wipe scores but keep board active for re-use",
+                value: "merge_clear_keep_live",
+              },
+              {
+                name: "📋 Keep Live & Keep Scores — Copy scores without changing the merging board",
+                value: "merge_keep_live_keep_scores",
+              },
+            ),
         ),
     )
     .addSubcommand((s) =>
@@ -476,7 +587,6 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // ── branding helpers (pass to embed builders) ─────────────────────────
     const guildIconUrl =
       interaction.guild?.iconURL({ size: 128, extension: "png" }) ?? undefined;
     const discoreIconUrl =
@@ -486,7 +596,7 @@ module.exports = {
       }) ?? undefined;
     const embedOpts = { guildIconUrl, discoreIconUrl };
 
-    // ── permission check for write operations ─────────────────────────────────────
+    // ── permission check for write operations ──────────────────────────────
     if (ADMIN_SUBS.includes(sub)) {
       const settings = await getGuildSettings(interaction.guildId);
       const hasManagerRole = settings?.scoreboardManagerRoleId
@@ -508,8 +618,50 @@ module.exports = {
 
     // ── show ───────────────────────────────────────────────────────────────
     if (sub === "show") {
-      const name = interaction.options.getString("name", true);
-      const page = interaction.options.getInteger("page") ?? 1;
+      const name = interaction.options.getString("name");
+
+      if (!name) {
+        // Show dropdown of active scoreboards
+        const boards = await listActiveScoreboards(interaction.guildId);
+        if (!boards.length) {
+          return interaction.reply({
+            content:
+              "⚠️ No active scoreboards. Create one with `/scoreboard start`.",
+            ephemeral: true,
+          });
+        }
+
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId("sb:show_select:")
+          .setPlaceholder("Select a scoreboard to view...")
+          .addOptions(
+            boards.map((b) => {
+              const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
+              const typeLabel =
+                b.type === "ROLE"
+                  ? "Roles"
+                  : b.type === "CUSTOM"
+                    ? "Custom"
+                    : "Users";
+              return new StringSelectMenuOptionBuilder()
+                .setLabel((b.liveTitle || b.name).substring(0, 25))
+                .setDescription(
+                  `${modeLabel} · ${typeLabel} · ${b.entries.length} entries${b.hasCategories ? " · Categories" : ""}`,
+                )
+                .setValue(b.id);
+            }),
+          );
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        return interaction.reply({
+          content:
+            "✨ **Select a scoreboard from the list below to view details:**",
+          components: [row],
+          ephemeral: true,
+        });
+      }
+
+      // Direct show
       const board = await getScoreboard(interaction.guildId, name);
       if (!board)
         return interaction.reply({
@@ -517,17 +669,20 @@ module.exports = {
           ephemeral: true,
         });
 
+      const viewMode = board.hasCategories ? "combined" : "flat";
       const {
         embed,
         page: safePage,
         totalPages,
-      } = buildScoreboardPage(board, page, { ...embedOpts, sortBy: "WINS" });
-      const components = buildScoreboardComponents(
+      } = buildInteractiveShowEmbed(board, viewMode, 1, "WINS", embedOpts);
+      const components = buildShowComponents(
         board.id,
         safePage,
         totalPages,
         board.metric,
         "WINS",
+        viewMode,
+        board,
       );
       return interaction.reply({ embeds: [embed], components });
     }
@@ -547,37 +702,14 @@ module.exports = {
         const status = b.repairStatus !== "OK" ? " ⚠️" : "";
         const live = b.channelId ? ` · <#${b.channelId}>` : "";
         const modeLabel = b.metric === "POINTS" ? "Points" : "Win / Loss";
-        return `**${b.liveTitle || b.name}**${status} — ${modeLabel} · ${entries} entries${live}`;
+        const catLabel = b.hasCategories ? " · Categories" : "";
+        return `**${b.liveTitle || b.name}**${status} — ${modeLabel}${catLabel} · ${entries} entries${live}`;
       });
       const embed = await createDiscoreEmbed(interaction, {
         title: `📋 Active Scoreboards (${boards.length})`,
         description: lines.join("\n"),
       });
       return interaction.reply({ embeds: [embed] });
-    }
-
-    // ── view-archive ───────────────────────────────────────────────────────
-    if (sub === "view-archive") {
-      if (!(await requireFeature(interaction, "scoreboards.archive"))) return;
-      const archived = await getArchivedScoreboards(interaction.guildId);
-      if (!archived.length)
-        return interaction.reply({
-          content: "📭 No archived scoreboards.",
-          ephemeral: true,
-        });
-
-      const lines = archived.map((b) => {
-        const d = b.archivedAt
-          ? ` · ${new Date(b.archivedAt).toLocaleDateString()}`
-          : "";
-        const note = b.archiveNote ? ` — *${b.archiveNote}*` : "";
-        return `**${b.name}** (${b.entries.length} entries · ${b.metric})${d}${note}`;
-      });
-      const embed = await createDiscoreEmbed(interaction, {
-        title: `🗃️ Archived Scoreboards (${archived.length})`,
-        description: lines.join("\n"),
-      });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     // ── scores ─────────────────────────────────────────────────────────────
@@ -641,6 +773,8 @@ module.exports = {
       const description = interaction.options.getString("description");
       const channel =
         interaction.options.getChannel("channel") ?? interaction.channel;
+      const hasCategories =
+        interaction.options.getBoolean("categories") ?? false;
 
       const board = await createScoreboard({
         guildId: interaction.guildId,
@@ -650,6 +784,7 @@ module.exports = {
         channelId: channel.id,
         description,
         createdBy: interaction.user.id,
+        hasCategories,
       });
 
       // Post the live embed immediately
@@ -665,8 +800,15 @@ module.exports = {
           .catch(() => {});
       }
 
+      const typeLabel =
+        type === "ROLE"
+          ? "roles"
+          : type === "CUSTOM"
+            ? "custom targets"
+            : "users";
+      const catInfo = hasCategories ? " · Categories enabled" : "";
       return interaction.editReply({
-        content: `✅ Scoreboard **${name}** created in ${channel}. ID: \`${board.publicId}\``,
+        content: `✅ Scoreboard **${name}** created in ${channel} (tracking ${typeLabel}).${catInfo}\nID: \`${board.publicId}\``,
       });
     }
 
@@ -674,9 +816,10 @@ module.exports = {
     if (sub === "addwin" || sub === "addloss") {
       const action = sub === "addwin" ? "WIN" : "LOSS";
       const boardName = interaction.options.getString("name", true);
-      const role = interaction.options.getRole("role", true);
+      const targetInput = interaction.options.getString("target", true);
+      const category = interaction.options.getString("category");
 
-      // Validate board exists + metric
+      // Validate board
       const boardCheck = await getScoreboard(interaction.guildId, boardName);
       if (!boardCheck)
         return interaction.reply({
@@ -689,66 +832,88 @@ module.exports = {
           flags: 64,
         });
 
+      // Auto-resolve target based on scoreboard type
+      let targetId, targetType, targetName, targetLabel;
+      if (boardCheck.type === "USER") {
+        // Try to parse as user mention/ID
+        const match = targetInput.match(/^<@!?(\d+)>$/);
+        const userId = match ? match[1] : targetInput.replace(/\D/g, "");
+        targetId = userId || targetInput;
+        targetType = "USER";
+        targetLabel = `<@${targetId}>`;
+      } else if (boardCheck.type === "ROLE") {
+        const match = targetInput.match(/^<@&(\d+)>$/);
+        const roleId = match ? match[1] : targetInput.replace(/\D/g, "");
+        targetId = roleId || targetInput;
+        targetType = "ROLE";
+        targetName = targetInput;
+        targetLabel = `<@&${targetId}>`;
+      } else {
+        // CUSTOM
+        targetId = targetInput;
+        targetType = "CUSTOM";
+        targetName = targetInput;
+        targetLabel = `**${targetInput}**`;
+      }
+
       await interaction.deferReply({ flags: 64 });
 
-      const target = role;
-      const targetType = "ROLE";
-      const result = await addResult({
-        guildId: interaction.guildId,
-        scoreboardName: boardName,
-        targetId: target.id,
-        targetType,
-        action,
-        adminId: interaction.user.id,
-      });
+      try {
+        const result = await addResult({
+          guildId: interaction.guildId,
+          scoreboardName: boardName,
+          targetId,
+          targetType,
+          targetName: targetName || null,
+          action,
+          adminId: interaction.user.id,
+          guild: interaction.guild,
+          category,
+        });
 
-      const freshEntry = result.board.entries.find(
-        (e) => e.targetId === target.id,
-      );
-      const targetLabel = `<@&${role.id}>`;
-      const actionLabel = action === "WIN" ? "win 🏆" : "loss ☠️";
-
-      // Fire-and-forget live embed updates
-      pushLiveEmbed(interaction.client, result.board).catch(() => {});
-      if (freshEntry)
-        pushEntryLiveEmbed(
-          interaction.client,
-          interaction.guild,
-          result.board,
-          freshEntry,
-        ).catch(() => {});
-      if (result.leaderChange)
-        announceLeaderChange(
-          interaction,
-          result.board,
-          result.leaderChange.newLeaderId,
+        const freshEntry = result.board.entries.find(
+          (e) => e.targetId === targetId,
         );
+        const actionLabel = action === "WIN" ? "win 🏆" : "loss ☠️";
 
-      const e = freshEntry;
-      return interaction.editReply({
-        content: [
-          `✅ **1 ${actionLabel}** added for ${targetLabel} on **${result.board.liveTitle || result.board.name}**`,
-          e
-            ? `> \`${e.wins}W\` / \`${e.losses}L\`${e.winStreak > 1 ? `  ·  🔥 ${e.winStreak} win streak` : e.lossStreak > 1 ? `  ·  💀 ${e.lossStreak} loss streak` : ""}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      });
+        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+        if (freshEntry)
+          pushEntryLiveEmbed(
+            interaction.client,
+            interaction.guild,
+            result.board,
+            freshEntry,
+          ).catch(() => {});
+        if (result.leaderChange)
+          announceLeaderChange(
+            interaction,
+            result.board,
+            result.leaderChange.newLeaderId,
+          );
+
+        const e = freshEntry;
+        return interaction.editReply({
+          content: [
+            `✅ **1 ${actionLabel}** added for ${targetLabel} on **${result.board.liveTitle || result.board.name}**`,
+            e
+              ? `> \`${e.wins}W\` / \`${e.losses}L\`${e.winStreak > 1 ? `  ·  🔥 ${e.winStreak} win streak` : e.lossStreak > 1 ? `  ·  💀 ${e.lossStreak} loss streak` : ""}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+      } catch (err) {
+        return interaction.editReply({ content: `❌ ${err.message}` });
+      }
     }
 
     // ── addpoints ──────────────────────────────────────────────────────
     if (sub === "addpoints") {
       const boardName = interaction.options.getString("name", true);
-      const user = interaction.options.getUser("user");
-      const role = interaction.options.getRole("role");
-      if (!user && !role)
-        return interaction.reply({
-          content: "Provide a user or role.",
-          flags: 64,
-        });
+      const targetInput = interaction.options.getString("target", true);
+      const delta = interaction.options.getInteger("points", true);
+      const category = interaction.options.getString("category");
 
-      // Fetch board first to validate metric + type
       const boardCheck = await getScoreboard(interaction.guildId, boardName);
       if (!boardCheck)
         return interaction.reply({
@@ -757,82 +922,100 @@ module.exports = {
         });
       if (boardCheck.metric !== "POINTS")
         return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Win / Loss scoreboard. Use \`/scoreboard addwin\` or \`addloss\` instead.`,
+          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Win/Loss board. Use \`/scoreboard addwin\` or \`addloss\`.`,
           flags: 64,
         });
-      if (boardCheck.type === "ROLE" && !role)
-        return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **roles**. Provide a role, not a user.`,
-          flags: 64,
-        });
-      if (boardCheck.type === "USER" && !user)
-        return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** tracks **users**. Provide a user, not a role.`,
-          flags: 64,
-        });
+
+      // Auto-resolve target based on scoreboard type
+      let targetId, targetType, targetName, targetLabel;
+      if (boardCheck.type === "USER") {
+        const match = targetInput.match(/^<@!?(\d+)>$/);
+        const userId = match ? match[1] : targetInput.replace(/\D/g, "");
+        targetId = userId || targetInput;
+        targetType = "USER";
+        targetLabel = `<@${targetId}>`;
+      } else if (boardCheck.type === "ROLE") {
+        const match = targetInput.match(/^<@&(\d+)>$/);
+        const roleId = match ? match[1] : targetInput.replace(/\D/g, "");
+        targetId = roleId || targetInput;
+        targetType = "ROLE";
+        targetName = targetInput;
+        targetLabel = `<@&${targetId}>`;
+      } else {
+        targetId = targetInput;
+        targetType = "CUSTOM";
+        targetName = targetInput;
+        targetLabel = `**${targetInput}**`;
+      }
 
       await interaction.deferReply({ flags: 64 });
 
-      const target = user || role;
-      const targetType = role ? "ROLE" : "USER";
-      const targetLabel = role ? `<@&${role.id}>` : `<@${user.id}>`;
-      const delta = interaction.options.getInteger("points", true);
-      const result = await addResult({
-        guildId: interaction.guildId,
-        scoreboardName: boardName,
-        targetId: target.id,
-        targetType,
-        action: "POINT",
-        delta,
-        adminId: interaction.user.id,
-      });
+      try {
+        const result = await addResult({
+          guildId: interaction.guildId,
+          scoreboardName: boardName,
+          targetId,
+          targetType,
+          targetName: targetName || null,
+          action: "POINT",
+          delta,
+          adminId: interaction.user.id,
+          guild: interaction.guild,
+          category,
+        });
 
-      const freshEntry = result.board.entries.find(
-        (e) => e.targetId === target.id,
-      );
-
-      pushLiveEmbed(interaction.client, result.board).catch(() => {});
-      if (freshEntry)
-        pushEntryLiveEmbed(
-          interaction.client,
-          interaction.guild,
-          result.board,
-          freshEntry,
-        ).catch(() => {});
-      if (result.leaderChange)
-        announceLeaderChange(
-          interaction,
-          result.board,
-          result.leaderChange.newLeaderId,
+        const freshEntry = result.board.entries.find(
+          (e) => e.targetId === targetId,
         );
 
-      const sign = delta >= 0 ? `+${delta}` : String(delta);
-      return interaction.editReply({
-        content: [
-          `✅ **${sign} points** recorded for ${targetLabel} on **${result.board.liveTitle || result.board.name}**`,
-          freshEntry ? `> Total: \`${freshEntry.points}\` points` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      });
+        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+        if (freshEntry)
+          pushEntryLiveEmbed(
+            interaction.client,
+            interaction.guild,
+            result.board,
+            freshEntry,
+          ).catch(() => {});
+        if (result.leaderChange)
+          announceLeaderChange(
+            interaction,
+            result.board,
+            result.leaderChange.newLeaderId,
+          );
+
+        const sign = delta >= 0 ? `+${delta}` : String(delta);
+        return interaction.editReply({
+          content: [
+            `✅ **${sign} points** recorded for ${targetLabel} on **${result.board.liveTitle || result.board.name}**`,
+            freshEntry ? `> Total: \`${freshEntry.points}\` points` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+      } catch (err) {
+        return interaction.editReply({ content: `❌ ${err.message}` });
+      }
     }
 
     // ── edit ───────────────────────────────────────────────────────────────
     if (sub === "edit") {
       const user = interaction.options.getUser("user");
       const role = interaction.options.getRole("role");
-      if (!user && !role)
+      const customName = interaction.options.getString("custom");
+      if (!user && !role && !customName)
         return interaction.reply({
-          content: "Provide a user or role.",
+          content: "Provide a user, role, or custom target.",
           ephemeral: true,
         });
 
-      const target = user || role;
+      const targetType = role ? "ROLE" : user ? "USER" : "CUSTOM";
+      const targetId = role ? role.id : user ? user.id : customName;
+
       const result = await editEntry({
         guildId: interaction.guildId,
         scoreboardName: interaction.options.getString("name", true),
-        targetId: target.id,
-        targetType: role ? "ROLE" : "USER",
+        targetId,
+        targetType,
         wins: interaction.options.getInteger("wins") ?? undefined,
         losses: interaction.options.getInteger("losses") ?? undefined,
         points: interaction.options.getInteger("points") ?? undefined,
@@ -843,8 +1026,9 @@ module.exports = {
 
       const { embed } = buildScoreboardPage(result.board, 1);
       await pushLiveEmbed(interaction.client, result.board);
+      const displayName = user ? user.username : role ? role.name : customName;
       return interaction.reply({
-        content: `✅ Entry updated for **${user ? user.username : role.name}**.`,
+        content: `✅ Entry updated for **${displayName}**.`,
         embeds: [embed],
         ephemeral: true,
       });
@@ -854,24 +1038,27 @@ module.exports = {
     if (sub === "delete-entry") {
       const user = interaction.options.getUser("user");
       const role = interaction.options.getRole("role");
-      if (!user && !role)
+      const customName = interaction.options.getString("custom");
+      if (!user && !role && !customName)
         return interaction.reply({
-          content: "Provide a user or role.",
+          content: "Provide a user, role, or custom target.",
           ephemeral: true,
         });
 
-      const target = user || role;
+      const targetId = role ? role.id : user ? user.id : customName;
+
       const board = await deleteEntry({
         guildId: interaction.guildId,
         scoreboardName: interaction.options.getString("name", true),
-        targetId: target.id,
+        targetId,
         adminId: interaction.user.id,
       });
 
       const { embed } = buildScoreboardPage(board, 1);
       await pushLiveEmbed(interaction.client, board);
+      const displayName = user ? user.username : role ? role.name : customName;
       return interaction.reply({
-        content: `✅ Entry for **${user ? user.username : role.name}** deleted.`,
+        content: `✅ Entry for **${displayName}** deleted.`,
         embeds: [embed],
         ephemeral: true,
       });
@@ -934,7 +1121,6 @@ module.exports = {
           ephemeral: true,
         });
 
-      // Validate URL is HTTPS if provided
       if (urlInput && !urlInput.startsWith("https://"))
         return interaction.reply({
           content: "Image URL must start with `https://`.",
@@ -968,69 +1154,65 @@ module.exports = {
       });
     }
 
-    // ── archive ────────────────────────────────────────────────────────────
-    if (sub === "archive") {
-      if (!(await requireFeature(interaction, "scoreboards.archive"))) return;
-      const name = interaction.options.getString("name", true);
-      const note = interaction.options.getString("note");
-
-      const board = await getScoreboard(interaction.guildId, name);
-      if (!board)
-        return interaction.reply({
-          content: "Scoreboard not found.",
-          ephemeral: true,
-        });
-
-      const { embed } = buildScoreboardPage(board, 1);
-      const confirmEmbed = new EmbedBuilder()
-        .setColor(0xe67e22)
-        .setTitle("📦 Archive this scoreboard?")
-        .setDescription(
-          `You are about to archive **${board.name}** (${board.entries.length} entries).\n` +
-            (note ? `Archive note: *${note}*\n` : "") +
-            `\nThe live message will be detached. You can restore this later with \`/scoreboard restore\`.`,
-        )
-        .setFooter({
-          text: board.publicId ? `ID: ${board.publicId}` : "Powered by Discore",
-        });
-
-      // Store note in customId (up to 100 chars total, so keep note short)
-      const safeNote = (note ?? "").substring(0, 40).replace(/:/g, "");
-      return interaction.reply({
-        embeds: [confirmEmbed],
-        components: [archiveConfirmRow(`${board.id}:${safeNote}`)],
-        ephemeral: true,
-      });
-    }
-
-    // ── restore ────────────────────────────────────────────────────────────
-    if (sub === "restore") {
-      if (!(await requireFeature(interaction, "scoreboards.restore"))) return;
-      const board = await restoreScoreboard({
-        guildId: interaction.guildId,
-        name: interaction.options.getString("name", true),
-      });
-      return interaction.reply({
-        content: `♻️ **${board.name}** restored. Set a live channel with \`/scoreboard start\` or use \`/scoreboard repair\` to reattach.`,
-        ephemeral: true,
-      });
-    }
-
     // ── merge ──────────────────────────────────────────────────────────────
     if (sub === "merge") {
-      const merged = await mergeScoreboards({
-        guildId: interaction.guildId,
-        sourceName: interaction.options.getString("source", true),
-        targetName: interaction.options.getString("target", true),
-        adminId: interaction.user.id,
-      });
-      const { embed } = buildScoreboardPage(merged, 1);
-      await pushLiveEmbed(interaction.client, merged);
-      return interaction.reply({
-        content: `✅ Merged into **${merged.name}**.`,
-        embeds: [embed],
-        ephemeral: true,
-      });
+      if (!(await requireFeature(interaction, "scoreboards.merge"))) return;
+      const sourceName = interaction.options.getString("merging_board", true);
+      const targetName = interaction.options.getString("base_board", true);
+      const afterMerge = interaction.options.getString("after_merge", true);
+
+      await interaction.deferReply({ ephemeral: true });
+
+      try {
+        const result = await mergeScoreboards({
+          guildId: interaction.guildId,
+          sourceName,
+          targetName,
+          afterMerge,
+          adminId: interaction.user.id,
+        });
+
+        // Fire-and-forget background embed updates
+        const client = interaction.client;
+        pushLiveEmbed(client, result.board).catch(() => {});
+
+        // For clear_keep_live, also update source embed and warn about timing
+        if (afterMerge === "merge_clear_keep_live") {
+          const sourceBoard = await prisma.scoreboard.findUnique({
+            where: { id: result.sourceId },
+          });
+          if (sourceBoard) {
+            pushLiveEmbed(client, { ...sourceBoard, entries: [] }).catch(
+              () => {},
+            );
+          }
+          return interaction.editReply({
+            content:
+              `✅ Merged **${result.sourceName}** into **${result.board.liveTitle || result.board.name}** ` +
+              `(${result.entriesMerged} entries).\n\n` +
+              `⚠️ Merge complete. Source scoreboard has been cleared and kept live. ` +
+              `Live embeds may take up to 10 minutes to fully update.`,
+          });
+        }
+
+        if (afterMerge === "merge_delete") {
+          return interaction.editReply({
+            content:
+              `✅ Merged **${result.sourceName}** into **${result.board.liveTitle || result.board.name}** ` +
+              `(${result.entriesMerged} entries). Source scoreboard has been permanently deleted.`,
+          });
+        }
+
+        return interaction.editReply({
+          content:
+            `✅ Merged **${result.sourceName}** into **${result.board.liveTitle || result.board.name}** ` +
+            `(${result.entriesMerged} entries).\nSource action: ${result.sourceAction}`,
+        });
+      } catch (err) {
+        return interaction.editReply({
+          content: `❌ Merge failed: ${err.message}`,
+        });
+      }
     }
 
     // ── repair ─────────────────────────────────────────────────────────────

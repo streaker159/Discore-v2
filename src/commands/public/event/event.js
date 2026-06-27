@@ -1,6 +1,10 @@
 "use strict";
 
-const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  MessageFlags,
+} = require("discord.js");
 const { parseDateTime } = require("../../../lib/timeParser");
 const { getGuildSettings } = require("../../../lib/embedBuilder");
 const {
@@ -264,11 +268,11 @@ module.exports = {
       ) {
         return interaction.reply({
           content: "🚫 You need **Manage Server** permission to use this.",
-          ephemeral: true,
+          flags: [MessageFlags.Ephemeral],
         });
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
       const rawId = interaction.options.getString("id", true).replace(/^#/, "");
 
       // Try by eventNumber first, then by id/publicId
@@ -361,7 +365,7 @@ module.exports = {
       if (!event)
         return interaction.reply({
           content: "⚠️ Event not found. Check the ID and try again.",
-          ephemeral: true,
+          flags: [MessageFlags.Ephemeral],
         });
       const isEnded = ["COMPLETED", "CANCELLED", "EXPIRED"].includes(
         event.status,
@@ -405,7 +409,7 @@ module.exports = {
         }
         return interaction.reply({
           content: noEventsMsg,
-          ephemeral: true,
+          flags: [MessageFlags.Ephemeral],
         });
       }
 
@@ -455,7 +459,7 @@ module.exports = {
     }
 
     // ── create ────────────────────────────────────────────────────────────────
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
     // ── Premium: live event limit ────────────────────────────────────────────
     const { limits } = await getGuildPlan(interaction.guildId);

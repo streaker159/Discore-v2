@@ -1,3 +1,17 @@
+const {
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  MessageFlags,
+} = require("discord.js");
+const {
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  MessageFlags,
+} = require("discord.js");
 const prisma = require("../../../lib/prisma");
 const { parseDateTime, detectTimezone } = require("../../../lib/timeParser");
 const { getGuildSettings } = require("../../../lib/embedBuilder");
@@ -12,7 +26,7 @@ const {
 module.exports = {
   customIdPrefix: "battle:create:",
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
     const parts = interaction.customId.split(":");
     const tagOnCreate = parts[2] !== "0" ? parts[2] : null;

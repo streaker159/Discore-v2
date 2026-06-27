@@ -147,7 +147,10 @@ module.exports = {
         title: "✅ Draft approved",
         description: `**${record.name}** is now live.`,
       });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({
+        embeds: [embed],
+        flags: [MessageFlags.Ephemeral],
+      });
     }
 
     if (sub === "disable") {
@@ -168,7 +171,7 @@ module.exports = {
       if (!record)
         return interaction.reply({
           content: `No ${type} named "${name}" found.`,
-          ephemeral: true,
+          flags: [MessageFlags.Ephemeral],
         });
       await model.update({
         where: { id: record.id },
@@ -178,7 +181,10 @@ module.exports = {
         title: "🚫 Record disabled",
         description: `**${record.name}** (${type}) has been disabled and will no longer appear in searches.`,
       });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({
+        embeds: [embed],
+        flags: [MessageFlags.Ephemeral],
+      });
     }
 
     const game = await ensureGame(interaction.options.getString("game", true));
@@ -235,6 +241,9 @@ module.exports = {
       title: "🎮 Game data added",
       description: `Added **${record.name}** to **${game.name}**.`,
     });
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({
+      embeds: [embed],
+      flags: [MessageFlags.Ephemeral],
+    });
   },
 };

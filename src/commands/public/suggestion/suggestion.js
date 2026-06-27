@@ -1,120 +1,281 @@
-const { SlashCommandBuilder } = require("discord.js");
+"use strict";
+
 const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  MessageFlags,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
+const {
+  parseDuration,
+  getGuildSuggestionSettings,
   createSuggestion,
-  vote,
-  removeVote,
-  getVoters,
   getSuggestion,
+  listPendingSuggestions,
   buildSuggestionEmbed,
-  suggestionButtons,
+  buildSuggestionButtons,
+  CATEGORY_LABELS,
 } = require("../../../modules/suggestions/service");
-const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
+const prisma = require("../../../lib/prisma");
+
+function isAdmin(member, guildSettings) {
+  if (member.permissions?.has("ManageGuild")) return true;
+  if (
+    guildSettings?.discoreManagerRoleId &&
+    member.roles.cache.has(guildSettings.discoreManagerRoleId)
+  )
+    return true;
+  if (
+    guildSettings?.disAdminRoleId &&
+    member.roles.cache.has(guildSettings.disAdminRoleId)
+  )
+    return true;
+  return false;
+}
 
 module.exports = {
   scope: "PUBLIC",
   data: new SlashCommandBuilder()
     .setName("suggestion")
-    .setDescription("Create suggestions with voting.")
+    .setDescription("Create and manage suggestions.")
     .addSubcommand((s) =>
       s
-        .setName("create")
-        .setDescription("Create a suggestion.")
+        .setName("submit")
+        .setDescription("Submit a new suggestion.")
         .addStringOption((o) =>
           o
-            .setName("content")
-            .setDescription("Suggestion text")
+            .setName("title")
+            .setDescription("Suggestion title")
             .setRequired(true),
         )
-        .addStringOption((o) => o.setName("image").setDescription("Image URL")),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("remove-vote")
-        .setDescription("Remove your vote from a suggestion.")
         .addStringOption((o) =>
-          o.setName("id").setDescription("Suggestion ID").setRequired(true),
+          o
+            .setName("suggestion")
+            .setDescription("Your full suggestion text")
+            .setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("category")
+            .setDescription("Choose a category")
+            .setRequired(true)
+            .addChoices(
+              { name: "🎮 Game", value: "GAME" },
+              { name: "🏰 Server", value: "SERVER" },
+              { name: "✨ Features", value: "FEATURES" },
+              { name: "#️⃣ Channel", value: "CHANNEL" },
+              { name: "📜 Rule", value: "RULE" },
+              { name: "⚠️ Issue", value: "ISSUE" },
+              { name: "💬 General", value: "GENERAL" },
+            ),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("duration")
+            .setDescription("How long open (e.g. 1d, 3d, 7d). Default: 7d"),
+        )
+        .addAttachmentOption((o) =>
+          o.setName("image").setDescription("Optional image attachment"),
+        )
+        .addBooleanOption((o) =>
+          o
+            .setName("show_voters")
+            .setDescription("Let users see who voted? Default: false"),
         ),
     )
     .addSubcommand((s) =>
       s
-        .setName("see-voters")
-        .setDescription("See who voted on a suggestion.")
+        .setName("view")
+        .setDescription("View suggestions.")
         .addStringOption((o) =>
-          o.setName("id").setDescription("Suggestion ID").setRequired(true),
+          o.setName("id").setDescription("Suggestion ID (e.g. SUG-001)"),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("category")
+            .setDescription("Filter by category")
+            .addChoices(
+              { name: "🎮 Game", value: "GAME" },
+              { name: "🏰 Server", value: "SERVER" },
+              { name: "✨ Features", value: "FEATURES" },
+              { name: "#️⃣ Channel", value: "CHANNEL" },
+              { name: "📜 Rule", value: "RULE" },
+              { name: "⚠️ Issue", value: "ISSUE" },
+              { name: "💬 General", value: "GENERAL" },
+            ),
         ),
     ),
+
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    if (sub === "create") {
+    if (sub === "submit") {
+      const settings = await getGuildSuggestionSettings(interaction.guildId);
+      let channel;
+      let fallback = false;
+
+      if (settings?.suggestionChannelId) {
+        channel = await interaction.guild.channels
+          .fetch(settings.suggestionChannelId)
+          .catch(() => null);
+      }
+      if (!channel || !channel.isTextBased()) {
+        channel = interaction.channel;
+        fallback = true;
+      }
+
+      const title = interaction.options.getString("title", true);
+      const content = interaction.options.getString("suggestion", true);
+      const category = interaction.options.getString("category", true);
+      const durationStr = interaction.options.getString("duration");
+      const attachment = interaction.options.getAttachment("image");
+      const showVoters = interaction.options.getBoolean("show_voters") ?? false;
+
+      const parsed = parseDuration(durationStr || "7d");
+      if (parsed.error)
+        return interaction.reply({ content: `⚠️ ${parsed.error}`, flags: 64 });
+
+      let imageUrl = attachment?.url || null;
+      if (attachment && !attachment.contentType?.startsWith("image/")) {
+        return interaction.reply({
+          content: "⚠️ The attachment must be an image file.",
+          flags: 64,
+        });
+      }
+
+      await interaction.deferReply({ flags: 64 });
+
       const suggestion = await createSuggestion({
         guildId: interaction.guildId,
         authorId: interaction.user.id,
-        content: interaction.options.getString("content", true),
-        imageUrl: interaction.options.getString("image"),
-        channelId: interaction.channelId,
+        title,
+        content,
+        imageUrl,
+        channelId: channel.id,
+        expiresAt: parsed.expiresAt,
+        category,
+        showVoters,
       });
-      const embed = await buildSuggestionEmbed(interaction, suggestion);
-      const message = await interaction.channel.send({
-        embeds: [embed],
-        components: suggestionButtons(suggestion.id),
+
+      const embed = await buildSuggestionEmbed(interaction.guildId, suggestion);
+      const components = buildSuggestionButtons(suggestion);
+
+      let message;
+      try {
+        message = await channel.send({ embeds: [embed], components });
+      } catch {
+        return interaction.editReply({
+          content:
+            "⚠️ I cannot post to the suggestions channel. Check permissions.",
+        });
+      }
+
+      await prisma.suggestion.update({
+        where: { id: suggestion.id },
+        data: { messageId: message.id },
       });
-      return interaction.reply({
-        content: `✅ Suggestion posted. ID: \`${suggestion.id}\``,
-        ephemeral: true,
+
+      const fallbackNote = fallback
+        ? "\n⚠️ No suggestions channel configured — posted here instead."
+        : "";
+      return interaction.editReply({
+        content: `✅ Suggestion submitted.\nPosted in ${channel}.${fallbackNote}\nSuggestion ID: \`${suggestion.publicId}\`\nVoter list: ${suggestion.showVoters ? "Public" : "Private"}`,
       });
     }
 
-    if (sub === "remove-vote") {
-      const id = interaction.options.getString("id", true);
-      const existing = await getSuggestion(id);
-      if (!existing)
-        return interaction.reply({
-          content: "Suggestion not found.",
-          ephemeral: true,
-        });
-      await removeVote(id, interaction.user.id);
-      const updated = await getSuggestion(id);
-      const embed = await buildSuggestionEmbed(interaction, updated);
-      return interaction.reply({
-        content: "✅ Vote removed.",
-        embeds: [embed],
-        ephemeral: true,
-      });
-    }
+    if (sub === "view") {
+      const id = interaction.options.getString("id");
+      const catFilter = interaction.options.getString("category");
 
-    if (sub === "see-voters") {
-      const id = interaction.options.getString("id", true);
-      const existing = await getSuggestion(id);
-      if (!existing)
-        return interaction.reply({
-          content: "Suggestion not found.",
-          ephemeral: true,
+      if (!id) {
+        const pending = await listPendingSuggestions(
+          interaction.guildId,
+          1,
+          25,
+          catFilter,
+        );
+        if (!pending.length) {
+          return interaction.reply({
+            content: catFilter
+              ? `📭 No live suggestions found in this category.`
+              : "📭 No live suggestions right now.",
+            flags: 64,
+          });
+        }
+
+        const lines = pending.map((s) => {
+          const v = s.votes.filter((x) => x.type === "UP").length || 0;
+          const d = s.votes.filter((x) => x.type === "DOWN").length || 0;
+          const cat = CATEGORY_LABELS[s.category] || "💬 General";
+          return `\`${s.publicId}\` | ${cat} | ${s.title || s.content.slice(0, 50)} | 👍 ${v} 👎 ${d}`;
         });
-      const voters = await getVoters(id);
-      const upList = voters.up.length
-        ? voters.up.map((u) => `<@${u}>`).join(", ")
-        : "None";
-      const downList = voters.down.length
-        ? voters.down.map((u) => `<@${u}>`).join(", ")
-        : "None";
-      const embed = await createDiscoreEmbed(interaction, {
-        title: "👥 Suggestion Voters",
-        description: `**"${existing.content.slice(0, 100)}"**`,
-        fields: [
-          {
-            name: `👍 Upvotes (${voters.up.length})`,
-            value: upList,
-            inline: false,
-          },
-          {
-            name: `👎 Downvotes (${voters.down.length})`,
-            value: downList,
-            inline: false,
-          },
-        ],
+
+        const embed = new EmbedBuilder()
+          .setTitle("💡 Live Suggestions")
+          .setDescription(lines.join("\n"))
+          .setColor(0x1a7a9e)
+          .setFooter({ text: "Use /suggestion view id:SUG-xxx to see details" })
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed], flags: 64 });
+      }
+
+      const suggestion = await getSuggestion(id.toUpperCase());
+      if (!suggestion || suggestion.guildId !== interaction.guildId) {
+        return interaction.reply({
+          content: "⚠️ Suggestion not found.",
+          flags: 64,
+        });
+      }
+
+      const embed = await buildSuggestionEmbed(interaction.guildId, suggestion);
+      if (suggestion.channelId && suggestion.messageId) {
+        embed.addFields({
+          name: "Original",
+          value: `[Jump to suggestion](https://discord.com/channels/${suggestion.guildId}/${suggestion.channelId}/${suggestion.messageId})`,
+          inline: false,
+        });
+      }
+      embed.addFields({
+        name: "Voter list",
+        value: suggestion.showVoters ? "✅ Public" : "🔒 Private",
+        inline: false,
       });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+
+      const guildSettings = await prisma.guild.findUnique({
+        where: { id: interaction.guildId },
+        select: { discoreManagerRoleId: true, disAdminRoleId: true },
+      });
+      const components = [];
+      if (
+        isAdmin(interaction.member, guildSettings) &&
+        suggestion.status === "PENDING"
+      ) {
+        components.push(
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`sug:approve:${suggestion.publicId}`)
+              .setLabel("Approve")
+              .setEmoji("✅")
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`sug:deny:${suggestion.publicId}`)
+              .setLabel("Deny")
+              .setEmoji("❌")
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId(`sug:delete:${suggestion.publicId}`)
+              .setLabel("Delete")
+              .setEmoji("🗑️")
+              .setStyle(ButtonStyle.Danger),
+          ),
+        );
+      }
+
+      return interaction.reply({ embeds: [embed], components, flags: 64 });
     }
   },
 };

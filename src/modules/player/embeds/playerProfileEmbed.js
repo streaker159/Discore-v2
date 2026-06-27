@@ -94,6 +94,50 @@ async function createPlayerProfileEmbed(member, profileStats, isAdmin = false) {
     });
   }
 
+  // Active Role Scores
+  if (
+    scoreboardStats.activeRoleScores &&
+    scoreboardStats.activeRoleScores.length > 0
+  ) {
+    const activeRoleValues = scoreboardStats.activeRoleScores
+      .map((rs) => {
+        const details =
+          rs.metric === "POINTS"
+            ? `${rs.points} pts`
+            : `${rs.wins}W / ${rs.losses}L`;
+        return `• <@&${rs.roleId}> (${rs.scoreboardName}): **${details}**`;
+      })
+      .join("\n");
+
+    embed.addFields({
+      name: "👥 Active Role Scores",
+      value: activeRoleValues,
+      inline: false,
+    });
+  }
+
+  // Previous Role Scores
+  if (
+    scoreboardStats.previousRoleScores &&
+    scoreboardStats.previousRoleScores.length > 0
+  ) {
+    const previousRoleValues = scoreboardStats.previousRoleScores
+      .map((rs) => {
+        const details =
+          rs.metric === "POINTS"
+            ? `${rs.points} pts`
+            : `${rs.wins}W / ${rs.losses}L`;
+        return `• <@&${rs.roleId}> (${rs.scoreboardName}): **${details}**`;
+      })
+      .join("\n");
+
+    embed.addFields({
+      name: "📦 Previous Role Scores",
+      value: previousRoleValues,
+      inline: false,
+    });
+  }
+
   // Activity tracking
   if (activity) {
     const activityValues = [];

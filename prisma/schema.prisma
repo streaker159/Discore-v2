@@ -23,10 +23,21 @@ model Guild {
   adminLogChan      String?                   // DEPRECATED - use logChannelId
   premiumNoticeChan String?
   battleSignupChan        String?
+
+  // Moderation / Appeal Channels
+  moderationLogChannelId String?
+  appealChannelId        String?
+  appealCategoryId       String?
+  eventChannelId         String?
+  suggestionChannelId    String?
+  supportChannelId       String?
+  adminReportsChannelId  String?
+
   language                String    @default("en")
   customFooter            String?
   scoreboardManagerRoleId String?
   disAdminRoleId          String?
+  publicSuggestionVoters  Boolean   @default(false)
   
   // AvA Configuration
   avaCategoryId           String?
@@ -40,6 +51,12 @@ model Guild {
   discoreAppealRoleId     String?
   discoreMutedRoleId      String?
   
+  // Onboarding
+  onboardingSentAt       DateTime?
+  onboardingCompletedAt  DateTime?
+  onboardingSkippedAt    DateTime?
+  onboardingChannelId    String?
+
   // Maintenance
   maintainRolesAndChannels Boolean  @default(true)
   
@@ -74,10 +91,31 @@ model GuildPremium {
   code          String?
   expiresAt     DateTime?
   grantedBy     String?   // Discord user ID of bot owner who granted
+  entitlementId String?   // Discord entitlement ID
+  // AI credit tracking
+  monthlyAiAllowance    Int       @default(0)
+  monthlyAiUsed         Int       @default(0)
+  monthlyAiPeriodStart  DateTime?
+  monthlyAiPeriodEnd    DateTime?
+  extraAiCredits        Int       @default(0)
+  // AI limits
+  serverDailyAiLimit    Int       @default(0)
+  perUserDailyAiLimit   Int       @default(0)
+  cooldownSeconds       Int       @default(0)
+  aiEnabled             Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([guildId])
+}
+
+model ProcessedEntitlement {
+  id              String    @id @default(cuid())
+  guildId         String
+  skuId           String
+  entitlementId   String    @unique
+  creditsGranted  Int       @default(0)
+  processedAt     DateTime  @default(now())
 }
 
 model PremiumCode {
@@ -138,32 +176,40 @@ model Scoreboard {
   archivedAt    DateTime?
   archivedBy    String?                        // Discord user ID
   archiveNote   String?
+  hasCategories Boolean   @default(false)      // whether this board supports category views
+  brandingImageUrl String?                     // per-scoreboard image set via /server branding
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   entries       ScoreboardEntry[]
   actions       ScoreboardAction[]
+  userRoleScores UserRoleScore[]
+  mergeHistories ScoreboardMergeHistory[]
 
   @@index([guildId])
 }
 
 model ScoreboardEntry {
-  id             String    @id @default(cuid())
-  scoreboardId   String
-  scoreboard     Scoreboard @relation(fields: [scoreboardId], references: [id])
-  targetId       String    // Discord user or role ID
-  targetType     BoardType
-  wins           Int       @default(0)
-  losses         Int       @default(0)
-  points         Int       @default(0)
-  winStreak      Int       @default(0)
-  lossStreak     Int       @default(0)
-  liveChannelId  String?   // channel to post per-entry live score embed
-  liveMessageId  String?   // message to edit for per-entry live score embed
-  updatedAt      DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  scoreboardId         String
+  scoreboard           Scoreboard @relation(fields: [scoreboardId], references: [id])
+  targetId             String    // Discord user ID, role ID, or custom key
+  targetType           BoardType
+  targetName           String?   // display name for CUSTOM targets, or fallback for USER/ROLE
+  wins                 Int       @default(0)
+  losses               Int       @default(0)
+  points               Int       @default(0)
+  winStreak            Int       @default(0)
+  lossStreak           Int       @default(0)
+  liveChannelId        String?   // channel to post per-entry live score embed
+  liveMessageId        String?   // message to edit for per-entry live score embed
+  sourceScoreboardId   String?   // original source board ID when merged into a totals board
+  sourceScoreboardName String?   // original source board name when merged into a totals board
+  updatedAt            DateTime  @updatedAt
 
   @@unique([scoreboardId, targetId])
   @@index([scoreboardId])
+  @@index([sourceScoreboardId])
 }
 
 model ScoreboardAction {
@@ -171,7 +217,7 @@ model ScoreboardAction {
   scoreboardId  String
   scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
   targetId      String
-  action        String    // "WIN", "LOSS", "POINT", "RESET"
+  action        String    // "WIN", "LOSS", "POINT", "RESET", "MERGE", "CREATE", "EDIT", "DELETE_ENTRY"
   delta         Int
   reason        String?
   adminId       String
@@ -180,9 +226,28 @@ model ScoreboardAction {
   @@index([scoreboardId])
 }
 
+model ScoreboardMergeHistory {
+  id                   String    @id @default(cuid())
+  guildId              String
+  targetScoreboardId   String
+  targetScoreboard     Scoreboard @relation(fields: [targetScoreboardId], references: [id])
+  sourceScoreboardId   String
+  sourceScoreboardName String
+  mergeOption          String    // DELETE | CLEAR_KEEP_LIVE | KEEP_LIVE_KEEP_SCORES | ARCHIVE
+  mergedBy             String    // Discord user ID
+  entriesMerged        Int       @default(0)
+  sourceAction         String    // DELETED | CLEARED_KEEP_LIVE | KEPT_LIVE | ARCHIVED
+  mergedAt             DateTime  @default(now())
+
+  @@index([guildId])
+  @@index([targetScoreboardId])
+  @@index([sourceScoreboardId])
+}
+
 enum BoardType {
   USER
   ROLE
+  CUSTOM
 }
 
 // ── GAME DATA ─────────────────────────────────────────────
@@ -437,20 +502,31 @@ enum RsvpStatus {
 
 model Suggestion {
   id          String    @id @default(cuid())
+  publicId    String?   @unique
   guildId     String
   guild       Guild     @relation(fields: [guildId], references: [id])
   authorId    String
+  title       String    @default("")
   content     String
   imageUrl    String?
-  status      SuggestionStatus @default(OPEN)
+  status      SuggestionStatus @default(PENDING)
+  category    String    @default("GENERAL")
+  showVoters  Boolean   @default(false)
   channelId   String
   messageId   String?
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  approvedBy  String?
+  approvedAt  DateTime?
+  deniedBy    String?
+  deniedAt    DateTime?
+  adminNote   String?
 
   votes       SuggestionVote[]
 
   @@index([guildId])
+  @@index([publicId])
 }
 
 model SuggestionVote {
@@ -463,9 +539,10 @@ model SuggestionVote {
 }
 
 enum SuggestionStatus {
-  OPEN
+  PENDING
   APPROVED
-  REJECTED
+  DENIED
+  DELETED
   EXPIRED
 }
 
@@ -786,7 +863,7 @@ model UserActivity {
 
 model ModerationCase {
   id              String         @id @default(cuid())
-  publicId        String         @unique  // MOD-xxxxx
+  publicId        String         @unique  // MOD-001, MOD-002, MOD-003
   guildId         String
   guild           Guild          @relation(fields: [guildId], references: [id])
   userId          String
@@ -816,7 +893,7 @@ model ModerationCase {
 
 model Appeal {
   id          String         @id @default(cuid())
-  publicId    String         @unique  // APL-xxxxx
+  publicId    String         @unique  // APP-001, APP-002, APP-003
   caseId      String
   case        ModerationCase @relation(fields: [caseId], references: [id])
   guildId     String
@@ -856,6 +933,7 @@ enum ModActionType {
   MUTE
   TIMEOUT
   BAN
+  TEMP_BAN
   PROBATION
 }
 
@@ -954,4 +1032,24 @@ model AiUsage {
 
   @@unique([guildId, month])
   @@index([guildId, month])
+}
+
+// ── USER ROLE SCORES ─────────────────────────────────────
+
+model UserRoleScore {
+  id            String    @id @default(cuid())
+  guildId       String
+  userId        String
+  roleId        String
+  scoreboardId  String
+  scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  points        Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([scoreboardId, roleId, userId])
+  @@index([guildId, userId])
+  @@index([roleId])
 }

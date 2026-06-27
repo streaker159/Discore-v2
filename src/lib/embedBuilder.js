@@ -25,6 +25,14 @@ function makeColor(value) {
   return Number.isFinite(parsed) ? parsed : 0x1a7a9e;
 }
 
+async function hasActivePremium(guildId) {
+  if (!guildId) return false;
+  const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
+  if (!premium || premium.tier === "FREE") return false;
+  if (premium.expiresAt && premium.expiresAt < new Date()) return false;
+  return true;
+}
+
 async function createDiscoreEmbed(interactionOrGuildId, options = {}) {
   const guildId =
     typeof interactionOrGuildId === "string"
@@ -37,17 +45,25 @@ async function createDiscoreEmbed(interactionOrGuildId, options = {}) {
       : interactionOrGuildId?.client;
 
   const settings = options.guildSettings || (await getGuildSettings(guildId));
-  const allianceName =
-    settings?.allianceName || options.allianceName || "Discore";
-  const allianceLogo =
-    settings?.allianceLogo || options.allianceLogo || undefined;
+
+  // Premium gate branding at render time
+  const premium = await hasActivePremium(guildId);
+  const allianceName = premium
+    ? settings?.allianceName || options.allianceName || "Discore"
+    : "Discore";
+  const allianceLogo = premium
+    ? settings?.allianceLogo || options.allianceLogo || undefined
+    : undefined;
+  const footerText = premium
+    ? settings?.customFooter || "Powered by Discore"
+    : "Powered by Discore";
   const color = makeColor(options.color || settings?.themeColor);
 
   const embed = new EmbedBuilder()
     .setColor(color)
     .setAuthor({ name: allianceName, iconURL: allianceLogo || undefined })
     .setFooter({
-      text: settings?.customFooter || "Powered by Discore",
+      text: footerText,
       iconURL: client?.user?.displayAvatarURL?.() || undefined,
     })
     .setTimestamp();

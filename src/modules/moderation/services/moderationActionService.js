@@ -1,16 +1,197 @@
 "use strict";
 
-const { PermissionFlagsBits } = require("discord.js");
+const prisma = require("../../../lib/prisma");
 const { canModerate, hasModPermissions } = require("../utils/permissions");
 const caseService = require("./moderationCaseService");
 const {
   createModerationDmEmbed,
   createModerationLogEmbed,
 } = require("../embeds/moderationDmEmbed");
-const prisma = require("../../../lib/prisma");
 
 /**
- * Execute a moderation action with all checks and logging
+ * Get readable moderator name.
+ */
+function getModeratorDisplayName(moderator) {
+  return (
+    moderator?.nickname ||
+    moderator?.displayName ||
+    moderator?.user?.tag ||
+    moderator?.user?.username ||
+    "Unknown moderator"
+  );
+}
+
+/**
+ * Get readable target name.
+ */
+function getUserDisplayName(user) {
+  return user?.tag || user?.username || user?.id || "Unknown user";
+}
+
+/**
+ * Build moderation case expiry date.
+ */
+function buildExpiresAt(durationSeconds) {
+  if (!durationSeconds) return null;
+  return new Date(Date.now() + durationSeconds * 1000);
+}
+
+/**
+ * Discord timeout maximum is 28 days.
+ */
+function clampTimeoutMs(durationSeconds) {
+  const maxTimeoutMs = 28 * 24 * 60 * 60 * 1000;
+  const requestedMs = Number(durationSeconds || 0) * 1000;
+
+  if (!requestedMs || Number.isNaN(requestedMs)) {
+    return null;
+  }
+
+  return Math.min(requestedMs, maxTimeoutMs);
+}
+
+/**
+ * Try to DM a moderated user.
+ *
+ * For bans, this should be called before the ban where possible.
+ */
+async function sendModerationDm({
+  guild,
+  moderator,
+  targetUser,
+  moderationCase,
+  actionType,
+  reason,
+  durationSeconds,
+  canAppeal = true,
+}) {
+  if (!targetUser) {
+    return false;
+  }
+
+  try {
+    console.log(
+      `[Mod DM] Attempting to DM user ${targetUser.id} for ${actionType}`,
+    );
+
+    const moderatorName = getModeratorDisplayName(moderator);
+
+    const dmData = createModerationDmEmbed({
+      guildName: guild.name,
+      actionType,
+      reason,
+      caseId: moderationCase.publicId,
+      durationSeconds,
+      moderatorName,
+      canAppeal,
+    });
+
+    await targetUser.send({
+      embeds: [dmData.embed],
+      components: dmData.components,
+    });
+
+    console.log(
+      `[Mod DM] DM sent successfully to ${getUserDisplayName(targetUser)}`,
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      `[Mod DM] Could not DM user ${targetUser?.id || "unknown"}:`,
+      error?.message || error,
+    );
+    return false;
+  }
+}
+
+/**
+ * Send moderation log embed to configured log channel.
+ */
+async function sendModerationLog({
+  guild,
+  dbGuild,
+  moderator,
+  targetUser,
+  moderationCase,
+  actionType,
+  reason,
+  durationSeconds,
+  dmSent,
+  actionSuccess,
+  actionError,
+}) {
+  if (!dbGuild?.logChannelId) {
+    return;
+  }
+
+  try {
+    const logChannel = await guild.channels.fetch(dbGuild.logChannelId);
+
+    if (!logChannel || !logChannel.isTextBased()) {
+      return;
+    }
+
+    const logEmbed = createModerationLogEmbed({
+      actionType,
+      userId: targetUser.id,
+      userName: getUserDisplayName(targetUser),
+      moderatorId: moderator.id,
+      moderatorName: getModeratorDisplayName(moderator),
+      reason,
+      caseId: moderationCase.publicId,
+      durationSeconds,
+      dmSent,
+      actionSuccess,
+      actionError,
+    });
+
+    await logChannel.send({ embeds: [logEmbed] });
+  } catch (error) {
+    console.error("[Mod Log]", error?.message || error);
+  }
+}
+
+/**
+ * Save a role snapshot before actions that may remove access.
+ */
+async function saveRoleSnapshotIfNeeded({
+  guild,
+  targetUser,
+  targetMember,
+  actionType,
+  moderationCase,
+}) {
+  if (!targetMember) return;
+
+  if (!["MUTE", "BAN", "TEMP_BAN"].includes(actionType)) {
+    return;
+  }
+
+  const roleIds = targetMember.roles.cache
+    .filter((role) => role.id !== guild.id)
+    .map((role) => role.id);
+
+  if (roleIds.length === 0) {
+    return;
+  }
+
+  try {
+    await caseService.saveRoleSnapshot(
+      moderationCase.id,
+      guild.id,
+      targetUser.id,
+      roleIds,
+    );
+  } catch (error) {
+    console.error(
+      "[Role Snapshot] Could not save role snapshot:",
+      error?.message || error,
+    );
+  }
+}
+
+/**
+ * Execute a moderation action with checks, case creation, DM, action, and logging.
  */
 async function executeModAction(options) {
   const {
@@ -21,10 +202,24 @@ async function executeModAction(options) {
     actionType,
     reason,
     durationSeconds,
-    interaction,
   } = options;
 
-  // Permission checks
+  if (!guild) {
+    throw new Error("Guild is required");
+  }
+
+  if (!moderator) {
+    throw new Error("Moderator is required");
+  }
+
+  if (!targetUser) {
+    throw new Error("Target user is required");
+  }
+
+  if (!actionType) {
+    throw new Error("Action type is required");
+  }
+
   const dbGuild = await prisma.guild.findUnique({
     where: { id: guild.id },
   });
@@ -33,7 +228,6 @@ async function executeModAction(options) {
     throw new Error("You don't have permission to perform moderation actions");
   }
 
-  // Check if target can be moderated
   if (targetMember) {
     const check = canModerate(moderator, targetMember, guild);
     if (!check.canModerate) {
@@ -41,13 +235,8 @@ async function executeModAction(options) {
     }
   }
 
-  // Calculate expiration
-  let expiresAt = null;
-  if (durationSeconds) {
-    expiresAt = new Date(Date.now() + durationSeconds * 1000);
-  }
+  const expiresAt = buildExpiresAt(durationSeconds);
 
-  // Create moderation case
   const moderationCase = await caseService.createCase({
     guildId: guild.id,
     userId: targetUser.id,
@@ -58,25 +247,34 @@ async function executeModAction(options) {
     expiresAt,
   });
 
-  // Save role snapshot if needed (for certain actions)
-  if (targetMember && ["MUTE", "BAN"].includes(actionType)) {
-    const roleIds = targetMember.roles.cache
-      .filter((r) => r.id !== guild.id) // Exclude @everyone
-      .map((r) => r.id);
+  await saveRoleSnapshotIfNeeded({
+    guild,
+    targetUser,
+    targetMember,
+    actionType,
+    moderationCase,
+  });
 
-    if (roleIds.length > 0) {
-      await caseService.saveRoleSnapshot(
-        moderationCase.id,
-        guild.id,
-        targetUser.id,
-        roleIds,
-      );
-    }
-  }
-
-  // Apply the action
+  let dmSent = false;
   let actionSuccess = false;
   let actionError = null;
+
+  /**
+   * For bans, DM before the ban.
+   * After a ban, Discord DMs are less reliable depending mutual server state/privacy.
+   */
+  if (["BAN", "TEMP_BAN"].includes(actionType)) {
+    dmSent = await sendModerationDm({
+      guild,
+      moderator,
+      targetUser,
+      moderationCase,
+      actionType,
+      reason,
+      durationSeconds,
+      canAppeal: true,
+    });
+  }
 
   try {
     actionSuccess = await applyModAction(
@@ -90,64 +288,40 @@ async function executeModAction(options) {
       dbGuild,
     );
   } catch (error) {
-    actionError = error.message;
+    actionSuccess = false;
+    actionError = error?.message || String(error);
     console.error(`[Mod Action ${actionType}]`, error);
   }
 
-  // Try to DM the user
-  let dmSent = false;
-  if (targetUser && actionType !== "WARN") {
-    try {
-      const moderatorName =
-        moderator.nickname ||
-        moderator.user?.tag ||
-        moderator.displayName ||
-        "Unknown";
-      const dmData = createModerationDmEmbed({
-        guildName: guild.name,
-        actionType,
-        reason,
-        caseId: moderationCase.publicId,
-        durationSeconds,
-        moderatorName,
-        canAppeal: true,
-      });
-
-      await targetUser.send({
-        embeds: [dmData.embed],
-        components: dmData.components,
-      });
-      dmSent = true;
-    } catch (error) {
-      console.log(
-        `[Mod DM] Could not DM user ${targetUser.id}:`,
-        error.message,
-      );
-    }
+  /**
+   * For non-ban actions, DM after the action attempt.
+   */
+  if (!["BAN", "TEMP_BAN"].includes(actionType)) {
+    dmSent = await sendModerationDm({
+      guild,
+      moderator,
+      targetUser,
+      moderationCase,
+      actionType,
+      reason,
+      durationSeconds,
+      canAppeal: true,
+    });
   }
 
-  // Log to Discore log channel
-  if (dbGuild?.logChannelId) {
-    try {
-      const logChannel = await guild.channels.fetch(dbGuild.logChannelId);
-      if (logChannel && logChannel.isTextBased()) {
-        const logEmbed = createModerationLogEmbed({
-          actionType,
-          userId: targetUser.id,
-          userName: targetUser.tag,
-          moderatorId: moderator.id,
-          moderatorName: moderator.user?.tag || moderator.displayName,
-          reason,
-          caseId: moderationCase.publicId,
-          durationSeconds,
-        });
-
-        await logChannel.send({ embeds: [logEmbed] });
-      }
-    } catch (error) {
-      console.error("[Mod Log]", error);
-    }
-  }
+  await sendModerationLog({
+    guild,
+    dbGuild,
+    moderator,
+    targetUser,
+    moderationCase,
+    actionType,
+    reason,
+    durationSeconds,
+    dmSent,
+    actionSuccess,
+    actionError,
+  });
 
   return {
     case: moderationCase,
@@ -158,7 +332,7 @@ async function executeModAction(options) {
 }
 
 /**
- * Apply the actual moderation action
+ * Apply the actual Discord moderation action.
  */
 async function applyModAction(
   actionType,
@@ -170,64 +344,68 @@ async function applyModAction(
   caseId,
   dbGuild,
 ) {
-  const fullReason = `${reason} [${caseId}]`;
+  const safeReason = reason || "No reason provided";
+  const fullReason = `${safeReason} [${caseId}]`;
 
   switch (actionType) {
     case "WARN":
-      // Warnings don't require Discord action
       return true;
 
-    case "MUTE":
+    case "PROBATION":
+      return true;
+
+    case "MUTE": {
       if (!targetMember) {
         throw new Error("User is not in the server");
       }
 
-      // Try to use muted role if configured
       if (dbGuild?.discoreMutedRoleId) {
         const mutedRole = guild.roles.cache.get(dbGuild.discoreMutedRoleId);
+
         if (mutedRole) {
           await targetMember.roles.add(mutedRole, fullReason);
           return true;
         }
       }
 
-      // Fallback to timeout
-      if (durationSeconds) {
-        const timeoutMs = Math.min(
-          durationSeconds * 1000,
-          28 * 24 * 60 * 60 * 1000,
-        );
+      const timeoutMs = clampTimeoutMs(durationSeconds);
+
+      if (timeoutMs) {
         await targetMember.timeout(timeoutMs, fullReason);
         return true;
       }
 
-      throw new Error("Mute role not configured and no duration provided");
+      throw new Error(
+        "Mute role is not configured and no valid duration was provided",
+      );
+    }
 
-    case "TIMEOUT":
+    case "TIMEOUT": {
       if (!targetMember) {
         throw new Error("User is not in the server");
       }
 
-      const timeoutMs = Math.min(
-        durationSeconds * 1000,
-        28 * 24 * 60 * 60 * 1000,
-      );
+      const timeoutMs = clampTimeoutMs(durationSeconds);
+
+      if (!timeoutMs) {
+        throw new Error("Timeout requires a valid duration");
+      }
+
       await targetMember.timeout(timeoutMs, fullReason);
       return true;
+    }
 
     case "BAN":
-      // Calculate delete message days (default 0)
+    case "TEMP_BAN": {
       const deleteMessageSeconds = 0;
 
       await guild.members.ban(targetUser.id, {
         reason: fullReason,
         deleteMessageSeconds,
       });
-      return true;
 
-    case "PROBATION":
-      // Probation doesn't require Discord action, only DB record
       return true;
+    }
 
     default:
       throw new Error(`Unknown action type: ${actionType}`);

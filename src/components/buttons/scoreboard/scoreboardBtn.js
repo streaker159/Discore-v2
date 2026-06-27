@@ -5,11 +5,15 @@ const {
   archiveScoreboard,
   buildScoreboardPage,
   buildScoreboardComponents,
+  buildInteractiveShowEmbed,
+  buildShowComponents,
+  pushLiveEmbed,
+  pushEntryLiveEmbed,
 } = require("../../../modules/scoreboards/service");
 
 // ─── shared handler helper ────────────────────────────────────────────────────
 
-async function handleShow(interaction, boardId, page, sortBy) {
+async function handleShow(interaction, boardId, page, sortBy, viewMode) {
   const board = await getScoreboardById(boardId);
   if (!board)
     return interaction.update({
@@ -28,17 +32,18 @@ async function handleShow(interaction, boardId, page, sortBy) {
     embed,
     page: safePage,
     totalPages,
-  } = buildScoreboardPage(board, page, {
+  } = buildInteractiveShowEmbed(board, viewMode || "flat", page, sortBy, {
     guildIconUrl,
     discoreIconUrl,
-    sortBy,
   });
-  const components = buildScoreboardComponents(
+  const components = buildShowComponents(
     board.id,
     safePage,
     totalPages,
     board.metric,
     sortBy,
+    viewMode || "flat",
+    board,
   );
   return interaction.update({ embeds: [embed], components });
 }
@@ -46,52 +51,61 @@ async function handleShow(interaction, boardId, page, sortBy) {
 // ─── handlers ─────────────────────────────────────────────────────────────────
 
 module.exports = [
+  // ── pagination ─────────────────────────────────────────────────────────
   {
-    customIdPrefix: "scoreboard:page:",
+    customIdPrefix: "sb:page:",
     async execute(interaction) {
-      // customId: scoreboard:page:{boardId}:{page}:{sortBy?}
+      // customId: sb:page:{boardId}:{page}:{sortBy}:{viewMode}
       const parts = interaction.customId.split(":");
       const boardId = parts[2];
       const page = parseInt(parts[3], 10) || 1;
       const sortBy = parts[4] || "WINS";
-      return handleShow(interaction, boardId, page, sortBy);
+      const viewMode = parts[5] || "flat";
+      return handleShow(interaction, boardId, page, sortBy, viewMode);
     },
   },
 
+  // ── sort buttons ───────────────────────────────────────────────────────
   {
-    customIdPrefix: "scoreboard:sort:",
+    customIdPrefix: "sb:sort:",
     async execute(interaction) {
-      // customId: scoreboard:sort:{boardId}:{page}:{sortBy}
+      // customId: sb:sort:{boardId}:{page}:{sortBy}:{viewMode}
       const parts = interaction.customId.split(":");
       const boardId = parts[2];
       const page = parseInt(parts[3], 10) || 1;
       const sortBy = parts[4] || "WINS";
-      return handleShow(interaction, boardId, page, sortBy);
+      const viewMode = parts[5] || "flat";
+      return handleShow(interaction, boardId, page, sortBy, viewMode);
     },
   },
 
+  // ── refresh ────────────────────────────────────────────────────────────
   {
-    customIdPrefix: "scoreboard:refresh:",
+    customIdPrefix: "sb:refresh:",
     async execute(interaction) {
-      // customId: scoreboard:refresh:{boardId}:{page}:{sortBy?}
+      // customId: sb:refresh:{boardId}:{page}:{sortBy}:{viewMode}
       const parts = interaction.customId.split(":");
       const boardId = parts[2];
       const page = parseInt(parts[3], 10) || 1;
       const sortBy = parts[4] || "WINS";
-      return handleShow(interaction, boardId, page, sortBy);
+      const viewMode = parts[5] || "flat";
+
+      // Refresh from DB
+      const board = await getScoreboardById(boardId);
+      return handleShow(interaction, boardId, page, sortBy, viewMode);
     },
   },
 
+  // ── archive confirm ────────────────────────────────────────────────────
   {
-    customIdPrefix: "scoreboard:archive_confirm:",
+    customIdPrefix: "sb:archive_confirm:",
     async execute(interaction) {
-      // customId: scoreboard:archive_confirm:{boardId}:{note}
-      const raw = interaction.customId.slice(
-        "scoreboard:archive_confirm:".length,
-      );
-      const colonIdx = raw.indexOf(":");
-      const boardId = colonIdx >= 0 ? raw.slice(0, colonIdx) : raw;
-      const note = colonIdx >= 0 ? raw.slice(colonIdx + 1) : undefined;
+      // customId: sb:archive_confirm:{boardId}:{note}:{deleteEmbeds}
+      const raw = interaction.customId.slice("sb:archive_confirm:".length);
+      const parts = raw.split(":");
+      const boardId = parts[0];
+      const note = parts[1] || "";
+      const deleteEmbeds = parts[2] === "1";
 
       const board = await getScoreboardById(boardId);
       if (!board)
@@ -108,6 +122,7 @@ module.exports = [
         name: board.name,
         archivedBy: interaction.user.id,
         archiveNote: note || null,
+        deleteLiveEmbeds: deleteEmbeds,
       });
 
       return interaction.update({
@@ -118,8 +133,9 @@ module.exports = [
     },
   },
 
+  // ── archive cancel ─────────────────────────────────────────────────────
   {
-    customIdPrefix: "scoreboard:archive_cancel:",
+    customIdPrefix: "sb:archive_cancel:",
     async execute(interaction) {
       return interaction.update({
         content: "Archive cancelled.",

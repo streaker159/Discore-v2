@@ -7,9 +7,12 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } = require("discord.js");
 const prisma = require("../../lib/prisma");
-const { getGuildPlan } = require("../../lib/premiumGate");
+const roleTracking = require("../roleTracking/service");
+const { getGuildPlan, hasFeature } = require("../../lib/premiumGate");
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -17,9 +20,25 @@ function genPublicId() {
   return randomBytes(4).toString("hex");
 }
 
+function genCustomId() {
+  return randomBytes(8).toString("hex");
+}
+
 function ratio(wins, losses) {
   if (!losses) return wins ? wins.toFixed(2) : "0.00";
   return (wins / losses).toFixed(2);
+}
+
+function sortEntriesByWins(entries) {
+  return [...entries].sort(
+    (a, b) =>
+      b.wins - a.wins ||
+      b.wins / Math.max(1, b.losses) - a.wins / Math.max(1, a.losses),
+  );
+}
+
+function sortEntriesByPoints(entries) {
+  return [...entries].sort((a, b) => b.points - a.points);
 }
 
 function sortEntries(board, sortBy = "WINS") {
@@ -33,7 +52,6 @@ function sortEntries(board, sortBy = "WINS") {
     return [...board.entries].sort(
       (a, b) => b.losses - a.losses || r(b) - r(a),
     );
-  // Default WINS
   return [...board.entries].sort((a, b) => b.wins - a.wins || r(b) - r(a));
 }
 
@@ -44,16 +62,38 @@ function makeBoardColor(board) {
   return Number.isFinite(parsed) ? parsed : 0x1a7a9e;
 }
 
+/**
+ * Strip any sourceId:: prefix from a targetId for display purposes.
+ * Merged entries use "sourceId::targetId" to avoid unique constraint collisions.
+ */
+function stripSourcePrefix(targetId) {
+  if (!targetId) return "";
+  if (targetId.includes("::")) {
+    const parts = targetId.split("::");
+    return parts[parts.length - 1]; // Last segment is the real target
+  }
+  return targetId;
+}
+
+function targetMention(entry) {
+  const id = stripSourcePrefix(entry.targetId);
+  if (entry.targetType === "ROLE") return `<@&${id}>`;
+  if (entry.targetType === "USER") return `<@${id}>`;
+  return entry.targetName || id;
+}
+
+function targetDisplay(entry) {
+  if (entry.targetType === "CUSTOM")
+    return entry.targetName || stripSourcePrefix(entry.targetId);
+  return targetMention(entry);
+}
+
 // ─── entry embed ─────────────────────────────────────────────────────────────
 
-/**
- * Build the per-target score embed (posted in the team/role channel).
- * Matches the Python bot style exactly.
- */
 function buildEntryEmbed(
   board,
   entry,
-  targetMention,
+  targetMentionText,
   targetName,
   targetColor,
   opts = {},
@@ -61,14 +101,15 @@ function buildEntryEmbed(
   const { discoreIconUrl } = opts;
   const color =
     targetColor && targetColor !== 0 ? targetColor : makeBoardColor(board);
-  const tsUnix = entry?.updatedAt
-    ? Math.floor(new Date(entry.updatedAt).getTime() / 1000)
-    : null;
 
   let fields;
   if (board.metric === "POINTS") {
     fields = [
-      { name: "💯 Points", value: `\`${entry?.points ?? 0}\``, inline: true },
+      {
+        name: "💯 Points",
+        value: `**\` ${entry?.points ?? 0} \`**`,
+        inline: true,
+      },
     ];
   } else {
     const r = ratio(entry?.wins ?? 0, entry?.losses ?? 0);
@@ -76,41 +117,61 @@ function buildEntryEmbed(
     const ls = entry?.lossStreak ?? 0;
     const streakName =
       ws > 1 ? "🔥 Win Streak" : ls > 1 ? "💀 Loss Streak" : "Streak";
-    const streakValue = ws > 1 ? `\`${ws}\`` : ls > 1 ? `\`${ls}\`` : "`—`";
+    const streakValue =
+      ws > 1 ? `**\` ${ws} \`**` : ls > 1 ? `**\` ${ls} \`**` : "`—`";
     fields = [
-      { name: "🏆 Wins", value: `\`${entry?.wins ?? 0}\``, inline: true },
-      { name: "☠️ Losses", value: `\`${entry?.losses ?? 0}\``, inline: true },
-      { name: "⚖️ Ratio", value: `\`${r}\``, inline: true },
+      { name: "🏆 Wins", value: `**\` ${entry?.wins ?? 0} \`**`, inline: true },
+      {
+        name: "☠️ Losses",
+        value: `**\` ${entry?.losses ?? 0} \`**`,
+        inline: true,
+      },
+      { name: "⚖️ Ratio", value: `**\` ${r} \`**`, inline: true },
       { name: streakName, value: streakValue, inline: true },
     ];
   }
 
   const descParts = [
-    `**${board.liveTitle || board.name}**`,
-    board.description ? `*${board.description}*` : null,
-    tsUnix ? `⏰ Last updated <t:${tsUnix}:R>` : null,
+    `⚔️ **Scoreboard:** ${board.liveTitle || board.name}`,
+    board.description ? `📝 *${board.description}*` : null,
+    `👤 **Target:** ${targetMentionText}`,
   ].filter(Boolean);
 
   return new EmbedBuilder()
-    .setAuthor({
-      name: `📊 Score update · ${board.liveTitle || board.name}`,
-      iconURL: discoreIconUrl || undefined,
-    })
-    .setTitle(targetName)
+    .setTitle(`📊 Score Update — ${targetName}`)
     .setColor(color)
     .setDescription(descParts.join("\n"))
     .addFields(fields)
     .setFooter({
-      text: "Powered by Discore",
+      text: "Powered by Discore  •  Live Stat Updates",
       iconURL: discoreIconUrl || undefined,
     })
-    .setTimestamp();
+    .setTimestamp(entry?.updatedAt ? new Date(entry.updatedAt) : undefined);
 }
 
-// ─── scoreboard list embed ────────────────────────────────────────────────────
+// ─── scoreboard page embed ────────────────────────────────────────────────────
 
 const PAGE_SIZE = 10;
-const DIVIDER = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬";
+const MEDALS = ["🥇", "🥈", "🥉"];
+
+function buildEntryLine(entry, pos, metric) {
+  const medal = MEDALS[pos] ?? `\`${String(pos + 1).padStart(2, "0")}.\``;
+  const display = targetDisplay(entry);
+  const isChampion = pos === 0;
+  const label = isChampion ? `**Champion: ${display}** 👑` : `**${display}**`;
+
+  if (metric === "POINTS") {
+    return `${medal} ${label}\n   └─ \` 💯 ${entry.points} Points \``;
+  }
+  const r = ratio(entry.wins, entry.losses);
+  const streakBit =
+    entry.winStreak > 1
+      ? `  🔥 \`Streak: ${entry.winStreak}\``
+      : entry.lossStreak > 1
+        ? `  💀 \`Streak: ${entry.lossStreak}\``
+        : "";
+  return `${medal} ${label}\n   └─ \` 🏆 ${entry.wins}W \` \` 💀 ${entry.losses}L \` \` ⚖️ ${r} Ratio \`${streakBit}`;
+}
 
 function buildScoreboardPage(board, page = 1, opts = {}) {
   const { guildIconUrl, discoreIconUrl, sortBy = "WINS" } = opts;
@@ -119,27 +180,10 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safeP = Math.min(Math.max(page, 1), pages);
   const slice = sorted.slice((safeP - 1) * PAGE_SIZE, safeP * PAGE_SIZE);
-  const MEDALS = ["🥇", "🥈", "🥉"];
 
   const lines = slice.map((entry, i) => {
     const pos = (safeP - 1) * PAGE_SIZE + i;
-    const medal = MEDALS[pos] ?? `\`${pos + 1}.\``;
-    const mention =
-      entry.targetType === "ROLE"
-        ? `<@&${entry.targetId}>`
-        : `<@${entry.targetId}>`;
-
-    if (board.metric === "POINTS") {
-      return `${medal}  ${mention}\n> 💯 \`${entry.points}\` pts`;
-    }
-    const streakBit =
-      entry.winStreak > 1
-        ? `  🔥 \`${entry.winStreak}\` ws`
-        : entry.lossStreak > 1
-          ? `  💀 \`${entry.lossStreak}\` ls`
-          : "";
-    const r = ratio(entry.wins, entry.losses);
-    return `${medal}  ${mention}\n> \`${entry.wins}W\` / \`${entry.losses}L\`  ·  ⚖️ \`${r}\`${streakBit}`;
+    return buildEntryLine(entry, pos, board.metric);
   });
 
   const archiveLine = board.isArchived
@@ -150,37 +194,46 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
       }${board.archiveNote ? " — " + board.archiveNote : ""}`
     : null;
 
-  const descParts = [
-    board.description ? `*${board.description}*` : null,
-    archiveLine,
+  const descParts = [];
+  if (board.description) {
+    descParts.push(`📝 *${board.description}*`);
+  }
+  if (archiveLine) {
+    descParts.push(`⚠️ ${archiveLine}`);
+  }
+  if (descParts.length > 0) {
+    descParts.push("");
+  }
+
+  descParts.push(
     lines.length
-      ? lines.join("\n")
-      : "_No entries yet.  Use `/scoreboard addwin` to get started._",
-  ].filter(Boolean);
+      ? lines.join("\n\n")
+      : "_No entries yet. Use `/scoreboard addwin` to get started._",
+  );
 
-  const lastUpdatedUnix = board.lastUpdatedAt
-    ? Math.floor(new Date(board.lastUpdatedAt).getTime() / 1000)
-    : null;
-
-  const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win / Loss";
-  const typeLabel = board.type === "ROLE" ? "👥 Roles" : "👤 Users";
+  const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win/Loss";
+  const typeLabels = {
+    USER: "👤 Users",
+    ROLE: "👥 Roles",
+    CUSTOM: "📝 Custom",
+  };
+  const typeLabel = typeLabels[board.type] || "👤 Users";
   const sortLabel =
     board.metric !== "POINTS"
       ? sortBy === "RATIO"
-        ? "sorted by ratio"
+        ? "Ratio"
         : sortBy === "LOSSES"
-          ? "sorted by losses"
-          : "sorted by wins"
+          ? "Losses"
+          : "Wins"
       : null;
 
   const footerParts = [
-    modeLabel,
-    typeLabel,
+    `Mode: ${modeLabel}`,
+    `Track: ${typeLabel}`,
     `${total} ${total === 1 ? "entry" : "entries"}`,
-    total > PAGE_SIZE && `Page ${safeP}/${pages}`,
-    sortLabel,
+    total > PAGE_SIZE ? `Page ${safeP}/${pages}` : null,
+    sortLabel ? `Sort: ${sortLabel}` : null,
     board.publicId && `ID: ${board.publicId}`,
-    lastUpdatedUnix && `Updated <t:${lastUpdatedUnix}:R>`,
   ].filter(Boolean);
 
   const embed = new EmbedBuilder()
@@ -191,7 +244,9 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
       text: footerParts.join("  ·  "),
       iconURL: discoreIconUrl || undefined,
     })
-    .setTimestamp();
+    .setTimestamp(
+      board.lastUpdatedAt ? new Date(board.lastUpdatedAt) : undefined,
+    );
 
   if (board.roleImageUrl) embed.setThumbnail(board.roleImageUrl);
   else if (guildIconUrl) embed.setThumbnail(guildIconUrl);
@@ -200,52 +255,240 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
 }
 
 /**
- * Build the action row components for a scoreboard display.
- * Sort row (WIN_LOSS boards) + optional pagination row.
+ * Check if a guild has active premium — used to gate branding features at render time.
  */
+async function hasActivePremium(guildId) {
+  if (!guildId) return false;
+  const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
+  if (!premium || premium.tier === "FREE") return false;
+  if (premium.expiresAt && premium.expiresAt < new Date()) return false;
+  return true;
+}
+
+/**
+ * Build a scoreboard page with premium-gated branding image support.
+ */
+async function buildScoreboardPagePremium(board, page = 1, opts = {}) {
+  const result = buildScoreboardPage(board, page, opts);
+  // Premium gating for branding image
+  if (board.brandingImageUrl && board.guildId) {
+    const premium = await hasActivePremium(board.guildId);
+    if (premium) {
+      result.embed.setImage(board.brandingImageUrl);
+    }
+  }
+  return result;
+}
+
+function buildScoreboardEmbedDirectPremium(board) {
+  return buildScoreboardPage(board, 1).embed;
+}
+
+async function buildScoreboardEmbedPremium(_interaction, board) {
+  return buildScoreboardPagePremium(board, 1).then((r) => r.embed);
+}
+
+// ─── category-aware display ──────────────────────────────────────────────────
+
+/**
+ * Group entries by sourceScoreboardId (categories).
+ * Returns an array of { categoryId, categoryName, entries }.
+ */
+function groupEntriesByCategory(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const key = entry.sourceScoreboardId || "__uncategorized__";
+    const name = entry.sourceScoreboardName || "Uncategorized";
+    if (!groups.has(key)) {
+      groups.set(key, { categoryId: key, categoryName: name, entries: [] });
+    }
+    groups.get(key).entries.push(entry);
+  }
+  return Array.from(groups.values());
+}
+
+/**
+ * Build "All Scores Combined" view: merges matching targetIds across all categories.
+ */
+function buildCombinedEntries(entries, metric) {
+  const combined = new Map();
+  for (const entry of entries) {
+    // Strip sourceId:: prefix for combined view so Team 25 from
+    // Scoreboard A and Scoreboard B are merged together in display
+    let key = entry.targetId;
+    if (key.includes("::")) {
+      const parts = key.split("::");
+      key = parts[parts.length - 1]; // Last segment is the real target
+    }
+    if (!combined.has(key)) {
+      combined.set(key, {
+        targetId: entry.targetId,
+        targetType: entry.targetType,
+        targetName: entry.targetName,
+        wins: 0,
+        losses: 0,
+        points: 0,
+        winStreak: 0,
+        lossStreak: 0,
+      });
+    }
+    const c = combined.get(key);
+    c.wins += entry.wins;
+    c.losses += entry.losses;
+    c.points += entry.points;
+  }
+  const arr = Array.from(combined.values());
+  if (metric === "POINTS") {
+    arr.sort((a, b) => b.points - a.points);
+  } else {
+    arr.sort(
+      (a, b) =>
+        b.wins - a.wins ||
+        b.wins / Math.max(1, b.losses) - a.wins / Math.max(1, a.losses),
+    );
+  }
+  return arr;
+}
+
+/**
+ * Build a page for "All Categories" or single-category view.
+ * Each category is rendered as a section with its entries.
+ */
+function buildCategoryPage(categories, page = 1, metric, opts = {}) {
+  const { guildIconUrl, discoreIconUrl, boardTitle, board, categoryTitle } =
+    opts;
+  const totalEntries = categories.reduce((sum, c) => sum + c.entries.length, 0);
+
+  // Flatten: each category's sorted entries
+  const flatItems = [];
+  for (const cat of categories) {
+    const sorted =
+      metric === "POINTS"
+        ? sortEntriesByPoints(cat.entries)
+        : sortEntriesByWins(cat.entries);
+    for (const entry of sorted) {
+      flatItems.push({ entry, categoryName: cat.categoryName });
+    }
+  }
+
+  const pages = Math.max(1, Math.ceil(flatItems.length / PAGE_SIZE));
+  const safeP = Math.min(Math.max(page, 1), pages);
+  const slice = flatItems.slice((safeP - 1) * PAGE_SIZE, safeP * PAGE_SIZE);
+
+  // Group slice by category for display
+  const lines = [];
+  let lastCategory = null;
+  for (let i = 0; i < slice.length; i++) {
+    const item = slice[i];
+    if (item.categoryName !== lastCategory && categories.length > 1) {
+      lines.push(`__**${item.categoryName}**__`);
+      lastCategory = item.categoryName;
+    }
+    lines.push(buildEntryLine(item.entry, (safeP - 1) * PAGE_SIZE + i, metric));
+  }
+
+  const descParts = [];
+  if (categoryTitle) descParts.push(`📂 **${categoryTitle}**`);
+  if (descParts.length) descParts.push("");
+  descParts.push(lines.length ? lines.join("\n\n") : "_No entries._");
+
+  const modeLabel = metric === "POINTS" ? "💯 Points" : "⚔️ Win/Loss";
+  const footerParts = [
+    `Mode: ${modeLabel}`,
+    `${totalEntries} ${totalEntries === 1 ? "entry" : "entries"}`,
+    totalEntries > PAGE_SIZE ? `Page ${safeP}/${pages}` : null,
+  ].filter(Boolean);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🏆  ${boardTitle || "Scoreboard"}`)
+    .setDescription(descParts.join("\n"))
+    .setColor(board ? makeBoardColor(board) : 0x1a7a9e)
+    .setFooter({
+      text: footerParts.join("  ·  "),
+      iconURL: discoreIconUrl || undefined,
+    })
+    .setTimestamp(
+      board?.lastUpdatedAt ? new Date(board.lastUpdatedAt) : undefined,
+    );
+
+  if (board?.roleImageUrl) embed.setThumbnail(board.roleImageUrl);
+  else if (guildIconUrl) embed.setThumbnail(guildIconUrl);
+
+  return { embed, page: safeP, totalPages: pages, totalEntries };
+}
+
+// ─── components ───────────────────────────────────────────────────────────────
+
 function buildScoreboardComponents(
   boardId,
   page,
   totalPages,
   metric,
   sortBy = "WINS",
+  viewMode = "flat",
+  hasCategories = false,
 ) {
   const rows = [];
 
-  if (metric === "WIN_LOSS") {
+  if (viewMode === "flat" && !hasCategories) {
+    if (metric === "WIN_LOSS") {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sb:sort:${boardId}:${page}:WINS:${viewMode}`)
+            .setLabel("🏆 Most Wins")
+            .setStyle(
+              sortBy === "WINS" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+            ),
+          new ButtonBuilder()
+            .setCustomId(`sb:sort:${boardId}:${page}:RATIO:${viewMode}`)
+            .setLabel("⚖️ Best Ratio")
+            .setStyle(
+              sortBy === "RATIO" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+            ),
+          new ButtonBuilder()
+            .setCustomId(`sb:sort:${boardId}:${page}:LOSSES:${viewMode}`)
+            .setLabel("💀 Most Losses")
+            .setStyle(
+              sortBy === "LOSSES" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+            ),
+          new ButtonBuilder()
+            .setCustomId(`sb:refresh:${boardId}:${page}:${sortBy}:${viewMode}`)
+            .setLabel("🔄 Refresh")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      );
+    } else {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sb:refresh:${boardId}:${page}:POINTS:${viewMode}`)
+            .setLabel("🔄 Refresh")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      );
+    }
+  }
+
+  // View mode dropdown for category boards
+  if (hasCategories) {
     rows.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`scoreboard:sort:${boardId}:${page}:WINS`)
-          .setLabel("🏆 Most Wins")
-          .setStyle(
-            sortBy === "WINS" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+        new StringSelectMenuBuilder()
+          .setCustomId(`sb:view:${boardId}:${page}:${sortBy}`)
+          .setPlaceholder("Select a view...")
+          .addOptions(
+            new StringSelectMenuOptionBuilder()
+              .setLabel("All Scores Combined")
+              .setDescription("Combine matching targets across all categories")
+              .setValue("combined")
+              .setDefault(viewMode === "combined"),
+            new StringSelectMenuOptionBuilder()
+              .setLabel("Show All Categories")
+              .setDescription("Display each category separately")
+              .setValue("all_cats")
+              .setDefault(viewMode === "all_cats"),
           ),
-        new ButtonBuilder()
-          .setCustomId(`scoreboard:sort:${boardId}:${page}:RATIO`)
-          .setLabel("⚖️ Best Ratio")
-          .setStyle(
-            sortBy === "RATIO" ? ButtonStyle.Primary : ButtonStyle.Secondary,
-          ),
-        new ButtonBuilder()
-          .setCustomId(`scoreboard:sort:${boardId}:${page}:LOSSES`)
-          .setLabel("💀 Most Losses")
-          .setStyle(
-            sortBy === "LOSSES" ? ButtonStyle.Primary : ButtonStyle.Secondary,
-          ),
-        new ButtonBuilder()
-          .setCustomId(`scoreboard:refresh:${boardId}:${page}:${sortBy}`)
-          .setLabel("🔄 Refresh")
-          .setStyle(ButtonStyle.Secondary),
-      ),
-    );
-  } else {
-    rows.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`scoreboard:refresh:${boardId}:${page}:POINTS`)
-          .setLabel("🔄 Refresh")
-          .setStyle(ButtonStyle.Secondary),
       ),
     );
   }
@@ -254,12 +497,12 @@ function buildScoreboardComponents(
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`scoreboard:page:${boardId}:${page - 1}:${sortBy}`)
+          .setCustomId(`sb:page:${boardId}:${page - 1}:${sortBy}:${viewMode}`)
           .setLabel("◀  Prev")
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(page <= 1),
         new ButtonBuilder()
-          .setCustomId(`scoreboard:page:${boardId}:${page + 1}:${sortBy}`)
+          .setCustomId(`sb:page:${boardId}:${page + 1}:${sortBy}:${viewMode}`)
           .setLabel("Next  ▶")
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(page >= totalPages),
@@ -300,15 +543,6 @@ function norm(text) {
   return text.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-/**
- * Find the best channel to post a live score embed for a role/user.
- * Priority:
- *  1. Private channel only target can see, name contains target name
- *  2. Any private channel only target can see
- *  3. Public channel whose name contains the target name
- *  4. Public channel with a score keyword in name
- *  5. First channel the target can send messages in
- */
 function findTeamChannel(guild, targetObj) {
   try {
     const me = guild.members.me;
@@ -331,21 +565,16 @@ function findTeamChannel(guild, targetObj) {
 
     const visible = [...channels.values()].filter(canView);
 
-    // 1. Private + name match
     const p1 = visible.filter((ch) => isPrivate(ch) && nameMatch(ch));
     if (p1.length) return p1[0];
-    // 2. Private only
     const p2 = visible.filter((ch) => isPrivate(ch));
     if (p2.length) return p2[0];
-    // 3. Public + name match
     const p3 = visible.filter((ch) => nameMatch(ch));
     if (p3.length) return p3[0];
-    // 4. Public + score keyword
     const p4 = visible.filter((ch) =>
       SCORE_KEYWORDS.some((kw) => norm(ch.name).includes(kw)),
     );
     if (p4.length) return p4[0];
-    // 5. First visible
     return visible[0] ?? null;
   } catch {
     return null;
@@ -354,31 +583,25 @@ function findTeamChannel(guild, targetObj) {
 
 // ─── per-entry live push ──────────────────────────────────────────────────────
 
-/**
- * Post or edit a live score embed for a single entry in the target's channel.
- * Tries to resolve the target (role or member) to get its color & channel.
- */
 async function pushEntryLiveEmbed(client, guild, board, entry) {
   try {
     let targetObj = null;
     let targetColor = 0;
-    let targetName = entry.targetId;
+    let targetName = entry.targetName || entry.targetId;
 
     if (entry.targetType === "ROLE") {
       targetObj = await guild.roles.fetch(entry.targetId).catch(() => null);
       targetColor = targetObj?.color ?? 0;
-      targetName = targetObj?.name ?? entry.targetId;
-    } else {
+      targetName = targetObj?.name ?? entry.targetName ?? entry.targetId;
+    } else if (entry.targetType === "USER") {
       targetObj = await guild.members.fetch(entry.targetId).catch(() => null);
-      targetName = targetObj?.displayName ?? entry.targetId;
+      targetName = targetObj?.displayName ?? entry.targetName ?? entry.targetId;
+    } else {
+      // CUSTOM - no Discord object to resolve
+      targetName = entry.targetName || entry.targetId;
     }
 
-    if (!targetObj) return;
-
-    const mention =
-      entry.targetType === "ROLE"
-        ? `<@&${entry.targetId}>`
-        : `<@${entry.targetId}>`;
+    const mention = targetMention(entry);
     const discoreIconUrl =
       client.user?.displayAvatarURL({ size: 64, extension: "png" }) ??
       undefined;
@@ -391,16 +614,20 @@ async function pushEntryLiveEmbed(client, guild, board, entry) {
       { discoreIconUrl },
     );
 
-    // Find channel: prefer stored liveChannelId, else auto-detect
     let channel = entry.liveChannelId
       ? await client.channels.fetch(entry.liveChannelId).catch(() => null)
       : null;
-    if (!channel) {
+    if (!channel && targetObj) {
       channel = findTeamChannel(guild, targetObj);
-      if (!channel) return;
+      if (!channel && entry.targetType === "CUSTOM") {
+        // For custom targets, fall back to board channel
+        channel = board.channelId
+          ? await client.channels.fetch(board.channelId).catch(() => null)
+          : null;
+      }
     }
+    if (!channel) return;
 
-    // Try to edit existing message
     let msg = entry.liveMessageId
       ? await channel.messages.fetch(entry.liveMessageId).catch(() => null)
       : null;
@@ -488,10 +715,11 @@ async function createScoreboard({
   guildId,
   name,
   metric,
-  type,
+  type = "USER",
   channelId,
   description,
   createdBy,
+  hasCategories = false,
 }) {
   const plan = await getGuildPlan(guildId);
   const activeCount = await prisma.scoreboard.count({
@@ -521,6 +749,7 @@ async function createScoreboard({
       channelId: channelId || null,
       liveTitle: name,
       description: description || null,
+      hasCategories,
       actions: {
         create: {
           targetId: guildId,
@@ -534,18 +763,140 @@ async function createScoreboard({
   });
 }
 
+/**
+ * Directly updates UserRoleScore for every member currently in the role.
+ * Uses Discord's role.members cache (populated via GuildMembers intent).
+ * No seeding or tracking tables needed — just fetch role and iterate members.
+ */
+function syncRoleMemberScoresInBackground({
+  guildId,
+  board,
+  targetId,
+  action,
+  delta,
+  guild,
+}) {
+  if (!guild || !targetId || !board?.id) return;
+
+  setImmediate(async () => {
+    try {
+      // Fetch the single role (not the whole server)
+      const role = await guild.roles.fetch(targetId).catch(() => null);
+      if (!role) return;
+
+      // Seed tracked members from cache so /role score works
+      await roleTracking.seedTrackedRoleFromCachedMembers(guildId, role);
+
+      // Build member set from both tracked rows + cache for complete coverage
+      const memberIds = new Set();
+      if (role.members?.size) {
+        for (const [id] of role.members) memberIds.add(id);
+      }
+
+      if (!memberIds.size) {
+        console.log(
+          `[Scoreboard] No cached members for role ${role.name}, skipping member score sync.`,
+        );
+        return;
+      }
+
+      for (const memberId of memberIds) {
+        const updateData = {};
+        const createData = {
+          guildId,
+          userId: memberId,
+          roleId: targetId,
+          scoreboardId: board.id,
+          wins: 0,
+          losses: 0,
+          points: 0,
+        };
+
+        if (action === "WIN") {
+          updateData.wins = { increment: delta };
+          createData.wins = delta;
+        } else if (action === "LOSS") {
+          updateData.losses = { increment: delta };
+          createData.losses = delta;
+        } else if (action === "POINT") {
+          updateData.points = { increment: delta };
+          createData.points = delta;
+        }
+
+        await prisma.userRoleScore.upsert({
+          where: {
+            scoreboardId_roleId_userId: {
+              scoreboardId: board.id,
+              roleId: targetId,
+              userId: memberId,
+            },
+          },
+          update: updateData,
+          create: createData,
+        });
+      }
+
+      console.log(
+        `[Scoreboard] Synced role scores for ${role.name} (${memberIds.size} member(s))`,
+      );
+    } catch (error) {
+      console.warn(
+        "[Scoreboard] Role member score sync failed:",
+        error.message,
+      );
+    }
+  });
+}
+
 async function addResult({
   guildId,
   scoreboardName,
   targetId,
   targetType = "USER",
+  targetName = null,
   action,
   delta = 1,
   adminId,
   reason,
+  guild = null,
+  category = null,
 }) {
   const board = await getScoreboard(guildId, scoreboardName);
   if (!board) throw new Error(`Scoreboard not found: "${scoreboardName}"`);
+
+  // Validate metric + action match
+  if (["WIN", "LOSS"].includes(action) && board.metric !== "WIN_LOSS")
+    throw new Error(
+      `Scoreboard "${board.name}" is a Points board — use addpoints.`,
+    );
+  if (action === "POINT" && board.metric !== "POINTS")
+    throw new Error(
+      `Scoreboard "${board.name}" is a Win/Loss board — use addwin/addloss.`,
+    );
+
+  // Validate type match
+  if (targetType === "ROLE" && board.type === "USER")
+    throw new Error(
+      `Scoreboard "${board.name}" tracks users. Provide a user, not a role.`,
+    );
+  if (targetType === "USER" && board.type === "ROLE")
+    throw new Error(
+      `Scoreboard "${board.name}" tracks roles. Provide a role, not a user.`,
+    );
+  if (targetType === "CUSTOM" && board.type !== "CUSTOM")
+    throw new Error(
+      `Scoreboard "${board.name}" does not track custom targets.`,
+    );
+
+  // Category validation
+  if (board.hasCategories && !category)
+    throw new Error(
+      `Scoreboard "${board.name}" has categories. Please provide a category.`,
+    );
+
+  // Build composite key for category-scoped boards
+  const effectiveTargetId =
+    board.hasCategories && category ? `${category}::${targetId}` : targetId;
 
   const updateData =
     action === "WIN"
@@ -563,12 +914,18 @@ async function addResult({
         : { points: { increment: delta } };
 
   const entry = await prisma.scoreboardEntry.upsert({
-    where: { scoreboardId_targetId: { scoreboardId: board.id, targetId } },
+    where: {
+      scoreboardId_targetId: {
+        scoreboardId: board.id,
+        targetId: effectiveTargetId,
+      },
+    },
     update: updateData,
     create: {
       scoreboardId: board.id,
-      targetId,
+      targetId: effectiveTargetId,
       targetType,
+      targetName: targetName || null,
       wins: action === "WIN" ? delta : 0,
       losses: action === "LOSS" ? delta : 0,
       points: action === "POINT" ? delta : 0,
@@ -577,11 +934,23 @@ async function addResult({
     },
   });
 
+  // For ROLE targets: sync scores to every member currently holding the role
+  if (targetType === "ROLE" && guild) {
+    syncRoleMemberScoresInBackground({
+      guildId,
+      board,
+      targetId,
+      action,
+      delta,
+      guild,
+    });
+  }
+
   await prisma.$transaction([
     prisma.scoreboardAction.create({
       data: {
         scoreboardId: board.id,
-        targetId,
+        targetId: effectiveTargetId,
         action,
         delta,
         adminId,
@@ -766,7 +1135,13 @@ async function setRoleImage({ guildId, name, imageUrl }) {
 
 // ─── archive ──────────────────────────────────────────────────────────────────
 
-async function archiveScoreboard({ guildId, name, archivedBy, archiveNote }) {
+async function archiveScoreboard({
+  guildId,
+  name,
+  archivedBy,
+  archiveNote,
+  deleteLiveEmbeds = true,
+}) {
   const board = await getScoreboard(guildId, name);
   if (!board) throw new Error(`Scoreboard not found: "${name}"`);
   return prisma.scoreboard.update({
@@ -776,7 +1151,7 @@ async function archiveScoreboard({ guildId, name, archivedBy, archiveNote }) {
       archivedAt: new Date(),
       archivedBy: archivedBy || null,
       archiveNote: archiveNote || null,
-      messageId: null,
+      messageId: deleteLiveEmbeds ? null : board.messageId,
     },
     include: { entries: true },
   });
@@ -818,71 +1193,257 @@ async function deleteScoreboard({ guildId, name }) {
   });
   if (!board) throw new Error(`Scoreboard not found: "${name}"`);
   await prisma.$transaction([
+    prisma.userRoleScore.deleteMany({ where: { scoreboardId: board.id } }),
     prisma.scoreboardEntry.deleteMany({ where: { scoreboardId: board.id } }),
     prisma.scoreboardAction.deleteMany({ where: { scoreboardId: board.id } }),
+    prisma.scoreboardMergeHistory.deleteMany({
+      where: {
+        OR: [
+          { targetScoreboardId: board.id },
+          { sourceScoreboardId: board.id },
+        ],
+      },
+    }),
     prisma.scoreboard.delete({ where: { id: board.id } }),
   ]);
   return board;
 }
 
-async function mergeScoreboards({ guildId, sourceName, targetName, adminId }) {
-  const source = await getScoreboard(guildId, sourceName);
-  const target = await getScoreboard(guildId, targetName);
+async function deleteScoreboardById(id) {
+  await prisma.$transaction([
+    prisma.userRoleScore.deleteMany({ where: { scoreboardId: id } }),
+    prisma.scoreboardEntry.deleteMany({ where: { scoreboardId: id } }),
+    prisma.scoreboardAction.deleteMany({ where: { scoreboardId: id } }),
+    prisma.scoreboardMergeHistory.deleteMany({
+      where: {
+        OR: [{ targetScoreboardId: id }, { sourceScoreboardId: id }],
+      },
+    }),
+    prisma.scoreboard.delete({ where: { id } }),
+  ]);
+}
+
+// ─── merge ────────────────────────────────────────────────────────────────────
+
+/**
+ * Merge one scoreboard into another with full category/source tracking.
+ *
+ * mergeOptions:
+ *   - merge_delete: copy scores, delete source forever
+ *   - merge_clear_keep_live: copy scores, clear source, keep source live
+ *   - merge_keep_live_keep_scores: copy scores, keep source live with scores
+ *   - merge_archive: copy scores, archive source
+ */
+async function mergeScoreboards({
+  guildId,
+  sourceName,
+  targetName,
+  afterMerge = "merge_archive",
+  adminId,
+}) {
+  // Fetch both boards
+  const source = await prisma.scoreboard.findFirst({
+    where: {
+      guildId,
+      name: { equals: sourceName, mode: "insensitive" },
+      isArchived: false,
+    },
+    include: { entries: true },
+  });
+  const target = await prisma.scoreboard.findFirst({
+    where: {
+      guildId,
+      name: { equals: targetName, mode: "insensitive" },
+      isArchived: false,
+    },
+    include: { entries: true },
+  });
+
   if (!source) throw new Error(`Source scoreboard not found: "${sourceName}"`);
   if (!target) throw new Error(`Target scoreboard not found: "${targetName}"`);
+  if (source.id === target.id)
+    throw new Error("Cannot merge a scoreboard into itself.");
 
+  // Determine whether the target should become category-aware
+  const existingSourceIds = new Set();
+  for (const entry of target.entries) {
+    if (entry.sourceScoreboardId)
+      existingSourceIds.add(entry.sourceScoreboardId);
+  }
+
+  // If target already has categories from other sources OR this is the 2nd+ source,
+  // ensure target is in category mode.
+  const willHaveCategories =
+    existingSourceIds.size > 0 || existingSourceIds.has(source.id);
+
+  // Check if source already exists as category in target
+  const sourceAlreadyMerged = existingSourceIds.has(source.id);
+
+  // Copy all source entries into target.
+  // Same-named targets across different source boards are COMBINED.
+  // Between separate sources, same target name = one entry with combined scores.
+  // Re-merging the same source later = combined into the same entry.
+  let entriesMerged = 0;
   for (const entry of source.entries) {
-    await prisma.scoreboardEntry.upsert({
-      where: {
-        scoreboardId_targetId: {
-          scoreboardId: target.id,
-          targetId: entry.targetId,
+    // Extract the real targetId (strip any existing category/merge prefix)
+    let cleanTargetId = entry.targetId;
+    let cleanTargetName = entry.targetName;
+
+    // Strip any legacy "::" prefixes
+    if (entry.targetId.includes("::")) {
+      const parts = entry.targetId.split("::");
+      cleanTargetId = parts[parts.length - 1];
+    }
+
+    // Look for an existing entry in the target with the same clean targetId
+    const existingTargetEntry = target.entries.find(
+      (e) => e.targetId === cleanTargetId,
+    );
+
+    if (existingTargetEntry) {
+      // Combine scores into the existing entry
+      await prisma.scoreboardEntry.update({
+        where: { id: existingTargetEntry.id },
+        data: {
+          wins: existingTargetEntry.wins + entry.wins,
+          losses: existingTargetEntry.losses + entry.losses,
+          points: existingTargetEntry.points + entry.points,
+          targetName: cleanTargetName || existingTargetEntry.targetName,
+          sourceScoreboardId: source.id,
+          sourceScoreboardName: source.name,
         },
-      },
-      update: {
-        wins: { increment: entry.wins },
-        losses: { increment: entry.losses },
-        points: { increment: entry.points },
-      },
-      create: {
-        scoreboardId: target.id,
-        targetId: entry.targetId,
-        targetType: entry.targetType,
-        wins: entry.wins,
-        losses: entry.losses,
-        points: entry.points,
-        winStreak: entry.winStreak,
-        lossStreak: entry.lossStreak,
-      },
+      });
+    } else {
+      // Create new entry in target
+      await prisma.scoreboardEntry.create({
+        data: {
+          scoreboardId: target.id,
+          targetId: cleanTargetId,
+          targetType: entry.targetType,
+          targetName: cleanTargetName || entry.targetName,
+          wins: entry.wins,
+          losses: entry.losses,
+          points: entry.points,
+          winStreak: entry.winStreak,
+          lossStreak: entry.lossStreak,
+          sourceScoreboardId: source.id,
+          sourceScoreboardName: source.name,
+        },
+      });
+    }
+    entriesMerged++;
+  }
+
+  // If this is the first merge and target had non-categorized entries,
+  // retroactively categorize them under source name
+  if (!sourceAlreadyMerged && existingSourceIds.size === 0) {
+    const nonCategorizedEntries = target.entries.filter(
+      (e) => !e.sourceScoreboardId && e.targetId !== guildId,
+    );
+    if (nonCategorizedEntries.length > 0) {
+      // This shouldn't happen on first merge normally, but handle it
+    }
+  }
+
+  // Enable category mode on target if needed
+  if (willHaveCategories && !target.hasCategories) {
+    await prisma.scoreboard.update({
+      where: { id: target.id },
+      data: { hasCategories: true },
     });
   }
-  await prisma.$transaction([
-    prisma.scoreboardAction.create({
-      data: {
-        scoreboardId: target.id,
-        targetId: guildId,
-        action: "MERGE",
-        delta: 0,
-        adminId,
-        reason: `Merged from "${sourceName}"`,
-      },
-    }),
-    prisma.scoreboard.update({
-      where: { id: source.id },
-      data: {
-        isArchived: true,
-        archivedAt: new Date(),
-        archivedBy: adminId,
-        archiveNote: `Merged into "${targetName}"`,
-        messageId: null,
-      },
-    }),
-    prisma.scoreboard.update({
-      where: { id: target.id },
-      data: { lastUpdatedAt: new Date() },
-    }),
-  ]);
-  return getScoreboard(guildId, targetName);
+
+  // Determine sourceAction based on merge option
+  let sourceAction;
+  switch (afterMerge) {
+    case "merge_delete":
+      sourceAction = "DELETED";
+      break;
+    case "merge_clear_keep_live":
+      sourceAction = "CLEARED_KEEP_LIVE";
+      break;
+    case "merge_keep_live_keep_scores":
+      sourceAction = "KEPT_LIVE";
+      break;
+    case "merge_archive":
+    default:
+      sourceAction = "ARCHIVED";
+      afterMerge = "merge_archive";
+      break;
+  }
+
+  // Record merge history
+  await prisma.scoreboardMergeHistory.create({
+    data: {
+      guildId,
+      targetScoreboardId: target.id,
+      sourceScoreboardId: source.id,
+      sourceScoreboardName: source.name,
+      mergeOption: afterMerge,
+      mergedBy: adminId,
+      entriesMerged,
+      sourceAction,
+    },
+  });
+
+  // Create action log
+  await prisma.scoreboardAction.create({
+    data: {
+      scoreboardId: target.id,
+      targetId: guildId,
+      action: "MERGE",
+      delta: 0,
+      adminId,
+      reason: `Merged from "${source.name}" (${afterMerge})`,
+    },
+  });
+
+  // Post-merge actions on source
+  switch (afterMerge) {
+    case "merge_delete":
+      await deleteScoreboardById(source.id);
+      break;
+    case "merge_clear_keep_live":
+      // Clear all entries from source but keep it live
+      await prisma.scoreboardEntry.deleteMany({
+        where: { scoreboardId: source.id },
+      });
+      await prisma.scoreboard.update({
+        where: { id: source.id },
+        data: { lastUpdatedAt: new Date(), lastLeaderId: null },
+      });
+      break;
+    case "merge_archive":
+      await prisma.scoreboard.update({
+        where: { id: source.id },
+        data: {
+          isArchived: true,
+          archivedAt: new Date(),
+          archivedBy: adminId,
+          archiveNote: `Merged into "${target.name}"`,
+          messageId: null,
+        },
+      });
+      break;
+    case "merge_keep_live_keep_scores":
+      // Do nothing — source stays live with scores
+      break;
+  }
+
+  // Refresh target
+  const updatedTarget = await prisma.scoreboard.findUnique({
+    where: { id: target.id },
+    include: { entries: true },
+  });
+
+  return {
+    board: updatedTarget,
+    sourceName: source.name,
+    sourceId: source.id,
+    sourceAction,
+    afterMerge,
+    entriesMerged,
+  };
 }
 
 // ─── board-level live push ────────────────────────────────────────────────────
@@ -913,10 +1474,19 @@ async function pushLiveEmbed(client, board) {
     ch.guild?.iconURL({ size: 128, extension: "png" }) ?? undefined;
   const discoreIconUrlLive =
     client.user?.displayAvatarURL({ size: 64, extension: "png" }) ?? undefined;
-  const embed = buildScoreboardPage(board, 1, {
+  let embed = buildScoreboardPage(board, 1, {
     guildIconUrl,
     discoreIconUrl: discoreIconUrlLive,
   }).embed;
+
+  // Apply branding image when premium is active
+  if (board.brandingImageUrl && board.guildId) {
+    const premium = await hasActivePremium(board.guildId);
+    if (premium) {
+      embed.setImage(board.brandingImageUrl);
+    }
+  }
+
   if (board.messageId) {
     const msg = await ch.messages.fetch(board.messageId).catch(() => null);
     if (msg) {
@@ -980,15 +1550,256 @@ async function repairLiveEmbed(client, boardId) {
   return "REPAIRED";
 }
 
+// ─── interactive show helpers ─────────────────────────────────────────────────
+
+/**
+ * Build the interactive embed for a board based on view mode.
+ * viewMode: "flat" (no categories), "combined" (All Scores Combined),
+ *            "all_cats" (Show All Categories), or a specific category ID.
+ */
+function buildInteractiveShowEmbed(
+  board,
+  viewMode = "flat",
+  page = 1,
+  sortBy = "WINS",
+  opts = {},
+) {
+  const { guildIconUrl, discoreIconUrl } = opts;
+
+  if (!board.hasCategories || viewMode === "flat") {
+    // Standard flat display
+    return buildScoreboardPage(board, page, {
+      guildIconUrl,
+      discoreIconUrl,
+      sortBy,
+    });
+  }
+
+  if (viewMode === "combined") {
+    // All Scores Combined
+    const combined = buildCombinedEntries(board.entries, board.metric);
+    const total = combined.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const safeP = Math.min(Math.max(page, 1), pages);
+    const slice = combined.slice((safeP - 1) * PAGE_SIZE, safeP * PAGE_SIZE);
+
+    const lines = slice.map((entry, i) => {
+      const pos = (safeP - 1) * PAGE_SIZE + i;
+      return buildEntryLine(entry, pos, board.metric);
+    });
+
+    const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win/Loss";
+    const footerParts = [
+      "📊 All Scores Combined",
+      `Mode: ${modeLabel}`,
+      `${total} ${total === 1 ? "entry" : "entries"}`,
+      total > PAGE_SIZE ? `Page ${safeP}/${pages}` : null,
+    ].filter(Boolean);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`🏆  ${board.liveTitle || board.name}`)
+      .setDescription(
+        (board.description ? `📝 *${board.description}*\n\n` : "") +
+          (lines.length ? lines.join("\n\n") : "_No entries._"),
+      )
+      .setColor(makeBoardColor(board))
+      .setFooter({
+        text: footerParts.join("  ·  "),
+        iconURL: discoreIconUrl || undefined,
+      })
+      .setTimestamp(
+        board.lastUpdatedAt ? new Date(board.lastUpdatedAt) : undefined,
+      );
+
+    if (board.roleImageUrl) embed.setThumbnail(board.roleImageUrl);
+    else if (guildIconUrl) embed.setThumbnail(guildIconUrl);
+
+    return { embed, page: safeP, totalPages: pages };
+  }
+
+  if (viewMode === "all_cats") {
+    // Show All Categories
+    const categories = groupEntriesByCategory(board.entries);
+    return buildCategoryPage(categories, page, board.metric, {
+      guildIconUrl,
+      discoreIconUrl,
+      boardTitle: board.liveTitle || board.name,
+      board,
+      categoryTitle: "All Categories",
+    });
+  }
+
+  // Single category view
+  const categories = groupEntriesByCategory(board.entries);
+  const cat = categories.find((c) => c.categoryId === viewMode);
+  if (!cat) {
+    return buildScoreboardPage(board, page, {
+      guildIconUrl,
+      discoreIconUrl,
+      sortBy,
+    });
+  }
+  return buildCategoryPage([cat], page, board.metric, {
+    guildIconUrl,
+    discoreIconUrl,
+    boardTitle: `${board.liveTitle || board.name} — ${cat.categoryName}`,
+    board,
+    categoryTitle: cat.categoryName,
+  });
+}
+
+/**
+ * Build components for the interactive show view.
+ */
+function buildShowComponents(
+  boardId,
+  page,
+  totalPages,
+  metric,
+  sortBy,
+  viewMode,
+  board,
+) {
+  const rows = [];
+
+  // View selection dropdown (always visible for category boards, or all boards with category-aware embedding)
+  if (board?.hasCategories) {
+    const categories = groupEntriesByCategory(board.entries || []);
+    const options = [
+      new StringSelectMenuOptionBuilder()
+        .setLabel("All Scores Combined")
+        .setDescription("Combine matching targets across all categories")
+        .setValue("combined")
+        .setDefault(viewMode === "combined"),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Show All Categories")
+        .setDescription("Display each category separately")
+        .setValue("all_cats")
+        .setDefault(viewMode === "all_cats"),
+    ];
+    // Add individual category options (up to Discord limit of 25)
+    for (const cat of categories.slice(0, 23)) {
+      options.push(
+        new StringSelectMenuOptionBuilder()
+          .setLabel(cat.categoryName.substring(0, 25))
+          .setDescription(`View only ${cat.categoryName}`)
+          .setValue(cat.categoryId)
+          .setDefault(viewMode === cat.categoryId),
+      );
+    }
+
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`sb:view:${boardId}:${page}:${sortBy}`)
+          .setPlaceholder("Select a view...")
+          .addOptions(options),
+      ),
+    );
+  }
+
+  // Sort buttons for WIN_LOSS boards
+  if (
+    metric === "WIN_LOSS" &&
+    viewMode !== "all_cats" &&
+    viewMode !== "combined"
+  ) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`sb:sort:${boardId}:${page}:WINS:${viewMode}`)
+          .setLabel("🏆 Most Wins")
+          .setStyle(
+            sortBy === "WINS" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+        new ButtonBuilder()
+          .setCustomId(`sb:sort:${boardId}:${page}:RATIO:${viewMode}`)
+          .setLabel("⚖️ Best Ratio")
+          .setStyle(
+            sortBy === "RATIO" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+        new ButtonBuilder()
+          .setCustomId(`sb:sort:${boardId}:${page}:LOSSES:${viewMode}`)
+          .setLabel("💀 Most Losses")
+          .setStyle(
+            sortBy === "LOSSES" ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+      ),
+    );
+  }
+
+  // Refresh + Change View buttons
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`sb:refresh:${boardId}:${page}:${sortBy}:${viewMode}`)
+        .setLabel("🔄 Refresh")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  );
+
+  // Pagination
+  if (totalPages > 1) {
+    const pagRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`sb:page:${boardId}:${page - 1}:${sortBy}:${viewMode}`)
+        .setLabel("◀  Prev")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 1),
+      new ButtonBuilder()
+        .setCustomId(`sb:page:${boardId}:${page + 1}:${sortBy}:${viewMode}`)
+        .setLabel("Next  ▶")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page >= totalPages),
+    );
+    rows.push(pagRow);
+  }
+
+  return rows;
+}
+
+// ─── batch embed updates ──────────────────────────────────────────────────────
+
+/**
+ * Batch-update all live embeds for a board and its entries.
+ * Used after merge_clear_keep_live to stagger updates.
+ */
+async function batchRefreshLiveEmbeds(client, boardId, delayMs = 500) {
+  const board = await getScoreboardById(boardId);
+  if (!board) return;
+
+  // Update board-level embed
+  if (board.channelId) {
+    await pushLiveEmbed(client, board);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+
+  // Update per-entry embeds
+  for (const entry of board.entries) {
+    try {
+      const guild = client.guilds.cache.get(board.guildId);
+      if (guild && entry.liveChannelId) {
+        await pushEntryLiveEmbed(client, guild, board, entry);
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    } catch {
+      // continue
+    }
+  }
+}
+
 // ─── exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
+  // Read
   getScoreboard,
   getScoreboardById,
   getScoreboardByPublicId,
   listActiveScoreboards,
   getArchivedScoreboards,
   getTargetScores,
+
+  // Write
   createScoreboard,
   addResult,
   editEntry,
@@ -998,19 +1809,37 @@ module.exports = {
   setDescription,
   setTitle,
   setRoleImage,
+
+  // Archive
   archiveScoreboard,
   restoreScoreboard,
   deleteScoreboard,
+
+  // Merge
   mergeScoreboards,
+
+  // Live embeds
   pushLiveEmbed,
   pushEntryLiveEmbed,
   repairLiveEmbed,
+  batchRefreshLiveEmbeds,
+
+  // Display
   buildScoreboardPage,
   buildScoreboardComponents,
   buildScoreboardEmbedDirect,
   buildScoreboardEmbed,
   buildEntryEmbed,
+  buildInteractiveShowEmbed,
+  buildShowComponents,
+  buildCombinedEntries,
+  groupEntriesByCategory,
+  targetMention,
+  targetDisplay,
+
+  // Shared
   findTeamChannel,
   sortEntries,
+  makeBoardColor,
   PAGE_SIZE,
 };
