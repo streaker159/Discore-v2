@@ -25,14 +25,6 @@ function makeColor(value) {
   return Number.isFinite(parsed) ? parsed : 0x1a7a9e;
 }
 
-async function hasActivePremium(guildId) {
-  if (!guildId) return false;
-  const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
-  if (!premium || premium.tier === "FREE") return false;
-  if (premium.expiresAt && premium.expiresAt < new Date()) return false;
-  return true;
-}
-
 async function createDiscoreEmbed(interactionOrGuildId, options = {}) {
   const guildId =
     typeof interactionOrGuildId === "string"
@@ -46,8 +38,10 @@ async function createDiscoreEmbed(interactionOrGuildId, options = {}) {
 
   const settings = options.guildSettings || (await getGuildSettings(guildId));
 
-  // Premium gate branding at render time
-  const premium = await hasActivePremium(guildId);
+  // Premium gate branding at render time — use cache
+  const { getGuildTier } = require("./premiumGate");
+  const tier = await getGuildTier(guildId);
+  const premium = tier !== "FREE";
   const allianceName = premium
     ? settings?.allianceName || options.allianceName || "Discore"
     : "Discore";

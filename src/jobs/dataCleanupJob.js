@@ -186,6 +186,18 @@ module.exports = {
       });
     }
 
+    // ── Old AI usage logs (90-day retention) ───────────────
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const oldLogsDel = await prisma.aiUsageLog.deleteMany({
+      where: { createdAt: { lte: ninetyDaysAgo } },
+    });
+    if (oldLogsDel.count > 0) {
+      totalDeleted += oldLogsDel.count;
+      logger.info("dataCleanupJob: pruned old AI usage logs", {
+        count: oldLogsDel.count,
+      });
+    }
+
     if (totalDeleted > 0) {
       logger.info("dataCleanupJob: cleanup complete", { totalDeleted });
     }

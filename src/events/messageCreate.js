@@ -3,14 +3,12 @@
 const {
   trackMessage,
 } = require("../modules/player/services/userActivityService");
+const { handleDiscoreMention } = require("../modules/ai/service");
 
 module.exports = {
   name: "messageCreate",
   async execute(message, client) {
-    // Ignore bots
     if (message.author.bot) return;
-
-    // Ignore DMs
     if (!message.guild) return;
 
     // Track user activity
@@ -20,9 +18,28 @@ module.exports = {
         message.author.id,
         message.channel.id,
       );
-    } catch (error) {
-      // Silently fail - activity tracking is not critical
-      console.error("[Message Activity Tracking]", error.message);
+    } catch {
+      // Non-critical
     }
+
+    // ── Bot mention AI ──────────────────────────────────────────────────
+    const botMentioned = message.mentions.has(client.user);
+    if (!botMentioned) return;
+
+    // Strip mention and clean content
+    const content = message.content
+      .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
+      .trim();
+
+    if (!content) return; // Empty mention — ignore
+
+    await handleDiscoreMention({
+      message,
+      client,
+      guildId: message.guild.id,
+      userId: message.author.id,
+      channelId: message.channel.id,
+      content: `User: ${message.author.username}\nMessage: ${content}`,
+    });
   },
 };

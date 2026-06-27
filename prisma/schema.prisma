@@ -789,6 +789,7 @@ model AiUsageLog {
   createdAt   DateTime @default(now())
 
   @@index([guildId])
+  @@index([guildId, createdAt])
 }
 
 // ── AUDIT LOG ─────────────────────────────────────────────
