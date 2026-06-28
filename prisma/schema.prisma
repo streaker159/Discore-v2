@@ -93,6 +93,11 @@ model GuildPremium {
   expiresAt     DateTime?
   grantedBy     String?   // Discord user ID of bot owner who granted
   entitlementId String?   // Discord entitlement ID
+  // Purchase tracking
+  purchasedAt       DateTime?  // When premium was first purchased
+  lastRenewalAt     DateTime?  // When premium was last renewed
+  renewalCount      Int        @default(0)
+  graceNotifiedAt   DateTime?  // When grace period warning was sent
   // AI credit tracking
   monthlyAiAllowance    Int       @default(0)
   monthlyAiUsed         Int       @default(0)
@@ -108,6 +113,7 @@ model GuildPremium {
   updatedAt     DateTime  @updatedAt
 
   @@index([guildId])
+  @@index([expiresAt])
 }
 
 model ProcessedEntitlement {

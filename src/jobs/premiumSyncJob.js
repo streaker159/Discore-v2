@@ -4,66 +4,71 @@ const prisma = require("../lib/prisma");
 const { premiumCache } = require("../lib/cache");
 const logger = require("../lib/logger");
 
-let lastCreditResetMonth = null;
+const GRACE_HOURS = 24;
 
 module.exports = {
   name: "premiumSyncJob",
-  intervalMs: 15 * 60_000,
+  intervalMs: 30 * 60_000, // 30 minutes
   enabled: true,
   async run(client) {
     const now = new Date();
 
-    // Expire trials / non-LIFETIME premium past expiry
-    const expired = await prisma.guildPremium.findMany({
-      where: { expiresAt: { lt: now }, tier: { not: "FREE" } },
+    // ── Grace period warnings ────────────────────────────────────────────────
+    // Find premium that expired within the last 23 hours (grace ending soon)
+    // and send a channel notification if configured
+    const graceStart = new Date(now.getTime() - 23 * 60 * 60 * 1000);
+    const expiringGrace = await prisma.guildPremium.findMany({
+      where: {
+        tier: { notIn: ["FREE", "LIFETIME"] },
+        expiresAt: { gte: graceStart, lte: now },
+        graceNotifiedAt: null,
+      },
     });
-    for (const record of expired) {
+
+    for (const p of expiringGrace) {
+      const guild = await prisma.guild.findUnique({
+        where: { id: p.guildId },
+        select: { premiumNoticeChan: true },
+      }).catch(() => null);
+
+      if (guild?.premiumNoticeChan) {
+        const channel = client.channels.cache.get(guild.premiumNoticeChan);
+        if (channel) {
+          await channel.send({
+            content: `⚠️ **Premium Expiring Soon**\n\nThis server's premium expired <t:${Math.floor(p.expiresAt.getTime() / 1000)}:R>. You have a **24-hour grace period** before features lock.\n\nRenew with \`/premium\` to keep everything running.`,
+          }).catch(() => {});
+        }
+      }
+
       await prisma.guildPremium.update({
-        where: { id: record.id },
-        data: { tier: "FREE" },
-      });
-      premiumCache.delete(`tier:${record.guildId}`);
-      logger.info("Premium expired", { guildId: record.guildId });
+        where: { id: p.id },
+        data: { graceNotifiedAt: now },
+      }).catch(() => {});
     }
 
-    // Monthly AI credit reset — runs once per calendar month
-    const currentMonth = `${now.getFullYear()}-${now.getMonth()}`;
-    if (lastCreditResetMonth === currentMonth) return;
-    lastCreditResetMonth = currentMonth;
-
-    const allPremium = await prisma.guildPremium.findMany({
-      where: { tier: { not: "FREE" } },
+    // ── Fully expired (past grace) — downgrade ──────────────────────────────
+    const graceDeadline = new Date(now.getTime() - GRACE_HOURS * 60 * 60 * 1000);
+    const fullyExpired = await prisma.guildPremium.updateMany({
+      where: {
+        tier: { notIn: ["FREE", "LIFETIME"] },
+        expiresAt: { lte: graceDeadline },
+      },
+      data: { tier: "FREE", monthlyAiAllowance: 0, monthlyAiUsed: 0 },
     });
-    for (const record of allPremium) {
-      const tier =
-        record.expiresAt && record.expiresAt < now ? "FREE" : record.tier;
-      if (tier === "FREE") continue;
 
-      // Reset monthly AI usage and set new period
-      const periodStart = new Date();
-      const periodEnd = new Date(
-        periodStart.getTime() + 30 * 24 * 60 * 60 * 1000,
-      );
+    // Clear cache for downgraded guilds
+    const downgraded = await prisma.guildPremium.findMany({
+      where: { tier: "FREE", expiresAt: { lte: graceDeadline } },
+      select: { guildId: true },
+    });
+    for (const d of downgraded) {
+      premiumCache.delete(`tier:${d.guildId}`);
+    }
 
-      // Ensure allowance matches plan limits (fixes legacy records with 0)
-      const { getPlanLimits } = require("../config/plans");
-      const limits = getPlanLimits(tier);
-      const allowance = limits.aiCreditsMonthly || 0;
-
-      await prisma.guildPremium.update({
-        where: { id: record.id },
-        data: {
-          monthlyAiUsed: 0,
-          monthlyAiAllowance: allowance,
-          monthlyAiPeriodStart: periodStart,
-          monthlyAiPeriodEnd: periodEnd,
-        },
-      });
-
-      logger.info("Monthly AI credits reset on GuildPremium", {
-        guildId: record.guildId,
-        tier,
-        monthlyAiAllowance: allowance,
+    if (expiringGrace.length || fullyExpired.count) {
+      logger.info("premiumSyncJob: grace cycle", {
+        graceWarnings: expiringGrace.length,
+        fullyExpired: fullyExpired.count,
       });
     }
   },
