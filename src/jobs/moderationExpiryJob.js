@@ -141,8 +141,13 @@ async function processExpiredCases(client) {
 
     for (const moderationCase of expiredCases) {
       try {
-        await caseService.expireCase(moderationCase.id);
         await removeActivePunishment(client, moderationCase);
+        await caseService.expireCase(moderationCase.id);
+        // Clean up the role snapshot stored when punishment was applied
+        await prisma.userRoleSnapshot.deleteMany({
+          where: { caseId: moderationCase.id },
+        });
+
 
         console.log(
           `[Moderation Expiry] Expired case ${moderationCase.publicId} (${moderationCase.actionType})`,

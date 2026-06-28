@@ -61,6 +61,21 @@ module.exports = {
       });
     }
 
+    // ── EXPIRED Moderation Cases (older than 7 days) ──────────────────────
+    const sevenDaysAgoMs = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const expiredModCases = await prisma.moderationCase.findMany({
+      where: { status: "EXPIRED", updatedAt: { lte: sevenDaysAgoMs } },
+      select: { id: true, publicId: true },
+    });
+    if (expiredModCases.length) {
+      const ids = expiredModCases.map((c) => c.id);
+      await prisma.appeal.deleteMany({ where: { caseId: { in: ids } } });
+      await prisma.userRoleSnapshot.deleteMany({ where: { caseId: { in: ids } } });
+      const caseDel = await prisma.moderationCase.deleteMany({ where: { id: { in: ids } } });
+      totalDeleted += caseDel.count;
+      logger.info("dataCleanupJob: hard-deleted expired mod cases", { count: caseDel.count, ids: expiredModCases.map((c) => c.publicId) });
+    }
+
     // ── REVOKED Moderation Cases (older than 30 days) ─────────────────────
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const revokedCases = await prisma.moderationCase.findMany({
