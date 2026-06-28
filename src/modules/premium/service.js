@@ -255,14 +255,40 @@ async function refundAiCredits(guildId, amount) {
 
 async function processSubscriptionEntitlement(guildId, entitlementId) {
   const existing = await prisma.guildPremium.findUnique({ where: { guildId } });
-  if (existing?.entitlementId === entitlementId) return; // already processed
 
   // Never downgrade LIFETIME
   if (existing?.tier === "LIFETIME") return;
 
   const now = new Date();
   const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const isRenewal = existing && existing.tier !== "FREE" && existing.tier !== null;
+
+  // Same entitlement ID = renewal (Discord auto-charge)
+  if (existing?.entitlementId === entitlementId) {
+    // Only process if subscription is near/past expiry (not a duplicate event)
+    if (existing.expiresAt && existing.expiresAt > new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)) {
+      return; // Still has 7+ days — likely a duplicate event, skip
+    }
+
+    await prisma.guildPremium.update({
+      where: { guildId },
+      data: {
+        expiresAt: periodEnd,
+        monthlyAiUsed: 0,
+        monthlyAiAllowance: 2000,
+        monthlyAiPeriodStart: now,
+        monthlyAiPeriodEnd: periodEnd,
+        lastRenewalAt: now,
+        renewalCount: { increment: 1 },
+        graceNotifiedAt: null, // reset grace warning for new period
+      },
+    });
+    premiumCache.delete(`tier:${guildId}`);
+    logger.info("Premium renewed via Discord (monthly auto-charge)", { guildId, entitlementId, renewalCount: (existing.renewalCount || 0) + 1 });
+    return;
+  }
+
+  // New entitlement or first purchase
+  const isRenewal = existing && existing.tier !== "FREE";
 
   await prisma.guildPremium.upsert({
     where: { guildId },
@@ -277,6 +303,7 @@ async function processSubscriptionEntitlement(guildId, entitlementId) {
       monthlyAiUsed: 0,
       lastRenewalAt: now,
       renewalCount: { increment: 1 },
+      graceNotifiedAt: null,
       ...(isRenewal ? {} : { purchasedAt: now }),
     },
     create: {
@@ -294,10 +321,7 @@ async function processSubscriptionEntitlement(guildId, entitlementId) {
     },
   });
   premiumCache.delete(`tier:${guildId}`);
-  logger.info("Premium activated via Discord subscription", {
-    guildId,
-    entitlementId,
-  });
+  logger.info("Premium activated via Discord subscription", { guildId, entitlementId, isRenewal });
 }
 
 async function processAiCreditsEntitlement(guildId, skuId, entitlementId) {
@@ -387,9 +411,16 @@ async function redeemPremiumCode({ guildId, userId, code }) {
     data: { uses: { increment: 1 } },
   });
 
+  // Never downgrade LIFETIME
+  const existing = await prisma.guildPremium.findUnique({ where: { guildId } });
+  if (existing?.tier === "LIFETIME") {
+    throw new Error("This server already has LIFETIME premium.");
+  }
+
   const now = new Date();
   const periodEnd =
     expiresAt || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const isRenewal = existing && existing.tier !== "FREE";
 
   return prisma.guildPremium.upsert({
     where: { guildId },
@@ -397,7 +428,10 @@ async function redeemPremiumCode({ guildId, userId, code }) {
       tier: premiumCode.tier,
       method: "CODE",
       code: normalised,
-      expiresAt,
+      expiresAt: periodEnd,
+      lastRenewalAt: now,
+      renewalCount: { increment: 1 },
+      ...(isRenewal ? {} : { purchasedAt: now }),
       monthlyAiAllowance: 2000,
       monthlyAiPeriodStart: now,
       monthlyAiPeriodEnd: periodEnd,
@@ -408,7 +442,10 @@ async function redeemPremiumCode({ guildId, userId, code }) {
       tier: premiumCode.tier,
       method: "CODE",
       code: normalised,
-      expiresAt,
+      expiresAt: periodEnd,
+      purchasedAt: now,
+      lastRenewalAt: now,
+      renewalCount: 1,
       monthlyAiAllowance: 2000,
       monthlyAiPeriodStart: now,
       monthlyAiPeriodEnd: periodEnd,
