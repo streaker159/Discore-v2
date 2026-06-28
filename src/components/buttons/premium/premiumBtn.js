@@ -455,20 +455,20 @@ module.exports = [
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const [todayUsage, userToday] = await Promise.all([
-        prisma.aiUsageLog.aggregate({
+        prisma.aiUsage.aggregate({
           where: {
             guildId: interaction.guildId,
             createdAt: { gte: todayStart },
           },
-          _sum: { cost: true },
+          _sum: { creditsUsed: true },
         }),
-        prisma.aiUsageLog.aggregate({
+        prisma.aiUsage.aggregate({
           where: {
             guildId: interaction.guildId,
             userId: interaction.user.id,
             createdAt: { gte: todayStart },
           },
-          _sum: { cost: true },
+          _sum: { creditsUsed: true },
         }),
       ]);
 
@@ -498,12 +498,12 @@ module.exports = [
           },
           {
             name: "Server Used Today",
-            value: `${todayUsage._sum.cost || 0} credits`,
+            value: `${todayUsage._sum.creditsUsed || 0} credits`,
             inline: true,
           },
           {
             name: "Your Usage Today",
-            value: `${userToday._sum.cost || 0} credits`,
+            value: `${userToday._sum.creditsUsed || 0} credits`,
             inline: true,
           },
         );

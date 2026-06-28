@@ -203,7 +203,7 @@ module.exports = {
 
     // ── Old AI usage logs (90-day retention) ───────────────
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    const oldLogsDel = await prisma.aiUsageLog.deleteMany({
+    const oldLogsDel = await prisma.aiUsage.deleteMany({
       where: { createdAt: { lte: ninetyDaysAgo } },
     });
     if (oldLogsDel.count > 0) {

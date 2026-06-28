@@ -107,11 +107,11 @@ async function canUseAi(guildId, userId, estimatedCost) {
   if (premium.serverDailyAiLimit > 0) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const todayUsage = await prisma.aiUsageLog.aggregate({
+    const todayUsage = await prisma.aiUsage.aggregate({
       where: { guildId, createdAt: { gte: todayStart } },
-      _sum: { cost: true },
+      _sum: { creditsUsed: true },
     });
-    const usedToday = todayUsage._sum.cost || 0;
+    const usedToday = todayUsage._sum.creditsUsed || 0;
     if (usedToday + estimatedCost > premium.serverDailyAiLimit) {
       return {
         ok: false,
@@ -125,11 +125,11 @@ async function canUseAi(guildId, userId, estimatedCost) {
   if (premium.perUserDailyAiLimit > 0 && userId) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const userToday = await prisma.aiUsageLog.aggregate({
+    const userToday = await prisma.aiUsage.aggregate({
       where: { guildId, userId, createdAt: { gte: todayStart } },
-      _sum: { cost: true },
+      _sum: { creditsUsed: true },
     });
-    const userUsed = userToday._sum.cost || 0;
+    const userUsed = userToday._sum.creditsUsed || 0;
     if (userUsed + estimatedCost > premium.perUserDailyAiLimit) {
       return {
         ok: false,
@@ -142,7 +142,7 @@ async function canUseAi(guildId, userId, estimatedCost) {
 
   // Cooldown check
   if (premium.cooldownSeconds > 0 && userId) {
-    const lastUse = await prisma.aiUsageLog.findFirst({
+    const lastUse = await prisma.aiUsage.findFirst({
       where: { guildId, userId },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
@@ -196,10 +196,13 @@ async function consumeAiCredits(guildId, userId, cost, commandName) {
     await prisma.guildPremium.update({ where: { guildId }, data: updates });
   }
 
-  // Log usage
-  await prisma.aiUsageLog
-    .create({
-      data: { guildId, userId, requestType: commandName || "ai_request", cost },
+  // Log usage (upsert: increment existing or create new monthly record)
+  const monthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+  await prisma.aiUsage
+    .upsert({
+      where: { guildId_month: { guildId, month: monthKey } },
+      update: { creditsUsed: { increment: cost }, requestCount: { increment: 1 } },
+      create: { guildId, userId, month: monthKey, creditsUsed: cost, requestCount: 1 },
     })
     .catch(() => {});
 
