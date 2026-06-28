@@ -23,6 +23,7 @@
     "@google/genai": "^2.9.0",
     "@google/generative-ai": "^0.21.0",
     "@prisma/client": "^6",
+    "cheerio": "^1.2.0",
     "chrono-node": "latest",
     "discord.js": "^14.17.3",
     "dotenv": "latest",

@@ -1054,3 +1054,162 @@ model UserRoleScore {
   @@index([guildId, userId])
   @@index([roleId])
 }
+
+// ── GAME UNIT DATA ────────────────────────────────────────────
+
+enum ImportStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SourceType {
+  MEDIAWIKI_API
+  HTML_FALLBACK
+  MANUAL
+}
+
+model GameDataSource {
+  id          String      @id @default(cuid())
+  game        String
+  gameKey     String
+  sourceName  String
+  apiUrl      String
+  targetPage  String
+  sourceType  SourceType  @default(MEDIAWIKI_API)
+  enabled     Boolean     @default(true)
+  lastSyncAt  DateTime?
+  lastError   String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([gameKey])
+  @@index([game])
+}
+
+model GameUnit {
+  id                  String   @id @default(cuid())
+  game                String
+  gameKey             String
+  name                String
+  slug                String
+  category            String?
+  description         String?  @db.Text
+  sourceUrl           String?
+  sourceName          String?
+  sourcePage          String?
+  sourceLastSyncedAt  DateTime?
+  verified            Boolean  @default(false)
+  manuallyEdited      Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  variants   GameUnitVariant[]
+  features   GameUnitFeature[]
+
+  @@unique([gameKey, slug])
+  @@index([game, category])
+  @@index([name])
+}
+
+model GameUnitVariant {
+  id                      String   @id @default(cuid())
+  unitId                  String
+  unit                    GameUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  doctrine                String?
+  generation              Int?
+  tier                    Int?
+  level                   Int?
+  description             String?  @db.Text
+  hitPoints               Float?
+  speed                   Float?
+  range                   Float?
+  sightRange              Float?
+  radarRange              Float?
+  stealthDetectionRange   Float?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  costs        GameUnitCost[]
+  upkeep       GameUnitUpkeep[]
+  terrainStats GameUnitTerrainStat[]
+
+  @@index([unitId])
+}
+
+model GameUnitFeature {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        GameUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  variantId   String?
+  name        String
+  value       String
+  description String?  @db.Text
+
+  @@index([unitId])
+}
+
+model GameUnitCost {
+  id            String   @id @default(cuid())
+  variantId     String
+  variant       GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  supplies      Int?
+  components    Int?
+  manpower      Int?
+  electronics   Int?
+  fuel          Int?
+  cash          Int?
+  rareMaterials Int?
+  timeSeconds   Int?
+  rawTimeText   String?
+
+  @@index([variantId])
+}
+
+model GameUnitUpkeep {
+  id            String   @id @default(cuid())
+  variantId     String
+  variant       GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  supplies      Int?
+  components    Int?
+  manpower      Int?
+  electronics   Int?
+  fuel          Int?
+  cash          Int?
+  rareMaterials Int?
+
+  @@index([variantId])
+}
+
+model GameUnitTerrainStat {
+  id              String   @id @default(cuid())
+  variantId       String
+  variant         GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  terrain         String
+  hitPoints       Float?
+  speed           Float?
+  attackModifier  Float?
+  defenseModifier Float?
+  sightRange      Float?
+
+  @@index([variantId])
+}
+
+model GameUnitImportDraft {
+  id           String       @id @default(cuid())
+  game         String
+  gameKey      String
+  sourceUrl    String?
+  sourceName   String?
+  sourcePage   String?
+  rawExtract   String?      @db.Text
+  parsedJson   Json?
+  confidence   String       @default("LOW")
+  warnings     String[]     @default([])
+  status       ImportStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([gameKey, status])
+  @@index([status])
+}
