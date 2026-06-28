@@ -80,6 +80,31 @@ module.exports = {
         await component.execute(interaction, client);
         return;
       }
+
+      // ── Discord Entitlement (Shop purchase) ──────────────────────────
+      if (interaction.type === 29) {
+        const entitlements = interaction.entitlements || [];
+        const {
+          processSubscriptionEntitlement,
+          processAiCreditsEntitlement,
+        } = require("../modules/premium/service");
+
+        for (const ent of entitlements) {
+          const guildId = ent.guild_id;
+          if (!guildId) continue;
+
+          if (ent.sku_id === process.env.DISCORD_PREMIUM_SKU_ID) {
+            await processSubscriptionEntitlement(guildId, ent.id).catch((e) =>
+              logger.error("Entitlement: premium activation failed", { guildId, error: e.message }),
+            );
+          } else if (ent.sku_id === process.env.DISCORD_AI_CREDITS_SKU_ID) {
+            await processAiCreditsEntitlement(guildId, ent.sku_id, ent.id).catch((e) =>
+              logger.error("Entitlement: AI credits purchase failed", { guildId, error: e.message }),
+            );
+          }
+        }
+        return;
+      }
     } catch (error) {
       if (error?.code === 10062) return;
 
