@@ -14,7 +14,8 @@
     "deploy:admin": "node scripts/deployAdminCommands.js",
     "clear:global": "node scripts/clearGlobalCommands.js",
     "clear:admin": "node scripts/clearAdminCommands.js",
-    "prisma:generate": "prisma generate",
+    "postinstall": "node ./node_modules/prisma/build/index.js generate",
+    "prisma:generate": "node ./node_modules/prisma/build/index.js generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:studio": "prisma studio",
     "check": "node scripts/checkSyntax.js"
