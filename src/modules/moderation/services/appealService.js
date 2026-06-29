@@ -454,12 +454,13 @@ async function acceptAppeal(appealId, adminId, guild, decisionNote = null) {
     decisionNote ||
     "Appeal accepted. The moderation case was revoked and removed from the public record.";
 
-  // 1. Update appeal record
+  // 1. Update appeal record + re-fetch to get updated status for UI
   await appealRepo.updateAppealStatus(appeal.id, "ACCEPTED", {
     closedAt: new Date(),
     closedBy: adminId,
     outcome: note,
   });
+  const updatedAppeal = await appealRepo.getAppealByPublicId(appealId);
 
   // 2. Update case staff note and appeal status
   await updateCaseStaffNote(appeal.caseId, "Appeal accepted", note, adminId);
@@ -469,9 +470,15 @@ async function acceptAppeal(appealId, adminId, guild, decisionNote = null) {
   await saveAppealTranscript(guild, appeal, "ACCEPTED", note, adminId);
 
   // 4. Do ALL UI/post-decision work BEFORE revokeCase (which wipes DB records)
-  await updateAppealControlMessage(guild, appeal, true);
-  await dmAppealOutcome(guild, appeal, note);
-  await postDecisionToTicketAndDelete(guild, appeal, "ACCEPTED", note, adminId);
+  await updateAppealControlMessage(guild, updatedAppeal, true);
+  await dmAppealOutcome(guild, updatedAppeal, note);
+  await postDecisionToTicketAndDelete(
+    guild,
+    updatedAppeal,
+    "ACCEPTED",
+    note,
+    adminId,
+  );
 
   // 5. Revoke case LAST — after all UI work is done.
   //    If this fails, the staff already got confirmation and ticket is deleted.

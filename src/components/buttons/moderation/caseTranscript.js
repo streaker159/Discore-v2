@@ -64,12 +64,12 @@ module.exports = {
       await interaction.editReply({
         content: `📄 Transcript for **${appealNum}**`,
         files: [
-          { attachment: buffer, name: `Discore-Transcript-${appealNum}.pdf` },
+          { attachment: buffer, name: `Discore-Transcript-${appealNum}.txt` },
         ],
       });
     } catch (pdfErr) {
       console.error(
-        "[Transcript PDF] Failed, falling back to TXT:",
+        "[Transcript] Generation failed, sending raw text:",
         pdfErr.message,
       );
       // TXT fallback
@@ -81,7 +81,7 @@ module.exports = {
       const buffer = Buffer.from(txt, "utf-8");
       const appealNum = transcript.appealNumber || "transcript";
       await interaction.editReply({
-        content: `📄 Transcript for **${appealNum}** (TXT fallback)`,
+        content: `📄 Transcript for **${appealNum}**`,
         files: [
           { attachment: buffer, name: `Discore-Transcript-${appealNum}.txt` },
         ],
