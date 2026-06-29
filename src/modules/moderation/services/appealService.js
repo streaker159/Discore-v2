@@ -461,39 +461,30 @@ async function acceptAppeal(appealId, adminId, guild, decisionNote = null) {
     outcome: note,
   });
 
-  // 2. Update case BEFORE revoking (revoke deletes the record)
+  // 2. Update case staff note and appeal status
   await updateCaseStaffNote(appeal.caseId, "Appeal accepted", note, adminId);
   await caseService.updateCaseAppealStatus(appeal.caseId, "ACCEPTED");
 
-  // 3. Save transcript of the ticket channel before it gets deleted
+  // 3. Save transcript of the ticket channel
   await saveAppealTranscript(guild, appeal, "ACCEPTED", note, adminId);
 
-  // 4. Capture appeal data BEFORE revoke deletes the appeal record
-  const appealSnapshot = {
-    publicId: appeal.publicId,
-    userId: appeal.userId,
-    channelId: appeal.channelId,
-    caseId: appeal.caseId,
-    case: appeal.case,
-    status: "ACCEPTED",
-    createdAt: appeal.createdAt,
-  };
+  // 4. Do ALL UI/post-decision work BEFORE revokeCase (which wipes DB records)
+  await updateAppealControlMessage(guild, appeal, true);
+  await dmAppealOutcome(guild, appeal, note);
+  await postDecisionToTicketAndDelete(guild, appeal, "ACCEPTED", note, adminId);
 
-  // 5. Now revoke (deletes the moderation case AND linked appeals)
-  await caseService.revokeCase(appeal.case.publicId, adminId, guild);
+  // 5. Revoke case LAST — after all UI work is done.
+  //    If this fails, the staff already got confirmation and ticket is deleted.
+  try {
+    await caseService.revokeCase(appeal.case.publicId, adminId, guild);
+  } catch (err) {
+    console.error(
+      "[Appeal Accept] revokeCase failed (non-fatal):",
+      err.message,
+    );
+  }
 
-  // 6. Post decision, DM, delete ticket — use snapshot since appeal record is gone
-  await updateAppealControlMessage(guild, appealSnapshot, true);
-  await dmAppealOutcome(guild, appealSnapshot, note);
-  await postDecisionToTicketAndDelete(
-    guild,
-    appealSnapshot,
-    "ACCEPTED",
-    note,
-    adminId,
-  );
-
-  return appealSnapshot;
+  return appeal;
 }
 
 // ── Transcript saving ──────────────────────────────────────────────────────
