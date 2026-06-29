@@ -128,6 +128,15 @@ module.exports = {
             error: e.message?.slice(0, 60),
           });
         }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "ModerationCaseTranscript" ("id" TEXT NOT NULL, "guildId" TEXT NOT NULL, "caseId" TEXT, "appealId" TEXT, "caseNumber" TEXT, "appealNumber" TEXT, "ticketChannelId" TEXT, "ticketChannelName" TEXT, "userId" TEXT, "handledById" TEXT, "outcome" TEXT, "openedAt" TIMESTAMPTZ, "closedAt" TIMESTAMPTZ, "messageCount" INTEGER NOT NULL DEFAULT 0, "transcriptJson" TEXT, "transcriptText" TEXT, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT "ModerationCaseTranscript_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: ModerationCaseTranscript table", {
+            error: e.message?.slice(0, 60),
+          });
+        }
         logger.info("Startup migration check complete");
 
         // 1b. Schedule hourly analytics job (runs at minute 1 past every hour)
