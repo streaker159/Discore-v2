@@ -1003,10 +1003,11 @@ async function addResult({
     });
 
   // ── Handle score types (premium feature) ─────────────────────────────
+  let categorizedResult = null;
   if (scoreType) {
     const { addCategorizedResult } = require("./scoreTypes");
     try {
-      await addCategorizedResult({
+      categorizedResult = await addCategorizedResult({
         guildId,
         scoreboardId: board.id,
         scoreboardEntryId: entry.id,
@@ -1016,10 +1017,13 @@ async function addResult({
         delta,
       });
     } catch (err) {
-      // Non-fatal — score type tracking failure shouldn't block the score
+      // If the admin explicitly provided a score_type, a failure is critical
       console.error(
         "[Scoreboard] Failed to add categorized result:",
         err.message,
+      );
+      throw new Error(
+        `Failed to save category stats: ${err.message}. The overall score was NOT saved.`,
       );
     }
   }
