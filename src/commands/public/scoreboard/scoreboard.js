@@ -171,6 +171,32 @@ async function autocomplete(interaction) {
     return interaction.respond(choices).catch(() => {});
   }
 
+  // ── score_type autocomplete: show existing types for selected scoreboard ─
+  if (focusedOpt?.name === "score_type") {
+    const boardName = interaction.options.getString("name");
+    if (!boardName) {
+      return interaction.respond([]).catch(() => {});
+    }
+
+    const board = await prisma.scoreboard.findFirst({
+      where: {
+        guildId: interaction.guildId,
+        name: { equals: boardName, mode: "insensitive" },
+      },
+    });
+    if (!board) return interaction.respond([]).catch(() => {});
+
+    const {
+      getScoreTypes,
+    } = require("../../../modules/scoreboards/scoreTypes");
+    const types = await getScoreTypes(board.id);
+    const choices = types
+      .filter((t) => t.name.toLowerCase().includes(focused))
+      .slice(0, 20)
+      .map((t) => ({ name: t.name, value: t.name }));
+    return interaction.respond(choices).catch(() => {});
+  }
+
   // ── scoreboard name autocomplete (existing logic) ────────────────────────
   const includeArchived = false;
 

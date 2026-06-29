@@ -154,26 +154,32 @@ function buildEntryEmbed(
 const PAGE_SIZE = 10;
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-function buildEntryLine(entry, pos, metric) {
+function buildEntryLine(entry, pos, metric, typeBreakdownLines) {
   const medal = MEDALS[pos] ?? `\`${String(pos + 1).padStart(2, "0")}.\``;
   const display = targetDisplay(entry);
   const isChampion = pos === 0;
   const label = isChampion ? `**Champion: ${display}** 👑` : `**${display}**`;
 
+  let mainLine;
   if (metric === "POINTS") {
-    return `${medal} ${label}\n   └─ \` 💯 ${entry.points} Points \``;
+    mainLine = `${medal} ${label}\n   └─ \` 💯 ${entry.points} Points \``;
+  } else {
+    const r = ratio(entry.wins, entry.losses);
+    const streakBit =
+      entry.winStreak > 1
+        ? `  🔥 \`Streak: ${entry.winStreak}\``
+        : entry.lossStreak > 1
+          ? `  💀 \`Streak: ${entry.lossStreak}\``
+          : "";
+    mainLine = `${medal} ${label}\n   └─ \` 🏆 ${entry.wins}W \` \` 💀 ${entry.losses}L \` \` ⚖️ ${r} Ratio \`${streakBit}`;
   }
-  const r = ratio(entry.wins, entry.losses);
-  const streakBit =
-    entry.winStreak > 1
-      ? `  🔥 \`Streak: ${entry.winStreak}\``
-      : entry.lossStreak > 1
-        ? `  💀 \`Streak: ${entry.lossStreak}\``
-        : "";
-  return `${medal} ${label}\n   └─ \` 🏆 ${entry.wins}W \` \` 💀 ${entry.losses}L \` \` ⚖️ ${r} Ratio \`${streakBit}`;
+  if (typeBreakdownLines && typeBreakdownLines.length) {
+    return mainLine + "\n" + typeBreakdownLines.join("\n");
+  }
+  return mainLine;
 }
 
-function buildScoreboardPage(board, page = 1, opts = {}) {
+async function buildScoreboardPage(board, page = 1, opts = {}) {
   const { guildIconUrl, discoreIconUrl, sortBy = "WINS" } = opts;
   const sorted = sortEntries(board, sortBy);
   const total = sorted.length;
@@ -181,9 +187,28 @@ function buildScoreboardPage(board, page = 1, opts = {}) {
   const safeP = Math.min(Math.max(page, 1), pages);
   const slice = sorted.slice((safeP - 1) * PAGE_SIZE, safeP * PAGE_SIZE);
 
+  // Load type breakdowns for entries on this page
+  const entryIds = slice.map((e) => e.id);
+  const typeStats = entryIds.length
+    ? await prisma.scoreboardEntryTypeStats.findMany({
+        where: { scoreboardEntryId: { in: entryIds } },
+        include: { scoreType: true },
+      })
+    : [];
+  const statsByEntry = new Map();
+  for (const stat of typeStats) {
+    if (!statsByEntry.has(stat.scoreboardEntryId))
+      statsByEntry.set(stat.scoreboardEntryId, []);
+    statsByEntry.get(stat.scoreboardEntryId).push(stat);
+  }
+
   const lines = slice.map((entry, i) => {
     const pos = (safeP - 1) * PAGE_SIZE + i;
-    return buildEntryLine(entry, pos, board.metric);
+    const stats = statsByEntry.get(entry.id) || [];
+    const breakdown = stats.length
+      ? require("./scoreTypes").buildEntryTypeBreakdown(stats)
+      : null;
+    return buildEntryLine(entry, pos, board.metric, breakdown);
   });
 
   const archiveLine = board.isArchived
@@ -513,8 +538,9 @@ function buildScoreboardComponents(
   return rows;
 }
 
-function buildScoreboardEmbedDirect(board) {
-  return buildScoreboardPage(board, 1).embed;
+async function buildScoreboardEmbedDirect(board) {
+  const result = await buildScoreboardPage(board, 1);
+  return result.embed;
 }
 
 async function buildScoreboardEmbed(_interaction, board) {
@@ -1574,10 +1600,11 @@ async function pushLiveEmbed(client, board) {
     ch.guild?.iconURL({ size: 128, extension: "png" }) ?? undefined;
   const discoreIconUrlLive =
     client.user?.displayAvatarURL({ size: 64, extension: "png" }) ?? undefined;
-  let embed = buildScoreboardPage(board, 1, {
+  const page = await buildScoreboardPage(board, 1, {
     guildIconUrl,
     discoreIconUrl: discoreIconUrlLive,
-  }).embed;
+  });
+  let embed = page.embed;
 
   // Apply branding image when premium is active
   if (board.brandingImageUrl && board.guildId) {
