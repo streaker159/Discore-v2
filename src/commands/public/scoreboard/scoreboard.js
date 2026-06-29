@@ -719,12 +719,28 @@ module.exports = {
           ephemeral: true,
         });
 
-      const viewMode = board.hasCategories ? "combined" : "flat";
+      const { getScoreTypes } = require("../../modules/scoreboards/scoreTypes");
+      const scoreTypes = await getScoreTypes(board.id);
+      const hasScoreTypes = scoreTypes.length > 0;
+
+      const viewMode = hasScoreTypes
+        ? "flat"
+        : board.hasCategories
+          ? "combined"
+          : "flat";
       const {
         embed,
         page: safePage,
         totalPages,
-      } = buildInteractiveShowEmbed(board, viewMode, 1, "WINS", embedOpts);
+        scoreTypes: resultScoreTypes,
+        hasScoreTypes: resultHasScoreTypes,
+      } = await buildInteractiveShowEmbed(
+        board,
+        viewMode,
+        1,
+        "WINS",
+        embedOpts,
+      );
       const components = buildShowComponents(
         board.id,
         safePage,
@@ -733,6 +749,10 @@ module.exports = {
         "WINS",
         viewMode,
         board,
+        {
+          scoreTypes: resultScoreTypes || scoreTypes,
+          hasScoreTypes: resultHasScoreTypes ?? hasScoreTypes,
+        },
       );
       return interaction.reply({ embeds: [embed], components });
     }

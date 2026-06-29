@@ -1614,14 +1614,34 @@ async function pushLiveEmbed(client, board) {
     }
   }
 
+  // Build components (score type dropdown) if score types exist
+  const { getScoreTypes } = require("./scoreTypes");
+  const scoreTypes = await getScoreTypes(board.id);
+  let components = [];
+  if (scoreTypes.length > 0) {
+    components = buildShowComponents(
+      board.id,
+      1,
+      page.totalPages || 1,
+      board.metric,
+      "WINS",
+      "flat",
+      board,
+      { scoreTypes, hasScoreTypes: true },
+    );
+  }
+
+  const payload = { embeds: [embed] };
+  if (components.length) payload.components = components;
+
   if (board.messageId) {
     const msg = await ch.messages.fetch(board.messageId).catch(() => null);
     if (msg) {
-      await msg.edit({ embeds: [embed] }).catch(() => null);
+      await msg.edit(payload).catch(() => null);
       return "updated";
     }
   }
-  const newMsg = await ch.send({ embeds: [embed] }).catch(() => null);
+  const newMsg = await ch.send(payload).catch(() => null);
   if (newMsg) {
     await prisma.scoreboard
       .update({
@@ -1681,10 +1701,12 @@ async function repairLiveEmbed(client, boardId) {
 
 /**
  * Build the interactive embed for a board based on view mode.
- * viewMode: "flat" (no categories), "combined" (All Scores Combined),
- *            "all_cats" (Show All Categories), or a specific category ID.
+ * viewMode:
+ *   "flat" or "overall" — standard flat view with category breakdowns under entries
+ *   "type:<scoreTypeId>" — filtered by score type
+ *   "combined", "all_cats", or a sourceScoreboardId — legacy merge-based categories
  */
-function buildInteractiveShowEmbed(
+async function buildInteractiveShowEmbed(
   board,
   viewMode = "flat",
   page = 1,
@@ -1693,15 +1715,122 @@ function buildInteractiveShowEmbed(
 ) {
   const { guildIconUrl, discoreIconUrl } = opts;
 
-  if (!board.hasCategories || viewMode === "flat") {
-    // Standard flat display
-    return buildScoreboardPage(board, page, {
+  // ── Detect whether score types exist (new premium feature) ────────────
+  const { getScoreTypes } = require("./scoreTypes");
+  const scoreTypes = await getScoreTypes(board.id);
+  const hasScoreTypes = scoreTypes.length > 0;
+
+  // ── Score type filtered view ─────────────────────────────────────────
+  if (viewMode.startsWith("type:")) {
+    const scoreTypeId = viewMode.slice("type:".length);
+    const scoreType = scoreTypes.find((t) => t.id === scoreTypeId);
+    const typeName = scoreType?.name || "Unknown";
+
+    // Load all entries with their type stats for this scoreType
+    const allEntryIds = board.entries.map((e) => e.id);
+    const typeStats = allEntryIds.length
+      ? await prisma.scoreboardEntryTypeStats.findMany({
+          where: {
+            scoreboardEntryId: { in: allEntryIds },
+            scoreTypeId,
+          },
+        })
+      : [];
+
+    // Build filtered entries: only entries with stats in this type
+    const statsByEntry = new Map();
+    for (const stat of typeStats) {
+      statsByEntry.set(stat.scoreboardEntryId, stat);
+    }
+
+    const ranked = board.entries
+      .filter((e) => statsByEntry.has(e.id))
+      .map((e) => ({ entry: e, stat: statsByEntry.get(e.id) }));
+
+    // Sort by category stats
+    ranked.sort((a, b) => {
+      if (board.metric === "POINTS") return b.stat.points - a.stat.points;
+      return (
+        b.stat.wins - a.stat.wins ||
+        b.stat.wins / Math.max(1, b.stat.losses) -
+          a.stat.wins / Math.max(1, a.stat.losses)
+      );
+    });
+
+    const total = ranked.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const safeP = Math.min(Math.max(page, 1), pages);
+    const slice = ranked.slice((safeP - 1) * PAGE_SIZE, safeP * PAGE_SIZE);
+
+    const lines = slice.map(({ entry, stat }, i) => {
+      const pos = (safeP - 1) * PAGE_SIZE + i;
+      const medal = MEDALS[pos] ?? `\`${String(pos + 1).padStart(2, "0")}.\``;
+      const display = targetDisplay(entry);
+      const label = `**${display}**`;
+      if (board.metric === "POINTS") {
+        return `${medal} ${label}\n   └─ \` 💯 ${stat.points} Points \``;
+      }
+      const r = stat.losses
+        ? (stat.wins / stat.losses).toFixed(2)
+        : stat.wins > 0
+          ? stat.wins.toFixed(2)
+          : "0.00";
+      return `${medal} ${label}\n   └─ \` 🏆 ${stat.wins}W \` \` 💀 ${stat.losses}L \` \` ⚖️ ${r} Ratio \``;
+    });
+
+    const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win/Loss";
+    const footerParts = [
+      `Filtered by ${typeName}`,
+      `Mode: ${modeLabel}`,
+      `${total} ${total === 1 ? "entry" : "entries"}`,
+      total > PAGE_SIZE ? `Page ${safeP}/${pages}` : null,
+    ].filter(Boolean);
+
+    const embed = new EmbedBuilder()
+      .setTitle(`🏆  ${board.liveTitle || board.name} — ${typeName}`)
+      .setDescription(
+        (board.description ? `📝 *${board.description}*\n\n` : "") +
+          (lines.length
+            ? lines.join("\n\n")
+            : `_No entries with ${typeName} stats yet._`),
+      )
+      .setColor(makeBoardColor(board))
+      .setFooter({
+        text: footerParts.join("  ·  "),
+        iconURL: discoreIconUrl || undefined,
+      })
+      .setTimestamp(
+        board.lastUpdatedAt ? new Date(board.lastUpdatedAt) : undefined,
+      );
+
+    if (board.roleImageUrl) embed.setThumbnail(board.roleImageUrl);
+    else if (guildIconUrl) embed.setThumbnail(guildIconUrl);
+
+    return {
+      embed,
+      page: safeP,
+      totalPages: pages,
+      scoreTypes,
+      hasScoreTypes: true,
+    };
+  }
+
+  // ── Overall view (flat) — use score type breakdowns if they exist ─────
+  if (
+    viewMode === "flat" ||
+    viewMode === "overall" ||
+    !viewMode ||
+    !board.hasCategories
+  ) {
+    const result = await buildScoreboardPage(board, page, {
       guildIconUrl,
       discoreIconUrl,
       sortBy,
     });
+    return { ...result, scoreTypes, hasScoreTypes };
   }
 
+  // ── Legacy merge-based category views ────────────────────────────────
   if (viewMode === "combined") {
     // All Scores Combined
     const combined = buildCombinedEntries(board.entries, board.metric);
@@ -1741,42 +1870,52 @@ function buildInteractiveShowEmbed(
     if (board.roleImageUrl) embed.setThumbnail(board.roleImageUrl);
     else if (guildIconUrl) embed.setThumbnail(guildIconUrl);
 
-    return { embed, page: safeP, totalPages: pages };
+    return { embed, page: safeP, totalPages: pages, scoreTypes, hasScoreTypes };
   }
 
   if (viewMode === "all_cats") {
     // Show All Categories
     const categories = groupEntriesByCategory(board.entries);
-    return buildCategoryPage(categories, page, board.metric, {
-      guildIconUrl,
-      discoreIconUrl,
-      boardTitle: board.liveTitle || board.name,
-      board,
-      categoryTitle: "All Categories",
-    });
+    return {
+      ...buildCategoryPage(categories, page, board.metric, {
+        guildIconUrl,
+        discoreIconUrl,
+        boardTitle: board.liveTitle || board.name,
+        board,
+        categoryTitle: "All Categories",
+      }),
+      scoreTypes,
+      hasScoreTypes,
+    };
   }
 
-  // Single category view
+  // Single old category view
   const categories = groupEntriesByCategory(board.entries);
   const cat = categories.find((c) => c.categoryId === viewMode);
   if (!cat) {
-    return buildScoreboardPage(board, page, {
+    const result = await buildScoreboardPage(board, page, {
       guildIconUrl,
       discoreIconUrl,
       sortBy,
     });
+    return { ...result, scoreTypes, hasScoreTypes };
   }
-  return buildCategoryPage([cat], page, board.metric, {
-    guildIconUrl,
-    discoreIconUrl,
-    boardTitle: `${board.liveTitle || board.name} — ${cat.categoryName}`,
-    board,
-    categoryTitle: cat.categoryName,
-  });
+  return {
+    ...buildCategoryPage([cat], page, board.metric, {
+      guildIconUrl,
+      discoreIconUrl,
+      boardTitle: `${board.liveTitle || board.name} — ${cat.categoryName}`,
+      board,
+      categoryTitle: cat.categoryName,
+    }),
+    scoreTypes,
+    hasScoreTypes,
+  };
 }
 
 /**
  * Build components for the interactive show view.
+ * Accepts optional scoreTypes/hasScoreTypes for the new premium score type system.
  */
 function buildShowComponents(
   boardId,
@@ -1786,11 +1925,56 @@ function buildShowComponents(
   sortBy,
   viewMode,
   board,
+  opts = {},
 ) {
+  const { scoreTypes, hasScoreTypes } = opts;
   const rows = [];
 
-  // View selection dropdown (always visible for category boards, or all boards with category-aware embedding)
-  if (board?.hasCategories) {
+  // ── Score type dropdown (premium feature) ────────────────────────────
+  if (hasScoreTypes && scoreTypes && scoreTypes.length > 0) {
+    const currentTypeId = viewMode.startsWith("type:")
+      ? viewMode.slice("type:".length)
+      : null;
+
+    const options = [
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Overall")
+        .setDescription("Combined leaderboard across all score types")
+        .setValue("overall")
+        .setDefault(!currentTypeId),
+    ];
+
+    for (const t of scoreTypes) {
+      options.push(
+        new StringSelectMenuOptionBuilder()
+          .setLabel(t.name.substring(0, 25))
+          .setDescription(`Filter by ${t.name}`)
+          .setValue(`type:${t.id}`)
+          .setDefault(currentTypeId === t.id),
+      );
+    }
+
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`sb:scoretype:${boardId}:${page}:${sortBy}`)
+          .setPlaceholder("Filter by score type...")
+          .addOptions(options),
+      ),
+    );
+  }
+
+  // ── Legacy view selection dropdown (for boards with merge-based categories) ─
+  if (
+    board?.hasCategories &&
+    (!hasScoreTypes ||
+      rows.length === 0 ||
+      hasScoreTypes === false ||
+      (hasScoreTypes &&
+        viewMode !== "flat" &&
+        !viewMode.startsWith("type:") &&
+        viewMode !== "overall"))
+  ) {
     const categories = groupEntriesByCategory(board.entries || []);
     const options = [
       new StringSelectMenuOptionBuilder()

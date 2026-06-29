@@ -28,14 +28,23 @@ async function handleShow(interaction, boardId, page, sortBy, viewMode) {
     interaction.client.user?.displayAvatarURL({ size: 64, extension: "png" }) ??
     undefined;
 
+  const result = await buildInteractiveShowEmbed(
+    board,
+    viewMode || "flat",
+    page,
+    sortBy,
+    {
+      guildIconUrl,
+      discoreIconUrl,
+    },
+  );
   const {
     embed,
     page: safePage,
     totalPages,
-  } = buildInteractiveShowEmbed(board, viewMode || "flat", page, sortBy, {
-    guildIconUrl,
-    discoreIconUrl,
-  });
+    scoreTypes,
+    hasScoreTypes,
+  } = result;
   const components = buildShowComponents(
     board.id,
     safePage,
@@ -44,6 +53,7 @@ async function handleShow(interaction, boardId, page, sortBy, viewMode) {
     sortBy,
     viewMode || "flat",
     board,
+    { scoreTypes, hasScoreTypes },
   );
   return interaction.update({ embeds: [embed], components });
 }

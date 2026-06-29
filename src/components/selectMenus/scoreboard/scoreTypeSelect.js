@@ -7,14 +7,14 @@ const {
 } = require("../../../modules/scoreboards/service");
 
 module.exports = {
-  customIdPrefix: "sb:view:",
+  customIdPrefix: "sb:scoretype:",
   async execute(interaction) {
-    // customId: sb:view:{boardId}:{page}:{sortBy}
+    // customId: sb:scoretype:{boardId}:{page}:{sortBy}
     const parts = interaction.customId.split(":");
     const boardId = parts[2];
     const page = parseInt(parts[3], 10) || 1;
     const sortBy = parts[4] || "WINS";
-    const viewMode = interaction.values[0];
+    const viewMode = interaction.values[0]; // "overall" or "type:<scoreTypeId>"
 
     const board = await getScoreboardById(boardId);
     if (!board)
@@ -32,9 +32,17 @@ module.exports = {
         extension: "png",
       }) ?? undefined;
 
-    const result = await buildInteractiveShowEmbed(
+    // Map "overall" → "flat" for the standard display path
+    const effectiveViewMode = viewMode === "overall" ? "flat" : viewMode;
+    const {
+      embed,
+      page: safePage,
+      totalPages,
+      scoreTypes,
+      hasScoreTypes,
+    } = await buildInteractiveShowEmbed(
       board,
-      viewMode,
+      effectiveViewMode,
       page,
       sortBy,
       {
@@ -42,22 +50,13 @@ module.exports = {
         discoreIconUrl,
       },
     );
-
-    const {
-      embed,
-      page: safePage,
-      totalPages,
-      scoreTypes,
-      hasScoreTypes,
-    } = result;
-
     const components = buildShowComponents(
       board.id,
       safePage,
       totalPages,
       board.metric,
       sortBy,
-      viewMode,
+      effectiveViewMode,
       board,
       { scoreTypes, hasScoreTypes },
     );

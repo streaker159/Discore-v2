@@ -26,15 +26,29 @@ module.exports = {
         extension: "png",
       }) ?? undefined;
 
-    const viewMode = board.hasCategories ? "combined" : "flat";
+    const {
+      getScoreTypes,
+    } = require("../../../modules/scoreboards/scoreTypes");
+    const scoreTypes = await getScoreTypes(board.id);
+    const hasScoreTypes = scoreTypes.length > 0;
 
-    const { embed, page, totalPages } = buildInteractiveShowEmbed(
-      board,
-      viewMode,
-      1,
-      "WINS",
-      { guildIconUrl, discoreIconUrl },
-    );
+    const viewMode = hasScoreTypes
+      ? "flat"
+      : board.hasCategories
+        ? "combined"
+        : "flat";
+
+    const result = await buildInteractiveShowEmbed(board, viewMode, 1, "WINS", {
+      guildIconUrl,
+      discoreIconUrl,
+    });
+    const {
+      embed,
+      page,
+      totalPages,
+      scoreTypes: resultScoreTypes,
+      hasScoreTypes: resultHasScoreTypes,
+    } = result;
     const components = buildShowComponents(
       board.id,
       page,
@@ -43,6 +57,10 @@ module.exports = {
       "WINS",
       viewMode,
       board,
+      {
+        scoreTypes: resultScoreTypes || scoreTypes,
+        hasScoreTypes: resultHasScoreTypes ?? hasScoreTypes,
+      },
     );
 
     return interaction.update({
