@@ -645,6 +645,16 @@ async function reducePunishment(
 
   await caseService.updateCaseAppealStatus(moderationCase.id, "REDUCED");
 
+  // Save transcript before deleting ticket
+  if (guild)
+    await saveAppealTranscript(
+      guild,
+      appeal,
+      "punishment_reduced",
+      note,
+      adminId,
+    );
+
   if (guild && moderationCase.actionType === "TIMEOUT") {
     try {
       const member = await guild.members.fetch(moderationCase.userId);
@@ -695,6 +705,10 @@ async function closeAppeal(appealId, adminId, guild = null, note = null) {
 
   await updateCaseStaffNote(appeal.caseId, "Appeal closed", outcome, adminId);
   await caseService.updateCaseAppealStatus(appeal.caseId, "CLOSED");
+
+  // Save transcript before deleting ticket
+  if (guild)
+    await saveAppealTranscript(guild, appeal, "closed", outcome, adminId);
 
   const updated = await appealRepo.getAppealByPublicId(appealId);
 
