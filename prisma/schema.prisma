@@ -1262,6 +1262,32 @@ model GameUnitImportDraft {
   @@index([status])
 }
 
+// ── MODERATION TRANSCRIPTS ────────────────────────────────
+
+model ModerationCaseTranscript {
+  id                String    @id @default(cuid())
+  guildId           String
+  caseId            String?
+  appealId          String?
+  caseNumber        String?
+  appealNumber      String?
+  ticketChannelId   String?
+  ticketChannelName String?
+  userId            String?
+  handledById       String?
+  outcome           String?
+  openedAt          DateTime?
+  closedAt          DateTime?
+  messageCount      Int       @default(0)
+  transcriptJson    String?   @db.Text
+  transcriptText    String?   @db.Text
+  createdAt         DateTime  @default(now())
+
+  @@index([caseId])
+  @@index([appealNumber])
+  @@index([guildId])
+}
+
 // ── BOT ANALYTICS ─────────────────────────────────────────
 
 model BotCommandUsage {

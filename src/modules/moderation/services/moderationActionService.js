@@ -120,12 +120,15 @@ async function sendModerationLog({
   actionSuccess,
   actionError,
 }) {
-  if (!dbGuild?.logChannelId) {
+  // Use dedicated moderation log channel first, fall back to general log channel
+  const targetChannelId =
+    dbGuild?.moderationLogChannelId || dbGuild?.logChannelId;
+  if (!targetChannelId) {
     return;
   }
 
   try {
-    const logChannel = await guild.channels.fetch(dbGuild.logChannelId);
+    const logChannel = await guild.channels.fetch(targetChannelId);
 
     if (!logChannel || !logChannel.isTextBased()) {
       return;

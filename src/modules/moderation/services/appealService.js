@@ -116,7 +116,9 @@ async function findAppealControlMessage(guild, appeal) {
   const controlChannel = await getConfiguredAppealChannel(guild, dbGuild);
   if (!controlChannel) return null;
 
-  const messages = await controlChannel.messages.fetch({ limit: 50 }).catch(() => null);
+  const messages = await controlChannel.messages
+    .fetch({ limit: 50 })
+    .catch(() => null);
   if (!messages) return null;
 
   return (
@@ -137,7 +139,11 @@ async function findAppealControlMessage(guild, appeal) {
   );
 }
 
-async function updateAppealControlMessage(guild, appeal, removeButtons = false) {
+async function updateAppealControlMessage(
+  guild,
+  appeal,
+  removeButtons = false,
+) {
   if (!guild || !appeal?.case) return null;
 
   const message = await findAppealControlMessage(guild, appeal);
@@ -156,15 +162,21 @@ async function updateAppealControlMessage(guild, appeal, removeButtons = false) 
 
   await message.edit({
     embeds: [embed],
-    components: removeButtons || isClosedStatus(appeal.status)
-      ? []
-      : createAppealAdminButtons(appeal.publicId),
+    components:
+      removeButtons || isClosedStatus(appeal.status)
+        ? []
+        : createAppealAdminButtons(appeal.publicId),
   });
 
   return message;
 }
 
-async function createAppealTicketChannel(guild, dbGuild, appeal, moderationCase) {
+async function createAppealTicketChannel(
+  guild,
+  dbGuild,
+  appeal,
+  moderationCase,
+) {
   const category = await getConfiguredAppealCategory(guild, dbGuild);
 
   const permissionOverwrites = [
@@ -217,7 +229,11 @@ async function createAppealTicketChannel(guild, dbGuild, appeal, moderationCase)
 
   const channel = await guild.channels.create(createPayload);
 
-  const ticketEmbed = await createAppealTicketEmbed(appeal, moderationCase, guild);
+  const ticketEmbed = await createAppealTicketEmbed(
+    appeal,
+    moderationCase,
+    guild,
+  );
 
   await channel.send({
     embeds: [ticketEmbed],
@@ -226,7 +242,13 @@ async function createAppealTicketChannel(guild, dbGuild, appeal, moderationCase)
   return channel;
 }
 
-async function postAppealControlMessage(guild, dbGuild, appeal, moderationCase, ticketChannel) {
+async function postAppealControlMessage(
+  guild,
+  dbGuild,
+  appeal,
+  moderationCase,
+  ticketChannel,
+) {
   const controlChannel = await getConfiguredAppealChannel(guild, dbGuild);
   if (!controlChannel) return null;
 
@@ -279,7 +301,9 @@ async function createAppeal(casePublicId, userId, appealText, guild) {
   const controlChannel = await getConfiguredAppealChannel(guild, dbGuild);
 
   if (!controlChannel) {
-    throw new Error("Appeals channel is not configured. Run /server channels appeals:#channel.");
+    throw new Error(
+      "Appeals channel is not configured. Run /server channels appeals:#channel.",
+    );
   }
 
   const appeal = await appealRepo.createAppeal({
@@ -314,9 +338,18 @@ async function createAppeal(casePublicId, userId, appealText, guild) {
       ticketChannel,
     );
 
-    return fullAppeal || { ...appeal, channelId: ticketChannel.id, case: moderationCase };
+    return (
+      fullAppeal || {
+        ...appeal,
+        channelId: ticketChannel.id,
+        case: moderationCase,
+      }
+    );
   } catch (error) {
-    console.error("[Appeal] Could not create appeal ticket/control message:", error);
+    console.error(
+      "[Appeal] Could not create appeal ticket/control message:",
+      error,
+    );
 
     await appealRepo
       .updateAppealStatus(appeal.id, "CLOSED", {
@@ -370,10 +403,18 @@ async function dmAppealOutcome(guild, appeal, note) {
   }
 }
 
-async function postDecisionToTicketAndDelete(guild, appeal, decision, note, adminId) {
+async function postDecisionToTicketAndDelete(
+  guild,
+  appeal,
+  decision,
+  note,
+  adminId,
+) {
   if (!appeal.channelId) return false;
 
-  const channel = await guild.channels.fetch(appeal.channelId).catch(() => null);
+  const channel = await guild.channels
+    .fetch(appeal.channelId)
+    .catch(() => null);
   if (!channel || !channel.isTextBased()) return false;
 
   const embed = createAppealDecisionEmbed(
@@ -395,7 +436,10 @@ async function postDecisionToTicketAndDelete(guild, appeal, decision, note, admi
     channel
       .delete(`Appeal ${appeal.publicId} ${decision} — cleanup`)
       .catch((error) =>
-        console.error("[Appeal] Could not delete appeal ticket:", error.message),
+        console.error(
+          "[Appeal] Could not delete appeal ticket:",
+          error.message,
+        ),
       );
   }, 5000);
 
@@ -410,23 +454,113 @@ async function acceptAppeal(appealId, adminId, guild, decisionNote = null) {
     decisionNote ||
     "Appeal accepted. The moderation case was revoked and removed from the public record.";
 
+  // 1. Update appeal record
   await appealRepo.updateAppealStatus(appeal.id, "ACCEPTED", {
     closedAt: new Date(),
     closedBy: adminId,
     outcome: note,
   });
 
-  await caseService.revokeCase(appeal.case.publicId, adminId, guild);
+  // 2. Update case BEFORE revoking (revoke deletes the record)
   await updateCaseStaffNote(appeal.caseId, "Appeal accepted", note, adminId);
   await caseService.updateCaseAppealStatus(appeal.caseId, "ACCEPTED");
 
-  const updated = await appealRepo.getAppealByPublicId(appealId);
+  // 3. Save transcript of the ticket channel before it gets deleted
+  await saveAppealTranscript(guild, appeal, "ACCEPTED", note, adminId);
 
+  // 4. Now revoke (deletes the moderation case)
+  const revokeResult = await caseService.revokeCase(
+    appeal.case.publicId,
+    adminId,
+    guild,
+  );
+  // revokeResult is null if case was already gone — that's fine, just means it was handled
+
+  // 5. Post decision, DM, delete ticket
+  const updated = await appealRepo.getAppealByPublicId(appealId);
   await updateAppealControlMessage(guild, updated, true);
   await dmAppealOutcome(guild, updated, note);
-  await postDecisionToTicketAndDelete(guild, updated, "ACCEPTED", note, adminId);
+  await postDecisionToTicketAndDelete(
+    guild,
+    updated,
+    "ACCEPTED",
+    note,
+    adminId,
+  );
 
   return updated;
+}
+
+// ── Transcript saving ──────────────────────────────────────────────────────
+
+async function saveAppealTranscript(guild, appeal, outcome, note, adminId) {
+  if (!appeal.channelId) return;
+  try {
+    const channel = await guild.channels
+      .fetch(appeal.channelId)
+      .catch(() => null);
+    if (!channel || !channel.isTextBased()) return;
+
+    // Fetch all messages (up to 500)
+    const allMessages = [];
+    let lastId;
+    for (let i = 0; i < 5; i++) {
+      const batch = await channel.messages
+        .fetch({ limit: 100, before: lastId })
+        .catch(() => new Map());
+      if (!batch.size) break;
+      for (const [, msg] of batch) {
+        allMessages.push({
+          authorId: msg.author.id,
+          authorName:
+            msg.author.displayName || msg.author.username || "Unknown",
+          content: msg.content || "",
+          embeds: msg.embeds.length
+            ? msg.embeds.map((e) => ({
+                title: e.title,
+                description: e.description?.slice(0, 200),
+              }))
+            : undefined,
+          attachments: msg.attachments.size
+            ? [...msg.attachments.values()].map((a) => a.url)
+            : undefined,
+          createdAt: msg.createdAt.toISOString(),
+        });
+      }
+      lastId = batch.last()?.id;
+    }
+    allMessages.reverse(); // chronological order
+
+    const transcriptJson = JSON.stringify(allMessages);
+    const transcriptText = allMessages
+      .map(
+        (m) => `[${m.createdAt}] ${m.authorName} (${m.authorId}): ${m.content}`,
+      )
+      .join("\n");
+
+    await prisma.moderationCaseTranscript.create({
+      data: {
+        guildId: guild.id,
+        caseId: appeal.caseId,
+        appealId: appeal.publicId,
+        caseNumber: appeal.case?.publicId || null,
+        appealNumber: appeal.publicId,
+        ticketChannelId: appeal.channelId,
+        ticketChannelName: channel.name,
+        userId: appeal.userId,
+        handledById: adminId || null,
+        outcome,
+        openedAt: appeal.createdAt || new Date(),
+        closedAt: new Date(),
+        messageCount: allMessages.length,
+        transcriptJson,
+        transcriptText,
+      },
+    });
+  } catch (err) {
+    console.error("[Appeal] Failed to save transcript:", err.message);
+    // Don't block the appeal flow — transcript is best-effort
+  }
 }
 
 async function rejectAppeal(appealId, adminId, reason = null, guild = null) {
@@ -449,12 +583,22 @@ async function rejectAppeal(appealId, adminId, reason = null, guild = null) {
   await updateCaseStaffNote(appeal.caseId, "Appeal rejected", note, adminId);
   await caseService.updateCaseAppealStatus(appeal.caseId, "REJECTED");
 
+  // Save transcript before deleting ticket
+  if (guild)
+    await saveAppealTranscript(guild, appeal, "REJECTED", note, adminId);
+
   const updated = await appealRepo.getAppealByPublicId(appealId);
 
   if (guild) {
     await updateAppealControlMessage(guild, updated, true);
     await dmAppealOutcome(guild, updated, note);
-    await postDecisionToTicketAndDelete(guild, updated, "REJECTED", note, adminId);
+    await postDecisionToTicketAndDelete(
+      guild,
+      updated,
+      "REJECTED",
+      note,
+      adminId,
+    );
   }
 
   return updated;
@@ -520,8 +664,18 @@ async function reducePunishment(
 
   if (guild) {
     await updateAppealControlMessage(guild, updated, true);
-    await dmAppealOutcome(guild, updated, `Punishment reduced to ${durationText}.\n\n${note}`);
-    await postDecisionToTicketAndDelete(guild, updated, "REDUCED", note, adminId);
+    await dmAppealOutcome(
+      guild,
+      updated,
+      `Punishment reduced to ${durationText}.\n\n${note}`,
+    );
+    await postDecisionToTicketAndDelete(
+      guild,
+      updated,
+      "REDUCED",
+      note,
+      adminId,
+    );
   }
 
   return updated;
@@ -546,7 +700,13 @@ async function closeAppeal(appealId, adminId, guild = null, note = null) {
 
   if (guild) {
     await updateAppealControlMessage(guild, updated, true);
-    await postDecisionToTicketAndDelete(guild, updated, "CLOSED", outcome, adminId);
+    await postDecisionToTicketAndDelete(
+      guild,
+      updated,
+      "CLOSED",
+      outcome,
+      adminId,
+    );
   }
 
   return updated;
@@ -576,7 +736,9 @@ async function bringMemberToTicket(appealId, guild, actorId = null) {
     throw new Error("This appeal does not have a ticket channel.");
   }
 
-  const channel = await guild.channels.fetch(appeal.channelId).catch(() => null);
+  const channel = await guild.channels
+    .fetch(appeal.channelId)
+    .catch(() => null);
   if (!channel || !channel.isTextBased()) {
     throw new Error("Appeal ticket channel could not be found.");
   }
