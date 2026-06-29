@@ -34,6 +34,62 @@ module.exports = {
       });
     }
 
+    // ── Startup: run safe migrations and redeploy commands ───────────
+    setImmediate(async () => {
+      try {
+        // 1. Apply database migration
+        const fs = require("fs");
+        const path = require("path");
+        const migrationPath = path.join(
+          __dirname,
+          "..",
+          "..",
+          "scripts",
+          "migrate_analytics.sql",
+        );
+        if (fs.existsSync(migrationPath)) {
+          const sql = fs.readFileSync(migrationPath, "utf8");
+          // Split by semicolons and execute each statement
+          const statements = sql
+            .split(";")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0 && !s.startsWith("--"));
+          for (const stmt of statements) {
+            try {
+              await prisma.$executeRawUnsafe(`${stmt};`);
+            } catch (e) {
+              // Table/column may already exist — log and continue
+              logger.info("Migration statement skipped (may already exist)", {
+                error: e.message?.slice(0, 80),
+              });
+            }
+          }
+          logger.info("Startup migration check complete");
+        }
+
+        // 2. Redeploy slash commands
+        const { REST, Routes } = require("discord.js");
+        const {
+          commandJsonFromDir,
+        } = require("../../scripts/_commandDeployUtil");
+        const rest = new REST({ version: "10" }).setToken(
+          process.env.DISCORD_TOKEN,
+        );
+        const commands = commandJsonFromDir(
+          path.join(__dirname, "..", "commands", "public"),
+        );
+        logger.info(`Redeploying ${commands.length} global commands...`);
+        await rest.put(Routes.applicationCommands(client.user.id), {
+          body: commands,
+        });
+        logger.info("Global commands redeployed");
+      } catch (err) {
+        logger.warn("Startup migration/deploy skipped", {
+          error: err.message?.slice(0, 100),
+        });
+      }
+    });
+
     // Send onboarding to existing guilds that haven't received it yet
     setImmediate(async () => {
       try {
