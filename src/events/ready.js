@@ -129,25 +129,8 @@ module.exports = {
           });
         }
         logger.info("Startup migration check complete");
-
-        // 2. Redeploy slash commands
-        const { REST, Routes } = require("discord.js");
-        const {
-          commandJsonFromDir,
-        } = require("../../scripts/_commandDeployUtil");
-        const rest = new REST({ version: "10" }).setToken(
-          process.env.DISCORD_TOKEN,
-        );
-        const commands = commandJsonFromDir(
-          path.join(__dirname, "..", "commands", "public"),
-        );
-        logger.info(`Redeploying ${commands.length} global commands...`);
-        await rest.put(Routes.applicationCommands(client.user.id), {
-          body: commands,
-        });
-        logger.info("Global commands redeployed");
       } catch (err) {
-        logger.warn("Startup migration/deploy skipped", {
+        logger.warn("Startup migration skipped", {
           error: err.message?.slice(0, 100),
         });
       }
