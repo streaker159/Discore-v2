@@ -130,6 +130,16 @@ module.exports = {
         }
         logger.info("Startup migration check complete");
 
+        // 1b. Schedule hourly analytics job (runs at minute 1 past every hour)
+        try {
+          const { scheduleNextRun } = require("../jobs/analyticsJob");
+          scheduleNextRun(client);
+        } catch (e) {
+          logger.warn("Analytics job scheduler failed", {
+            error: e.message?.slice(0, 60),
+          });
+        }
+
         // 2. Safe redeploy: only send to Discord if commands were loaded
         const { REST, Routes } = require("discord.js");
         const commands = [...client.commands.values()]
