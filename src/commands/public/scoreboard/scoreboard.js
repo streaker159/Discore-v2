@@ -719,7 +719,9 @@ module.exports = {
           ephemeral: true,
         });
 
-      const { getScoreTypes } = require("../../modules/scoreboards/scoreTypes");
+      const {
+        getScoreTypes,
+      } = require("../../../modules/scoreboards/scoreTypes");
       const scoreTypes = await getScoreTypes(board.id);
       const hasScoreTypes = scoreTypes.length > 0;
 
