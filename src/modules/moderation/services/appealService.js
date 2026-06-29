@@ -468,27 +468,32 @@ async function acceptAppeal(appealId, adminId, guild, decisionNote = null) {
   // 3. Save transcript of the ticket channel before it gets deleted
   await saveAppealTranscript(guild, appeal, "ACCEPTED", note, adminId);
 
-  // 4. Now revoke (deletes the moderation case)
-  const revokeResult = await caseService.revokeCase(
-    appeal.case.publicId,
-    adminId,
-    guild,
-  );
-  // revokeResult is null if case was already gone — that's fine, just means it was handled
+  // 4. Capture appeal data BEFORE revoke deletes the appeal record
+  const appealSnapshot = {
+    publicId: appeal.publicId,
+    userId: appeal.userId,
+    channelId: appeal.channelId,
+    caseId: appeal.caseId,
+    case: appeal.case,
+    status: "ACCEPTED",
+    createdAt: appeal.createdAt,
+  };
 
-  // 5. Post decision, DM, delete ticket
-  const updated = await appealRepo.getAppealByPublicId(appealId);
-  await updateAppealControlMessage(guild, updated, true);
-  await dmAppealOutcome(guild, updated, note);
+  // 5. Now revoke (deletes the moderation case AND linked appeals)
+  await caseService.revokeCase(appeal.case.publicId, adminId, guild);
+
+  // 6. Post decision, DM, delete ticket — use snapshot since appeal record is gone
+  await updateAppealControlMessage(guild, appealSnapshot, true);
+  await dmAppealOutcome(guild, appealSnapshot, note);
   await postDecisionToTicketAndDelete(
     guild,
-    updated,
+    appealSnapshot,
     "ACCEPTED",
     note,
     adminId,
   );
 
-  return updated;
+  return appealSnapshot;
 }
 
 // ── Transcript saving ──────────────────────────────────────────────────────
