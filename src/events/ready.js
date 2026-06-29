@@ -129,8 +129,28 @@ module.exports = {
           });
         }
         logger.info("Startup migration check complete");
+
+        // 2. Safe redeploy: only send to Discord if commands were loaded
+        const { REST, Routes } = require("discord.js");
+        const commands = [...client.commands.values()]
+          .filter((c) => c.data)
+          .map((c) => c.data.toJSON());
+        if (commands.length > 0) {
+          const rest = new REST({ version: "10" }).setToken(
+            process.env.DISCORD_TOKEN,
+          );
+          logger.info(`Redeploying ${commands.length} commands...`);
+          await rest.put(Routes.applicationCommands(client.user.id), {
+            body: commands,
+          });
+          logger.info("Commands redeployed");
+        } else {
+          logger.warn(
+            "No commands loaded — skipping deploy (retry on next restart)",
+          );
+        }
       } catch (err) {
-        logger.warn("Startup migration skipped", {
+        logger.warn("Startup migration/deploy skipped", {
           error: err.message?.slice(0, 100),
         });
       }
