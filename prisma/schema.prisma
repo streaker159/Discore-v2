@@ -58,6 +58,9 @@ model Guild {
   onboardingSkippedAt    DateTime?
   onboardingChannelId    String?
 
+  // Discore Official
+  announcementChannelId  String?
+
   // Maintenance
   maintainRolesAndChannels Boolean  @default(true)
   
@@ -1257,4 +1260,55 @@ model GameUnitImportDraft {
 
   @@index([gameKey, status])
   @@index([status])
+}
+
+// ── BOT ANALYTICS ─────────────────────────────────────────
+
+model BotCommandUsage {
+  id          String    @id @default(cuid())
+  guildId     String?
+  userId      String
+  commandName String
+  subcommand  String?
+  success     Boolean   @default(true)
+  durationMs  Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([guildId])
+  @@index([commandName])
+}
+
+model BotAiUsage {
+  id           String    @id @default(cuid())
+  guildId      String?
+  userId       String?
+  success      Boolean   @default(true)
+  creditsUsed  Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([guildId])
+}
+
+model BotGuildInstallEvent {
+  id          String    @id @default(cuid())
+  guildId     String
+  guildName   String
+  memberCount Int       @default(0)
+  ownerId     String?
+  eventType   String    // JOIN | LEAVE
+  createdAt   DateTime  @default(now())
+
+  @@index([guildId])
+  @@index([eventType, createdAt])
+}
+
+model BotHourlyStatusReport {
+  id          String    @id @default(cuid())
+  channelId   String
+  reportHour  String    // YYYY-MM-DD HH:00
+  sentAt      DateTime  @default(now())
+  status      String    @default("success") // success | failed
+  payloadJson String?   @db.Text
 }

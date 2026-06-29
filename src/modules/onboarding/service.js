@@ -54,6 +54,13 @@ const RECOMMENDED_ROLES = [
     field: "discoreMutedRoleId",
     desc: "Used by moderation/mute systems",
   },
+  {
+    name: "Discore Official",
+    color: "#5865F2",
+    field: null,
+    desc: "Official Discore update pings",
+    mentionable: true,
+  },
 ];
 
 const CHANNEL_LAYOUT = [
@@ -64,6 +71,12 @@ const CHANNEL_LAYOUT = [
         name: "bot-commands",
         field: null,
         desc: "Safe place for bot commands",
+        type: ChannelType.GuildText,
+      },
+      {
+        name: "📢・discore-announcements",
+        field: "announcementChannelId",
+        desc: "Official Discore updates & announcements",
         type: ChannelType.GuildText,
       },
       {

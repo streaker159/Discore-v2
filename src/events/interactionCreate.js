@@ -57,7 +57,32 @@ module.exports = {
 
         trackInteractionInBackground(interaction);
 
-        await command.execute(interaction, client);
+        const startTime = Date.now();
+        try {
+          await command.execute(interaction, client);
+          // Track success
+          const { trackCommand } = require("../lib/commandTracker");
+          trackCommand({
+            guildId: interaction.guildId,
+            userId: interaction.user.id,
+            commandName: interaction.commandName,
+            subcommand: interaction.options.getSubcommand(false) || null,
+            success: true,
+            durationMs: Date.now() - startTime,
+          });
+        } catch (err) {
+          // Track failure
+          const { trackCommand } = require("../lib/commandTracker");
+          trackCommand({
+            guildId: interaction.guildId,
+            userId: interaction.user.id,
+            commandName: interaction.commandName,
+            subcommand: interaction.options.getSubcommand(false) || null,
+            success: false,
+            durationMs: Date.now() - startTime,
+          });
+          throw err;
+        }
         return;
       }
 
@@ -98,19 +123,34 @@ module.exports = {
           if (interaction.type === 30) {
             // Subscription cancelled — log it, don't immediately downgrade
             // The premiumSyncJob will handle natural expiry + grace
-            logger.info("Entitlement: subscription cancelled (will expire naturally)", {
-              guildId, entitlementId: ent.id, skuId: ent.sku_id,
-            });
+            logger.info(
+              "Entitlement: subscription cancelled (will expire naturally)",
+              {
+                guildId,
+                entitlementId: ent.id,
+                skuId: ent.sku_id,
+              },
+            );
             continue;
           }
 
           if (ent.sku_id === process.env.DISCORD_PREMIUM_SKU_ID) {
             await processSubscriptionEntitlement(guildId, ent.id).catch((e) =>
-              logger.error("Entitlement: premium activation failed", { guildId, error: e.message }),
+              logger.error("Entitlement: premium activation failed", {
+                guildId,
+                error: e.message,
+              }),
             );
           } else if (ent.sku_id === process.env.DISCORD_AI_CREDITS_SKU_ID) {
-            await processAiCreditsEntitlement(guildId, ent.sku_id, ent.id).catch((e) =>
-              logger.error("Entitlement: AI credits purchase failed", { guildId, error: e.message }),
+            await processAiCreditsEntitlement(
+              guildId,
+              ent.sku_id,
+              ent.id,
+            ).catch((e) =>
+              logger.error("Entitlement: AI credits purchase failed", {
+                guildId,
+                error: e.message,
+              }),
             );
           }
         }

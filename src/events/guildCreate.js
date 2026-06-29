@@ -1,5 +1,6 @@
 "use strict";
 
+const { EmbedBuilder } = require("discord.js");
 const prisma = require("../lib/prisma");
 const logger = require("../lib/logger");
 const {
@@ -20,6 +21,62 @@ module.exports = {
         allianceLogo: guild.iconURL(),
       },
     });
+
+    // Log install event
+    const memberCount = guild.memberCount ?? 0;
+    const ownerId = guild.ownerId || null;
+    try {
+      await prisma.botGuildInstallEvent.create({
+        data: {
+          guildId: guild.id,
+          guildName: guild.name,
+          memberCount,
+          ownerId,
+          eventType: "JOIN",
+        },
+      });
+    } catch {
+      // non-critical
+    }
+
+    // Send join alert to official channel
+    const OFFICIAL_CHANNEL = "1367326139109871738";
+    try {
+      const client = guild.client;
+      const alertChannel = await client.channels
+        .fetch(OFFICIAL_CHANNEL)
+        .catch(() => null);
+      if (alertChannel && alertChannel.isTextBased()) {
+        const totalGuilds = client.guilds.cache.size;
+        const alertEmbed = new EmbedBuilder()
+          .setColor(0x57f287)
+          .setTitle("📥 Server Joined")
+          .addFields(
+            { name: "Server", value: guild.name, inline: true },
+            { name: "ID", value: guild.id, inline: true },
+            {
+              name: "Members",
+              value: String(memberCount),
+              inline: true,
+            },
+            {
+              name: "Owner",
+              value: ownerId ? `<@${ownerId}>` : "Unknown",
+              inline: true,
+            },
+            {
+              name: "Total Servers",
+              value: String(totalGuilds),
+              inline: true,
+            },
+          )
+          .setTimestamp()
+          .setFooter({ text: "Discore Official · Join Alert" });
+        await alertChannel.send({ embeds: [alertEmbed] }).catch(() => {});
+      }
+    } catch {
+      // non-critical
+    }
 
     // Only send onboarding if it hasn't been sent before
     const record = await prisma.guild.findUnique({
