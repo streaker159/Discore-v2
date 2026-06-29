@@ -579,10 +579,107 @@ module.exports = {
         const caseId = interaction.options.getString("case_id", true);
         const moderationCase = await caseService.getCaseByPublicId(caseId);
 
-        if (!moderationCase) {
+        // Also try to find a transcript by case number or appeal number
+        const transcript = await prisma.moderationCaseTranscript
+          .findFirst({
+            where: {
+              OR: [
+                { caseNumber: { equals: caseId, mode: "insensitive" } },
+                { appealNumber: { equals: caseId, mode: "insensitive" } },
+              ],
+            },
+            orderBy: { createdAt: "desc" },
+          })
+          .catch(() => null);
+
+        // If neither case nor transcript found
+        if (!moderationCase && !transcript) {
           return interaction.editReply({
             content: `⚠️ Case **${caseId}** not found.`,
           });
+        }
+
+        // If we have a transcript but no case (e.g. revoked/deleted case)
+        if (!moderationCase && transcript) {
+          const {
+            formatDuration,
+          } = require("../../../modules/moderation/utils/durationParser");
+          const {
+            EmbedBuilder,
+            ActionRowBuilder,
+            ButtonBuilder,
+            ButtonStyle,
+          } = require("discord.js");
+
+          const embed = new EmbedBuilder()
+            .setTitle(
+              `📋 Case: ${transcript.appealNumber || transcript.caseNumber || caseId}`,
+            )
+            .setColor(0x5865f2)
+            .addFields(
+              {
+                name: "Appeal Number",
+                value: transcript.appealNumber || "N/A",
+                inline: true,
+              },
+              {
+                name: "Case Number",
+                value: transcript.caseNumber || "N/A",
+                inline: true,
+              },
+              {
+                name: "Outcome",
+                value: transcript.outcome || "Unknown",
+                inline: true,
+              },
+              {
+                name: "Ticket Channel",
+                value: transcript.ticketChannelName || "N/A",
+                inline: true,
+              },
+              {
+                name: "User ID",
+                value: transcript.userId || "Unknown",
+                inline: true,
+              },
+              {
+                name: "Handled By",
+                value: transcript.handledById
+                  ? `<@${transcript.handledById}>`
+                  : "Unknown",
+                inline: true,
+              },
+              {
+                name: "Opened",
+                value: transcript.openedAt
+                  ? `<t:${Math.floor(new Date(transcript.openedAt).getTime() / 1000)}:R>`
+                  : "N/A",
+                inline: true,
+              },
+              {
+                name: "Closed",
+                value: transcript.closedAt
+                  ? `<t:${Math.floor(new Date(transcript.closedAt).getTime() / 1000)}:R>`
+                  : "N/A",
+                inline: true,
+              },
+              {
+                name: "Messages",
+                value: String(transcript.messageCount),
+                inline: true,
+              },
+            )
+            .setFooter({ text: "Original case was revoked or deleted" })
+            .setTimestamp();
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`case:transcript:${transcript.id}`)
+              .setLabel("📄 Download Transcript")
+              .setStyle(ButtonStyle.Primary),
+          );
+
+          return interaction.editReply({ embeds: [embed], components: [row] });
         }
 
         if (moderationCase.guildId !== interaction.guildId) {
@@ -592,6 +689,56 @@ module.exports = {
         }
 
         if (isRevokedOrCleared(moderationCase)) {
+          // If revoked but transcript exists, show transcript info
+          if (transcript) {
+            const {
+              EmbedBuilder,
+              ActionRowBuilder,
+              ButtonBuilder,
+              ButtonStyle,
+            } = require("discord.js");
+            const embed = new EmbedBuilder()
+              .setTitle(
+                `📋 Case: ${transcript.appealNumber || transcript.caseNumber || caseId}`,
+              )
+              .setDescription(
+                "The original moderation case was revoked, but a transcript is available.",
+              )
+              .setColor(0x5865f2)
+              .addFields(
+                {
+                  name: "Outcome",
+                  value: transcript.outcome || "Unknown",
+                  inline: true,
+                },
+                {
+                  name: "Messages",
+                  value: String(transcript.messageCount),
+                  inline: true,
+                },
+                {
+                  name: "Closed",
+                  value: transcript.closedAt
+                    ? `<t:${Math.floor(new Date(transcript.closedAt).getTime() / 1000)}:R>`
+                    : "N/A",
+                  inline: true,
+                },
+              )
+              .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`case:transcript:${transcript.id}`)
+                .setLabel("📄 Download Transcript")
+                .setStyle(ButtonStyle.Primary),
+            );
+
+            return interaction.editReply({
+              embeds: [embed],
+              components: [row],
+            });
+          }
+
           return interaction.editReply({
             content: `📋 Case **${caseId}** was cleared and is no longer on the public record.`,
           });
@@ -645,6 +792,27 @@ module.exports = {
               `**${latestAppeal.publicId}** — ${latestAppeal.status}` +
               (latestAppeal.outcome ? `\n${latestAppeal.outcome}` : ""),
           });
+        }
+
+        // Add transcript download button if transcript exists
+        if (transcript) {
+          const {
+            ActionRowBuilder,
+            ButtonBuilder,
+            ButtonStyle,
+          } = require("discord.js");
+          embed.addFields({
+            name: "Transcript",
+            value: `${transcript.messageCount} messages · Download available`,
+            inline: false,
+          });
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`case:transcript:${transcript.id}`)
+              .setLabel("📄 Download Transcript")
+              .setStyle(ButtonStyle.Primary),
+          );
+          return interaction.editReply({ embeds: [embed], components: [row] });
         }
 
         return interaction.editReply({ embeds: [embed] });
