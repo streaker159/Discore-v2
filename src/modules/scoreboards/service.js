@@ -158,23 +158,24 @@ function buildEntryLine(entry, pos, metric, typeBreakdownLines) {
   const medal = MEDALS[pos] ?? `\`${String(pos + 1).padStart(2, "0")}.\``;
   const display = targetDisplay(entry);
   const isChampion = pos === 0;
-  const label = isChampion ? `**Champion: ${display}** 👑` : `**${display}**`;
+  const label = isChampion ? `**${display}** 👑` : `**${display}**`;
 
   let mainLine;
   if (metric === "POINTS") {
-    mainLine = `${medal} ${label}\n   └─ \` 💯 ${entry.points} Points \``;
+    mainLine = `${medal} ${label}\nOverall: ${entry.points} pts`;
   } else {
     const r = ratio(entry.wins, entry.losses);
-    const streakBit =
+    const streakStr =
       entry.winStreak > 1
-        ? `  🔥 \`Streak: ${entry.winStreak}\``
+        ? ` · Streak ${entry.winStreak} 🔥`
         : entry.lossStreak > 1
-          ? `  💀 \`Streak: ${entry.lossStreak}\``
+          ? ` · Streak ${entry.lossStreak} 💀`
           : "";
-    mainLine = `${medal} ${label}\n   └─ \` 🏆 ${entry.wins}W \` \` 💀 ${entry.losses}L \` \` ⚖️ ${r} Ratio \`${streakBit}`;
+    mainLine = `${medal} ${label}\nOverall: ${entry.wins}W / ${entry.losses}L · Ratio ${r}${streakStr}`;
   }
   if (typeBreakdownLines && typeBreakdownLines.length) {
-    return mainLine + "\n" + typeBreakdownLines.join("\n");
+    const header = "**Score Types:**";
+    return mainLine + "\n" + header + "\n" + typeBreakdownLines.join("\n");
   }
   return mainLine;
 }
@@ -252,21 +253,28 @@ async function buildScoreboardPage(board, page = 1, opts = {}) {
           : "Wins"
       : null;
 
-  const footerParts = [
+  const footerLine1 = [
     `Mode: ${modeLabel}`,
     `Track: ${typeLabel}`,
+    sortLabel ? `Sort: ${sortLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const footerLine2 = [
     `${total} ${total === 1 ? "entry" : "entries"}`,
     total > PAGE_SIZE ? `Page ${safeP}/${pages}` : null,
-    sortLabel ? `Sort: ${sortLabel}` : null,
     board.publicId && `ID: ${board.publicId}`,
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const footerText = [footerLine1, footerLine2].filter(Boolean).join("\n");
 
   const embed = new EmbedBuilder()
     .setTitle(`🏆  ${board.liveTitle || board.name}`)
     .setDescription(descParts.join("\n"))
     .setColor(makeBoardColor(board))
     .setFooter({
-      text: footerParts.join("  ·  "),
+      text: footerText,
       iconURL: discoreIconUrl || undefined,
     })
     .setTimestamp(
@@ -1772,23 +1780,35 @@ async function buildInteractiveShowEmbed(
       const display = targetDisplay(entry);
       const label = `**${display}**`;
       if (board.metric === "POINTS") {
-        return `${medal} ${label}\n   └─ \` 💯 ${stat.points} Points \``;
+        return `${medal} ${label}\n${typeName}: ${stat.points} pts`;
       }
       const r = stat.losses
         ? (stat.wins / stat.losses).toFixed(2)
         : stat.wins > 0
           ? stat.wins.toFixed(2)
-          : "0.00";
-      return `${medal} ${label}\n   └─ \` 🏆 ${stat.wins}W \` \` 💀 ${stat.losses}L \` \` ⚖️ ${r} Ratio \``;
+          : "—";
+      const streakStr =
+        entry.winStreak > 1
+          ? ` · Streak ${entry.winStreak} 🔥`
+          : entry.lossStreak > 1
+            ? ` · Streak ${entry.lossStreak} 💀`
+            : "";
+      return `${medal} ${label}\n${typeName}: ${stat.wins}W / ${stat.losses}L · Ratio ${r}${streakStr}`;
     });
 
-    const modeLabel = board.metric === "POINTS" ? "💯 Points" : "⚔️ Win/Loss";
-    const footerParts = [
+    const modeLabel = board.metric === "POINTS" ? "Points" : "Win/Loss";
+    const trackLabel =
+      board.type === "ROLE"
+        ? "Roles"
+        : board.type === "CUSTOM"
+          ? "Custom"
+          : "Users";
+    const footerText = [
       `Filtered by ${typeName}`,
-      `Mode: ${modeLabel}`,
-      `${total} ${total === 1 ? "entry" : "entries"}`,
-      total > PAGE_SIZE ? `Page ${safeP}/${pages}` : null,
-    ].filter(Boolean);
+      `Mode: ${modeLabel} · Track: ${trackLabel}`,
+      `${total} ${total === 1 ? "entry" : "entries"}${total > PAGE_SIZE ? ` · Page ${safeP}/${pages}` : ""}`,
+    ].join("\n");
+    const footerParts = null; // handled below
 
     const embed = new EmbedBuilder()
       .setTitle(`🏆  ${board.liveTitle || board.name} — ${typeName}`)
@@ -1800,7 +1820,7 @@ async function buildInteractiveShowEmbed(
       )
       .setColor(makeBoardColor(board))
       .setFooter({
-        text: footerParts.join("  ·  "),
+        text: footerText,
         iconURL: discoreIconUrl || undefined,
       })
       .setTimestamp(
