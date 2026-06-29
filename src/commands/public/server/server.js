@@ -492,6 +492,12 @@ module.exports = {
             .setName("admin_reports")
             .setDescription("Admin reports/bot status channel")
             .addChannelTypes(ChannelType.GuildText),
+        )
+        .addChannelOption((o) =>
+          o
+            .setName("discore_announcements")
+            .setDescription("Official Discore update announcements channel")
+            .addChannelTypes(ChannelType.GuildText),
         ),
     ),
 
@@ -920,6 +926,10 @@ module.exports = {
         const avaRequests = getChannelId(interaction, "ava_requests");
         const avaChat = getChannelId(interaction, "ava_chat");
         const adminReports = getChannelId(interaction, "admin_reports");
+        const discoreAnnouncements = getChannelId(
+          interaction,
+          "discore_announcements",
+        );
 
         if (adminLog) {
           data.logChannelId = adminLog;
@@ -936,6 +946,8 @@ module.exports = {
         if (avaRequests) data.avaRequestChannelId = avaRequests;
         if (avaChat) data.avaChatChannelId = avaChat;
         if (adminReports) data.adminReportsChannelId = adminReports;
+        if (discoreAnnouncements)
+          data.announcementChannelId = discoreAnnouncements;
 
         if (!Object.keys(data).length) {
           return interaction.editReply({
