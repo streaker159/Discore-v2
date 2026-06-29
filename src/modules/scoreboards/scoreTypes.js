@@ -154,7 +154,7 @@ async function getBoardTypeStats(scoreboardId) {
 
 // ─── Build type breakdown for a single entry ──────────────────────────────────
 
-function buildEntryTypeBreakdown(entryTypeStats, maxLines = 10) {
+function buildEntryTypeBreakdown(entryTypeStats, maxLines = 5) {
   const lines = [];
   for (const stat of entryTypeStats) {
     const name = stat.scoreType?.name || "Unknown";
@@ -164,9 +164,11 @@ function buildEntryTypeBreakdown(entryTypeStats, maxLines = 10) {
         : stat.wins > 0
           ? stat.wins.toFixed(2)
           : "—";
-      lines.push(`• ${name}: ${stat.wins}W / ${stat.losses}L · Ratio ${r}`);
+      lines.push(
+        `• ${name}: \` 🏆 ${stat.wins}W \` \` 💀 ${stat.losses}L \` \` ⚖️ ${r} Ratio \``,
+      );
     } else if (stat.points) {
-      lines.push(`• ${name}: ${stat.points} pts`);
+      lines.push(`• ${name}: \` 💯 ${stat.points} pts \``);
     }
   }
   if (maxLines && lines.length > maxLines) {

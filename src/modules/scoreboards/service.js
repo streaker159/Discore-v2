@@ -162,16 +162,16 @@ function buildEntryLine(entry, pos, metric, typeBreakdownLines) {
 
   let mainLine;
   if (metric === "POINTS") {
-    mainLine = `${medal} ${label}\nOverall: ${entry.points} pts`;
+    mainLine = `${medal} ${label}\nOverall: \` 💯 ${entry.points} pts \``;
   } else {
     const r = ratio(entry.wins, entry.losses);
-    const streakStr =
+    const streakChip =
       entry.winStreak > 1
-        ? ` · Streak ${entry.winStreak} 🔥`
+        ? ` \` 🔥 Streak: ${entry.winStreak} \``
         : entry.lossStreak > 1
-          ? ` · Streak ${entry.lossStreak} 💀`
+          ? ` \` 💀 Streak: ${entry.lossStreak} \``
           : "";
-    mainLine = `${medal} ${label}\nOverall: ${entry.wins}W / ${entry.losses}L · Ratio ${r}${streakStr}`;
+    mainLine = `${medal} ${label}\nOverall: \` 🏆 ${entry.wins}W \` \` 💀 ${entry.losses}L \` \` ⚖️ ${r} Ratio \`${streakChip}`;
   }
   if (typeBreakdownLines && typeBreakdownLines.length) {
     const header = "**Score Types:**";
@@ -1778,22 +1778,23 @@ async function buildInteractiveShowEmbed(
       const pos = (safeP - 1) * PAGE_SIZE + i;
       const medal = MEDALS[pos] ?? `\`${String(pos + 1).padStart(2, "0")}.\``;
       const display = targetDisplay(entry);
-      const label = `**${display}**`;
+      const isChampion = pos === 0;
+      const label = isChampion ? `**${display}** 👑` : `**${display}**`;
       if (board.metric === "POINTS") {
-        return `${medal} ${label}\n${typeName}: ${stat.points} pts`;
+        return `${medal} ${label}\n${typeName}: \` 💯 ${stat.points} pts \``;
       }
       const r = stat.losses
         ? (stat.wins / stat.losses).toFixed(2)
         : stat.wins > 0
           ? stat.wins.toFixed(2)
           : "—";
-      const streakStr =
+      const streakChip =
         entry.winStreak > 1
-          ? ` · Streak ${entry.winStreak} 🔥`
+          ? ` \` 🔥 Streak: ${entry.winStreak} \``
           : entry.lossStreak > 1
-            ? ` · Streak ${entry.lossStreak} 💀`
+            ? ` \` 💀 Streak: ${entry.lossStreak} \``
             : "";
-      return `${medal} ${label}\n${typeName}: ${stat.wins}W / ${stat.losses}L · Ratio ${r}${streakStr}`;
+      return `${medal} ${label}\n${typeName}: \` 🏆 ${stat.wins}W \` \` 💀 ${stat.losses}L \` \` ⚖️ ${r} Ratio \`${streakChip}`;
     });
 
     const modeLabel = board.metric === "POINTS" ? "Points" : "Win/Loss";
