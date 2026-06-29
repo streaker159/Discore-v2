@@ -860,6 +860,7 @@ async function addResult({
   reason,
   guild = null,
   category = null,
+  scoreType = null,
 }) {
   const board = await getScoreboard(guildId, scoreboardName);
   if (!board) throw new Error(`Scoreboard not found: "${scoreboardName}"`);
@@ -975,6 +976,28 @@ async function addResult({
       where: { id: { in: oldest.map((r) => r.id) } },
     });
 
+  // ── Handle score types (premium feature) ─────────────────────────────
+  if (scoreType) {
+    const { addCategorizedResult } = require("./scoreTypes");
+    try {
+      await addCategorizedResult({
+        guildId,
+        scoreboardId: board.id,
+        scoreboardEntryId: entry.id,
+        targetId,
+        rawScoreType: scoreType,
+        action,
+        delta,
+      });
+    } catch (err) {
+      // Non-fatal — score type tracking failure shouldn't block the score
+      console.error(
+        "[Scoreboard] Failed to add categorized result:",
+        err.message,
+      );
+    }
+  }
+
   const updatedBoard = await getScoreboard(guildId, scoreboardName);
   const sorted = sortEntries(updatedBoard);
   const newLeaderId = sorted[0]?.targetId ?? null;
@@ -1061,6 +1084,9 @@ async function deleteEntry({ guildId, scoreboardName, targetId, adminId }) {
   const existing = board.entries.find((e) => e.targetId === targetId);
   if (!existing)
     throw new Error(`No entry found for that target in "${scoreboardName}".`);
+  await prisma.scoreboardEntryTypeStats.deleteMany({
+    where: { scoreboardEntryId: existing.id },
+  });
   await prisma.scoreboardEntry.delete({ where: { id: existing.id } });
   await prisma.scoreboardAction.create({
     data: {
@@ -1196,6 +1222,12 @@ async function deleteScoreboard({ guildId, name }) {
     prisma.userRoleScore.deleteMany({ where: { scoreboardId: board.id } }),
     prisma.scoreboardEntry.deleteMany({ where: { scoreboardId: board.id } }),
     prisma.scoreboardAction.deleteMany({ where: { scoreboardId: board.id } }),
+    prisma.scoreboardEntryTypeStats.deleteMany({
+      where: { scoreboardId: board.id },
+    }),
+    prisma.scoreboardScoreType.deleteMany({
+      where: { scoreboardId: board.id },
+    }),
     prisma.scoreboardMergeHistory.deleteMany({
       where: {
         OR: [
@@ -1214,6 +1246,8 @@ async function deleteScoreboardById(id) {
     prisma.userRoleScore.deleteMany({ where: { scoreboardId: id } }),
     prisma.scoreboardEntry.deleteMany({ where: { scoreboardId: id } }),
     prisma.scoreboardAction.deleteMany({ where: { scoreboardId: id } }),
+    prisma.scoreboardEntryTypeStats.deleteMany({ where: { scoreboardId: id } }),
+    prisma.scoreboardScoreType.deleteMany({ where: { scoreboardId: id } }),
     prisma.scoreboardMergeHistory.deleteMany({
       where: {
         OR: [{ targetScoreboardId: id }, { sourceScoreboardId: id }],
@@ -1334,15 +1368,81 @@ async function mergeScoreboards({
     entriesMerged++;
   }
 
-  // If this is the first merge and target had non-categorized entries,
-  // retroactively categorize them under source name
-  if (!sourceAlreadyMerged && existingSourceIds.size === 0) {
-    const nonCategorizedEntries = target.entries.filter(
-      (e) => !e.sourceScoreboardId && e.targetId !== guildId,
+  // ── Merge score types (premium feature) ────────────────────────────────
+  const { getScoreTypes, findOrCreateScoreType } = require("./scoreTypes");
+  const sourceScoreTypes = await getScoreTypes(source.id);
+  const targetScoreTypes = await getScoreTypes(target.id);
+
+  // Map source type -> target type by normalized name
+  const typeMap = new Map(); // sourceTypeId -> targetTypeId
+  const skippedTypes = [];
+
+  for (const srcType of sourceScoreTypes) {
+    const existing = targetScoreTypes.find(
+      (t) => t.normalizedName === srcType.normalizedName,
     );
-    if (nonCategorizedEntries.length > 0) {
-      // This shouldn't happen on first merge normally, but handle it
+    if (existing) {
+      typeMap.set(srcType.id, existing.id);
+    } else {
+      try {
+        const created = await findOrCreateScoreType(
+          guildId,
+          target.id,
+          srcType.name,
+        );
+        typeMap.set(srcType.id, created.id);
+      } catch (err) {
+        skippedTypes.push({ name: srcType.name, reason: err.message });
+      }
     }
+  }
+
+  // Merge entry type stats
+  const sourceEntryTypeStats = await prisma.scoreboardEntryTypeStats.findMany({
+    where: { scoreboardId: source.id },
+  });
+
+  for (const stat of sourceEntryTypeStats) {
+    const targetTypeId = typeMap.get(stat.scoreTypeId);
+    if (!targetTypeId) continue; // type couldn't be mapped (10-category limit hit)
+
+    // Find the target entry that corresponds to the source entry
+    const sourceEntry = source.entries.find(
+      (e) => e.id === stat.scoreboardEntryId,
+    );
+    if (!sourceEntry) continue;
+
+    const cleanTargetId = sourceEntry.targetId.includes("::")
+      ? sourceEntry.targetId.split("::").pop()
+      : sourceEntry.targetId;
+
+    const targetEntry = await prisma.scoreboardEntry.findFirst({
+      where: { scoreboardId: target.id, targetId: cleanTargetId },
+    });
+    if (!targetEntry) continue;
+
+    await prisma.scoreboardEntryTypeStats.upsert({
+      where: {
+        scoreboardEntryId_scoreTypeId: {
+          scoreboardEntryId: targetEntry.id,
+          scoreTypeId: targetTypeId,
+        },
+      },
+      update: {
+        wins: { increment: stat.wins },
+        losses: { increment: stat.losses },
+        points: { increment: stat.points },
+      },
+      create: {
+        guildId,
+        scoreboardId: target.id,
+        scoreboardEntryId: targetEntry.id,
+        scoreTypeId: targetTypeId,
+        wins: stat.wins,
+        losses: stat.losses,
+        points: stat.points,
+      },
+    });
   }
 
   // Enable category mode on target if needed
@@ -1798,6 +1898,38 @@ module.exports = {
   listActiveScoreboards,
   getArchivedScoreboards,
   getTargetScores,
+
+  hasActivePremium,
+
+  // Score type helpers (premium)
+  getScoreTypes: async (scoreboardId) => {
+    const { getScoreTypes } = require("./scoreTypes");
+    return getScoreTypes(scoreboardId);
+  },
+  findOrCreateScoreType: async (guildId, scoreboardId, name) => {
+    const { findOrCreateScoreType } = require("./scoreTypes");
+    return findOrCreateScoreType(guildId, scoreboardId, name);
+  },
+  addCategorizedResult: async (args) => {
+    const { addCategorizedResult } = require("./scoreTypes");
+    return addCategorizedResult(args);
+  },
+  getEntryTypeStats: async (entryId) => {
+    const { getEntryTypeStats } = require("./scoreTypes");
+    return getEntryTypeStats(entryId);
+  },
+  getBoardTypeStats: async (scoreboardId) => {
+    const { getBoardTypeStats } = require("./scoreTypes");
+    return getBoardTypeStats(scoreboardId);
+  },
+  buildEntryTypeBreakdown: (stats) => {
+    const { buildEntryTypeBreakdown } = require("./scoreTypes");
+    return buildEntryTypeBreakdown(stats);
+  },
+  buildScoreTypeSelectOptions: async (boardId, currentTypeId) => {
+    const { buildScoreTypeSelectOptions } = require("./scoreTypes");
+    return buildScoreTypeSelectOptions(boardId, currentTypeId);
+  },
 
   // Write
   createScoreboard,

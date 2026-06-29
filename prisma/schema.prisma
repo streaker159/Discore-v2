@@ -194,6 +194,44 @@ model Scoreboard {
   mergeHistories ScoreboardMergeHistory[]
 
   @@index([guildId])
+
+  scoreTypes       ScoreboardScoreType[]
+  entryTypeStats   ScoreboardEntryTypeStats[]
+}
+
+model ScoreboardScoreType {
+  id              String    @id @default(cuid())
+  guildId         String
+  scoreboardId    String
+  scoreboard      Scoreboard @relation(fields: [scoreboardId], references: [id])
+  name            String
+  normalizedName  String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  entryStats      ScoreboardEntryTypeStats[]
+
+  @@unique([scoreboardId, normalizedName])
+  @@index([scoreboardId])
+}
+
+model ScoreboardEntryTypeStats {
+  id                String    @id @default(cuid())
+  guildId           String
+  scoreboardId      String
+  scoreboard        Scoreboard @relation(fields: [scoreboardId], references: [id])
+  scoreboardEntryId String
+  scoreTypeId       String
+  scoreType         ScoreboardScoreType @relation(fields: [scoreTypeId], references: [id])
+  wins              Int       @default(0)
+  losses            Int       @default(0)
+  points            Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([scoreboardEntryId, scoreTypeId])
+  @@index([scoreboardEntryId])
+  @@index([scoreTypeId])
 }
 
 model ScoreboardEntry {

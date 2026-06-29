@@ -316,6 +316,14 @@ module.exports = {
           o
             .setName("category")
             .setDescription("Category name (for category boards)"),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("score_type")
+            .setDescription(
+              "Score category/type (e.g. WW3 4x, Apocalypse) — premium feature",
+            )
+            .setAutocomplete(true),
         ),
     )
     .addSubcommand((s) =>
@@ -342,6 +350,14 @@ module.exports = {
           o
             .setName("category")
             .setDescription("Category name (for category boards)"),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("score_type")
+            .setDescription(
+              "Score category/type (e.g. WW3 4x, Apocalypse) — premium feature",
+            )
+            .setAutocomplete(true),
         ),
     )
     .addSubcommand((s) =>
@@ -374,6 +390,14 @@ module.exports = {
           o
             .setName("category")
             .setDescription("Category name (for category boards)"),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("score_type")
+            .setDescription(
+              "Score category/type (e.g. WW3 4x, Apocalypse) — premium feature",
+            )
+            .setAutocomplete(true),
         ),
     )
     .addSubcommand((s) =>
@@ -856,6 +880,7 @@ module.exports = {
         targetLabel = `**${targetInput}**`;
       }
 
+      const scoreType = interaction.options.getString("score_type");
       await interaction.deferReply({ flags: 64 });
 
       try {
@@ -869,6 +894,7 @@ module.exports = {
           adminId: interaction.user.id,
           guild: interaction.guild,
           category,
+          scoreType,
         });
 
         const freshEntry = result.board.entries.find(
@@ -951,6 +977,7 @@ module.exports = {
       await interaction.deferReply({ flags: 64 });
 
       try {
+        const scoreType = interaction.options.getString("score_type");
         const result = await addResult({
           guildId: interaction.guildId,
           scoreboardName: boardName,
@@ -962,6 +989,7 @@ module.exports = {
           adminId: interaction.user.id,
           guild: interaction.guild,
           category,
+          scoreType,
         });
 
         const freshEntry = result.board.entries.find(
