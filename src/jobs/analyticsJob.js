@@ -9,7 +9,7 @@ let isRunning = false;
 
 module.exports = {
   name: "analyticsJob",
-  intervalMs: 3600000, // every hour
+  intervalMs: 3600000,
   async run(client) {
     if (isRunning) {
       logger.info("[AnalyticsJob] Skipped — previous run still in progress");
@@ -22,9 +22,7 @@ module.exports = {
         .fetch(OFFICIAL_CHANNEL)
         .catch(() => null);
       if (!channel || !channel.isTextBased()) {
-        logger.warn(
-          "[AnalyticsJob] Official channel not found or not text-based",
-        );
+        logger.warn("[AnalyticsJob] Official channel not found");
         return;
       }
 
@@ -35,9 +33,16 @@ module.exports = {
 
       const totalGuilds = client.guilds.cache.size;
       let totalMembers = 0;
+      let largestGuild = null;
       for (const [, g] of client.guilds.cache) {
-        totalMembers += g.memberCount ?? 0;
+        const mc = g.memberCount ?? 0;
+        totalMembers += mc;
+        if (!largestGuild || mc > (largestGuild.memberCount ?? 0)) {
+          largestGuild = { name: g.name, memberCount: mc };
+        }
       }
+      const avgMembers =
+        totalGuilds > 0 ? Math.round(totalMembers / totalGuilds) : 0;
       const uptime = Math.floor(process.uptime());
       const uptimeH = Math.floor(uptime / 3600);
       const uptimeM = Math.floor((uptime % 3600) / 60);
@@ -47,16 +52,31 @@ module.exports = {
         cmds24,
         cmds7,
         cmdsAll,
+        failedCmds24,
+        failedCmdsAll,
         ai24,
         ai7,
         aiAll,
+        aiSuccess24,
+        aiFailed24,
         liveBoards,
+        activeBoards,
         totalBoards,
         archivedBoards,
+        totalEntries,
+        totalScoreTypes,
+        boardsByServer,
         premiumActive,
         premiumExpired,
+        totalPremServers,
         joins24,
         leaves24,
+        configChannels,
+        totalGuildsDb,
+        onboardedCount,
+        topCmds24Rows,
+        topSrv24Rows,
+        aiFailedAll,
       ] = await Promise.all([
         prisma.botCommandUsage
           .count({ where: { createdAt: { gte: dayAgo } } })
@@ -65,6 +85,12 @@ module.exports = {
           .count({ where: { createdAt: { gte: weekAgo } } })
           .catch(() => 0),
         prisma.botCommandUsage.count().catch(() => 0),
+        prisma.botCommandUsage
+          .count({ where: { createdAt: { gte: dayAgo }, success: false } })
+          .catch(() => 0),
+        prisma.botCommandUsage
+          .count({ where: { success: false } })
+          .catch(() => 0),
         prisma.botAiUsage
           .count({ where: { createdAt: { gte: dayAgo } } })
           .catch(() => 0),
@@ -72,16 +98,37 @@ module.exports = {
           .count({ where: { createdAt: { gte: weekAgo } } })
           .catch(() => 0),
         prisma.botAiUsage.count().catch(() => 0),
+        prisma.botAiUsage
+          .count({ where: { createdAt: { gte: dayAgo }, success: true } })
+          .catch(() => 0),
+        prisma.botAiUsage
+          .count({ where: { createdAt: { gte: dayAgo }, success: false } })
+          .catch(() => 0),
         prisma.scoreboard
           .count({ where: { isArchived: false } })
           .catch(() => 0),
+        prisma.scoreboard
+          .count({ where: { isArchived: false, entries: { some: {} } } })
+          .catch(() => 0),
         prisma.scoreboard.count().catch(() => 0),
         prisma.scoreboard.count({ where: { isArchived: true } }).catch(() => 0),
+        prisma.scoreboardEntry.count().catch(() => 0),
+        prisma.scoreboardScoreType.count().catch(() => 0),
+        prisma.scoreboard
+          .findMany({
+            where: { isArchived: false },
+            select: { guildId: true },
+            distinct: ["guildId"],
+          })
+          .catch(() => []),
         prisma.guildPremium
           .count({ where: { tier: { not: "FREE" }, expiresAt: { gte: now } } })
           .catch(() => 0),
         prisma.guildPremium
           .count({ where: { tier: { not: "FREE" }, expiresAt: { lt: now } } })
+          .catch(() => 0),
+        prisma.guildPremium
+          .count({ where: { tier: { not: "FREE" } } })
           .catch(() => 0),
         prisma.botGuildInstallEvent
           .count({ where: { eventType: "JOIN", createdAt: { gte: dayAgo } } })
@@ -89,41 +136,112 @@ module.exports = {
         prisma.botGuildInstallEvent
           .count({ where: { eventType: "LEAVE", createdAt: { gte: dayAgo } } })
           .catch(() => 0),
+        prisma.guild
+          .count({ where: { announcementChannelId: { not: null } } })
+          .catch(() => 0),
+        prisma.guild.count().catch(() => 0),
+        prisma.guild
+          .count({ where: { onboardingSentAt: { not: null } } })
+          .catch(() => 0),
+        prisma.botCommandUsage
+          .groupBy({
+            by: ["commandName"],
+            where: { createdAt: { gte: dayAgo } },
+            _count: { commandName: true },
+            orderBy: { _count: { commandName: "desc" } },
+            take: 5,
+          })
+          .catch(() => []),
+        prisma.botCommandUsage
+          .groupBy({
+            by: ["guildId"],
+            where: { createdAt: { gte: dayAgo } },
+            _count: { guildId: true },
+            orderBy: { _count: { guildId: "desc" } },
+            take: 3,
+          })
+          .catch(() => []),
+        prisma.botAiUsage.count({ where: { success: false } }).catch(() => 0),
       ]);
 
+      const topCmdsStr = topCmds24Rows.length
+        ? topCmds24Rows
+            .map(
+              (r, i) => `${i + 1}. /${r.commandName} — ${r._count.commandName}`,
+            )
+            .join("\n")
+        : "No data yet";
+      const topSrvStr = topSrv24Rows.length
+        ? topSrv24Rows
+            .map((r, i) => {
+              const g = client.guilds.cache.get(r.guildId);
+              return `${i + 1}. ${g?.name || r.guildId} — ${r._count.guildId} cmds`;
+            })
+            .join("\n")
+        : "No data yet";
+
+      const alerts = [];
+      if (memMB > 500) alerts.push(`⚠️ High memory: ${memMB} MB`);
+      if (failedCmds24 > 0) alerts.push(`⚠️ ${failedCmds24} failed commands`);
+      if (aiFailed24 > 0) alerts.push(`⚠️ ${aiFailed24} failed AI`);
+      if (totalGuildsDb > 0 && configChannels < totalGuildsDb)
+        alerts.push(
+          `⚠️ ${totalGuildsDb - configChannels} servers missing announcement channel`,
+        );
+      const alertsStr = alerts.length ? alerts.join("\n") : "✅ All clear";
+
       const embed = new EmbedBuilder()
-        .setTitle("📊 Hourly Analytics Report")
+        .setTitle("📊 Hourly Discore Operations Report")
         .setColor(0x5865f2)
         .addFields(
-          { name: "🖥️ Servers", value: String(totalGuilds), inline: true },
-          { name: "👥 Members", value: String(totalMembers), inline: true },
-          { name: "⬆️ Uptime", value: `${uptimeH}h ${uptimeM}m`, inline: true },
-          { name: "💾 Memory", value: `${memMB} MB`, inline: true },
-          { name: "Node", value: process.version, inline: true },
-          { name: "", value: "" },
           {
-            name: "📊 Commands (24h / 7d / All)",
-            value: `${cmds24} / ${cmds7} / ${cmdsAll}`,
+            name: "🟢 Service",
+            value: `Online · ${uptimeH}h ${uptimeM}m · ${memMB} MB · ${client.ws.ping}ms`,
             inline: false,
           },
           {
-            name: "🤖 AI (24h / 7d / All)",
-            value: `${ai24} / ${ai7} / ${aiAll}`,
+            name: "🌍 Network",
+            value: `${totalGuilds} servers · ${totalMembers.toLocaleString()} members · Avg ${avgMembers}/server · ${totalGuildsDb} DB guilds`,
             inline: false,
           },
           {
-            name: "📋 Scoreboards (Live / Total / Archived)",
-            value: `${liveBoards} / ${totalBoards} / ${archivedBoards}`,
+            name: "⚙️ Commands",
+            value: `24h: ${cmds24} · 7d: ${cmds7} · All: ${cmdsAll} · Failed: ${failedCmds24}`,
+            inline: true,
+          },
+          {
+            name: "🤖 AI",
+            value: `24h: ${ai24} · 7d: ${ai7} · All: ${aiAll} · Failed: ${aiFailed24}`,
+            inline: true,
+          },
+          {
+            name: "🏆 Scoreboards",
+            value: `Live: ${liveBoards} · Active: ${activeBoards} · Total: ${totalBoards} · Archived: ${archivedBoards} · Entries: ${totalEntries} · Types: ${totalScoreTypes} · ${boardsByServer.length} servers`,
             inline: false,
           },
           {
-            name: "💎 Premium (Active / Expired)",
-            value: `${premiumActive} / ${premiumExpired}`,
-            inline: false,
+            name: "💎 Premium",
+            value: `Active: ${premiumActive} · Expired: ${premiumExpired} · Total: ${totalPremServers} (${totalGuilds > 0 ? Math.round((totalPremServers / totalGuilds) * 100) : 0}%)`,
+            inline: true,
           },
           {
-            name: "📥 Joins / Leaves (24h)",
-            value: `${joins24} / ${leaves24}`,
+            name: "📥 Growth",
+            value: `New 24h: ${joins24} · Left: ${leaves24} · Onboarded: ${onboardedCount}/${totalGuildsDb}`,
+            inline: true,
+          },
+          {
+            name: "🔥 Top Commands 24h",
+            value: topCmdsStr,
+            inline: true,
+          },
+          {
+            name: "📢 Top Servers 24h",
+            value: topSrvStr,
+            inline: true,
+          },
+          {
+            name: "⚠️ Alerts",
+            value: alertsStr,
             inline: false,
           },
         )
@@ -132,7 +250,6 @@ module.exports = {
 
       await channel.send({ embeds: [embed] });
 
-      // Record report
       await prisma.botHourlyStatusReport.create({
         data: {
           channelId: OFFICIAL_CHANNEL,
@@ -141,7 +258,7 @@ module.exports = {
         },
       });
 
-      logger.info("[AnalyticsJob] Hourly report sent successfully");
+      logger.info("[AnalyticsJob] Report sent successfully");
     } catch (err) {
       logger.error("[AnalyticsJob] Failed", { error: err.message });
     } finally {
