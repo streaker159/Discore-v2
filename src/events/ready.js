@@ -12,7 +12,7 @@ module.exports = {
   once: true,
   async execute(client) {
     logger.info(`Logged in as ${client.user.tag}`);
-    client.user.setActivity("strategy communities", { type: 3 });
+    client.user.setActivity("live scoreboards", { type: 3 });
 
     // Verify SKU configuration
     if (!process.env.DISCORD_PREMIUM_SKU_ID) {
