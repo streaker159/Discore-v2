@@ -47,25 +47,88 @@ module.exports = {
           "scripts",
           "migrate_analytics.sql",
         );
-        if (fs.existsSync(migrationPath)) {
-          const sql = fs.readFileSync(migrationPath, "utf8");
-          // Split by semicolons and execute each statement
-          const statements = sql
-            .split(";")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0 && !s.startsWith("--"));
-          for (const stmt of statements) {
-            try {
-              await prisma.$executeRawUnsafe(`${stmt};`);
-            } catch (e) {
-              // Table/column may already exist — log and continue
-              logger.info("Migration statement skipped (may already exist)", {
-                error: e.message?.slice(0, 80),
-              });
-            }
-          }
-          logger.info("Startup migration check complete");
+        // Run each migration step individually (safe idempotent DDL)
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "Guild" ADD COLUMN IF NOT EXISTS "announcementChannelId" TEXT`,
+          );
+        } catch (e) {
+          logger.info("Migration: announcementChannelId column", {
+            error: e.message?.slice(0, 60),
+          });
         }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "BotCommandUsage" ("id" TEXT NOT NULL, "guildId" TEXT, "userId" TEXT NOT NULL, "commandName" TEXT NOT NULL, "subcommand" TEXT, "success" BOOLEAN NOT NULL DEFAULT true, "durationMs" INTEGER, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT "BotCommandUsage_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: BotCommandUsage table", {
+            error: e.message?.slice(0, 60),
+          });
+        }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotCommandUsage_createdAt_idx" ON "BotCommandUsage" ("createdAt")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotCommandUsage_guildId_idx" ON "BotCommandUsage" ("guildId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotCommandUsage_commandName_idx" ON "BotCommandUsage" ("commandName")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "BotAiUsage" ("id" TEXT NOT NULL, "guildId" TEXT, "userId" TEXT, "success" BOOLEAN NOT NULL DEFAULT true, "creditsUsed" INTEGER NOT NULL DEFAULT 0, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT "BotAiUsage_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: BotAiUsage table", {
+            error: e.message?.slice(0, 60),
+          });
+        }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotAiUsage_createdAt_idx" ON "BotAiUsage" ("createdAt")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotAiUsage_guildId_idx" ON "BotAiUsage" ("guildId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "BotGuildInstallEvent" ("id" TEXT NOT NULL, "guildId" TEXT NOT NULL, "guildName" TEXT NOT NULL, "memberCount" INTEGER NOT NULL DEFAULT 0, "ownerId" TEXT, "eventType" TEXT NOT NULL, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT "BotGuildInstallEvent_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: BotGuildInstallEvent table", {
+            error: e.message?.slice(0, 60),
+          });
+        }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotGuildInstallEvent_guildId_idx" ON "BotGuildInstallEvent" ("guildId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "BotGuildInstallEvent_eventType_createdAt_idx" ON "BotGuildInstallEvent" ("eventType", "createdAt")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "BotHourlyStatusReport" ("id" TEXT NOT NULL, "channelId" TEXT NOT NULL, "reportHour" TEXT NOT NULL, "sentAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "status" TEXT NOT NULL DEFAULT 'success', "payloadJson" TEXT, CONSTRAINT "BotHourlyStatusReport_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: BotHourlyStatusReport table", {
+            error: e.message?.slice(0, 60),
+          });
+        }
+        logger.info("Startup migration check complete");
 
         // 2. Redeploy slash commands
         const { REST, Routes } = require("discord.js");

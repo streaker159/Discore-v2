@@ -10,7 +10,7 @@ let isRunning = false;
 module.exports = {
   name: "analyticsJob",
   intervalMs: 3600000, // every hour
-  async execute(client) {
+  async run(client) {
     if (isRunning) {
       logger.info("[AnalyticsJob] Skipped — previous run still in progress");
       return;
