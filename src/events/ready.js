@@ -155,6 +155,11 @@ module.exports = {
             `ALTER TABLE "Guild" ADD COLUMN IF NOT EXISTS "aiWelcomeChannelId" TEXT`,
           );
         } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiWelcomeInstructions" TEXT`,
+          );
+        } catch (e) {}
 
         logger.info("Startup migration check complete");
 

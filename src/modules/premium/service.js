@@ -29,7 +29,9 @@ async function getPremiumStatus(guildId) {
   let inGrace = false;
 
   if (premium?.expiresAt && premium.expiresAt < now) {
-    const graceEnd = new Date(premium.expiresAt.getTime() + GRACE_HOURS * 60 * 60 * 1000);
+    const graceEnd = new Date(
+      premium.expiresAt.getTime() + GRACE_HOURS * 60 * 60 * 1000,
+    );
     if (now <= graceEnd) {
       // Within 24-hour grace period — keep active but mark as grace
       inGrace = true;
@@ -48,7 +50,9 @@ async function getPremiumStatus(guildId) {
     isActive,
     inGrace,
     expiresAt: premium?.expiresAt,
-    graceEndsAt: inGrace ? new Date(premium.expiresAt.getTime() + GRACE_HOURS * 60 * 60 * 1000) : null,
+    graceEndsAt: inGrace
+      ? new Date(premium.expiresAt.getTime() + GRACE_HOURS * 60 * 60 * 1000)
+      : null,
   };
 }
 
@@ -82,10 +86,16 @@ async function getAiCreditStatus(guildId) {
   if (premium.monthlyAiPeriodEnd && new Date() > premium.monthlyAiPeriodEnd) {
     const now = new Date();
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    await prisma.guildPremium.update({
-      where: { guildId },
-      data: { monthlyAiUsed: 0, monthlyAiPeriodStart: now, monthlyAiPeriodEnd: periodEnd },
-    }).catch(() => {});
+    await prisma.guildPremium
+      .update({
+        where: { guildId },
+        data: {
+          monthlyAiUsed: 0,
+          monthlyAiPeriodStart: now,
+          monthlyAiPeriodEnd: periodEnd,
+        },
+      })
+      .catch(() => {});
     monthlyUsed = 0;
   }
 
@@ -134,7 +144,7 @@ async function canUseAi(guildId, userId, estimatedCost) {
   if (premium.serverDailyAiLimit > 0) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const todayUsage = await prisma.aiUsage.aggregate({
+    const todayUsage = await prisma.botAiUsage.aggregate({
       where: { guildId, createdAt: { gte: todayStart } },
       _sum: { creditsUsed: true },
     });
@@ -152,7 +162,7 @@ async function canUseAi(guildId, userId, estimatedCost) {
   if (premium.perUserDailyAiLimit > 0 && userId) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const userToday = await prisma.aiUsage.aggregate({
+    const userToday = await prisma.botAiUsage.aggregate({
       where: { guildId, userId, createdAt: { gte: todayStart } },
       _sum: { creditsUsed: true },
     });
@@ -169,7 +179,7 @@ async function canUseAi(guildId, userId, estimatedCost) {
 
   // Cooldown check
   if (premium.cooldownSeconds > 0 && userId) {
-    const lastUse = await prisma.aiUsage.findFirst({
+    const lastUse = await prisma.botAiUsage.findFirst({
       where: { guildId, userId },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
@@ -223,13 +233,35 @@ async function consumeAiCredits(guildId, userId, cost, commandName) {
     await prisma.guildPremium.update({ where: { guildId }, data: updates });
   }
 
-  // Log usage (upsert: increment existing or create new monthly record)
-  const monthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+  // Log monthly usage aggregate
+  const monthKey = new Date().toISOString().slice(0, 7);
   await prisma.aiUsage
     .upsert({
       where: { guildId_month: { guildId, month: monthKey } },
-      update: { creditsUsed: { increment: cost }, requestCount: { increment: 1 } },
-      create: { guildId, userId, month: monthKey, creditsUsed: cost, requestCount: 1 },
+      update: {
+        creditsUsed: { increment: cost },
+        requestCount: { increment: 1 },
+      },
+      create: {
+        guildId,
+        userId,
+        month: monthKey,
+        creditsUsed: cost,
+        requestCount: 1,
+      },
+    })
+    .catch(() => {});
+
+  // Log daily usage event for per-day tracking
+  await prisma.botAiUsage
+    .create({
+      data: {
+        guildId,
+        userId: userId || null,
+        success: true,
+        creditsUsed: cost,
+        commandName: commandName || "unknown",
+      },
     })
     .catch(() => {});
 
@@ -265,7 +297,10 @@ async function processSubscriptionEntitlement(guildId, entitlementId) {
   // Same entitlement ID = renewal (Discord auto-charge)
   if (existing?.entitlementId === entitlementId) {
     // Only process if subscription is near/past expiry (not a duplicate event)
-    if (existing.expiresAt && existing.expiresAt > new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)) {
+    if (
+      existing.expiresAt &&
+      existing.expiresAt > new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    ) {
       return; // Still has 7+ days — likely a duplicate event, skip
     }
 
@@ -283,7 +318,11 @@ async function processSubscriptionEntitlement(guildId, entitlementId) {
       },
     });
     premiumCache.delete(`tier:${guildId}`);
-    logger.info("Premium renewed via Discord (monthly auto-charge)", { guildId, entitlementId, renewalCount: (existing.renewalCount || 0) + 1 });
+    logger.info("Premium renewed via Discord (monthly auto-charge)", {
+      guildId,
+      entitlementId,
+      renewalCount: (existing.renewalCount || 0) + 1,
+    });
     return;
   }
 
@@ -321,7 +360,11 @@ async function processSubscriptionEntitlement(guildId, entitlementId) {
     },
   });
   premiumCache.delete(`tier:${guildId}`);
-  logger.info("Premium activated via Discord subscription", { guildId, entitlementId, isRenewal });
+  logger.info("Premium activated via Discord subscription", {
+    guildId,
+    entitlementId,
+    isRenewal,
+  });
 }
 
 async function processAiCreditsEntitlement(guildId, skuId, entitlementId) {
@@ -354,7 +397,15 @@ async function processAiCreditsEntitlement(guildId, skuId, entitlementId) {
 
 async function updateAiSettings(
   guildId,
-  { serverDailyLimit, perUserDailyLimit, cooldownSeconds, aiEnabled, aiTranslationEnabled, aiWelcomeEnabled },
+  {
+    serverDailyLimit,
+    perUserDailyLimit,
+    cooldownSeconds,
+    aiEnabled,
+    aiTranslationEnabled,
+    aiWelcomeEnabled,
+    aiWelcomeInstructions,
+  },
 ) {
   const data = {};
   if (serverDailyLimit !== undefined)
@@ -364,8 +415,21 @@ async function updateAiSettings(
   if (cooldownSeconds !== undefined)
     data.cooldownSeconds = parseInt(cooldownSeconds) || 0;
   if (aiEnabled !== undefined) data.aiEnabled = aiEnabled;
-  if (aiTranslationEnabled !== undefined) data.aiTranslationEnabled = aiTranslationEnabled === true || aiTranslationEnabled === "true";
-  if (aiWelcomeEnabled !== undefined) data.aiWelcomeEnabled = aiWelcomeEnabled === true || aiWelcomeEnabled === "true";
+  if (aiTranslationEnabled !== undefined)
+    data.aiTranslationEnabled =
+      aiTranslationEnabled === true || aiTranslationEnabled === "true";
+  if (aiWelcomeEnabled !== undefined)
+    data.aiWelcomeEnabled =
+      aiWelcomeEnabled === true || aiWelcomeEnabled === "true";
+  if (aiWelcomeInstructions !== undefined) {
+    // Strip @everyone/@here and limit length
+    const cleaned = String(aiWelcomeInstructions || "")
+      .replace(/@everyone/gi, "[blocked]")
+      .replace(/@here/gi, "[blocked]")
+      .trim()
+      .substring(0, 800);
+    data.aiWelcomeInstructions = cleaned || null;
+  }
 
   return prisma.guildPremium.upsert({
     where: { guildId },
@@ -376,7 +440,10 @@ async function updateAiSettings(
 
 async function getAiAdminSettings(guildId) {
   const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
-  const guild = await prisma.guild.findUnique({ where: { id: guildId }, select: { aiWelcomeChannelId: true } });
+  const guild = await prisma.guild.findUnique({
+    where: { id: guildId },
+    select: { aiWelcomeChannelId: true },
+  });
   return {
     serverDailyLimit: premium?.serverDailyAiLimit || 0,
     perUserDailyLimit: premium?.perUserDailyAiLimit || 0,
@@ -385,6 +452,7 @@ async function getAiAdminSettings(guildId) {
     aiTranslationEnabled: premium?.aiTranslationEnabled === true,
     aiWelcomeEnabled: premium?.aiWelcomeEnabled === true,
     aiWelcomeChannelId: guild?.aiWelcomeChannelId || null,
+    aiWelcomeInstructions: premium?.aiWelcomeInstructions || null,
   };
 }
 

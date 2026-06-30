@@ -4,9 +4,9 @@ const { canUseAi, consumeAiCredits } = require("../premium/service");
 const { generateDeepSeekResponse } = require("./providers/deepseekProvider");
 const prisma = require("../../lib/prisma");
 
-// ── Rate limiting for welcome messages ─────────────────────────────────
-const welcomeCounters = new Map(); // key: guildId, value: { count, windowStart }
-const WELCOME_RATE_WINDOW = 10 * 60 * 1000; // 10 minutes
+// ── Rate limiting ─────────────────────────────────────────────────────
+const welcomeCounters = new Map();
+const WELCOME_RATE_WINDOW = 10 * 60 * 1000;
 const MAX_WELCOMES_PER_WINDOW = 5;
 
 function checkWelcomeRateLimit(guildId) {
@@ -16,28 +16,29 @@ function checkWelcomeRateLimit(guildId) {
     entry = { count: 0, windowStart: now };
     welcomeCounters.set(guildId, entry);
   }
-  if (entry.count >= MAX_WELCOMES_PER_WINDOW) {
-    return { allowed: false };
-  }
+  if (entry.count >= MAX_WELCOMES_PER_WINDOW) return { allowed: false };
   entry.count++;
   return { allowed: true };
 }
 
-// ── Welcome system prompt ──────────────────────────────────────────────
+// ── Welcome system prompt ─────────────────────────────────────────────
 const WELCOME_SYSTEM_PROMPT = `You write short Discord welcome messages for a server.
 Mention the new member exactly as USER_MENTION and include the server name exactly as SERVER_NAME.
-Keep it under 240 characters. Make it friendly, varied, sometimes lightly funny, sometimes neutral.
-Sometimes use military/strategy/gaming themed welcomes (but keep it appropriate for a gaming server).
+Keep it under 240 characters. Make it friendly, welcoming, and natural.
+Vary the wording. Sometimes be lightly funny, sometimes simple and warm.
+Do NOT use battle, war, soldier, recruit, command, briefing, or military language
+unless the server instructions specifically ask for that style.
 Do not include offensive jokes, politics, slurs, adult content, or private information requests.
-Do not ping everyone or here. Do not mention random roles.
-Do not invent server rules.
+Do not ping @everyone or @here. Do not mention random roles. Do not invent server rules.
 Return only the welcome message. Nothing else.`;
 
-// ── Fallback templates (no AI credits consumed) ────────────────────────
+// ── Fallback templates ───────────────────────────────────────────────
 const FALLBACK_TEMPLATES = [
-  "Welcome USER_MENTION to SERVER_NAME 👋 Glad to have you here!",
-  "USER_MENTION just joined SERVER_NAME — welcome aboard!",
+  "Welcome USER_MENTION 👋 Glad to have you here in SERVER_NAME!",
   "Hey USER_MENTION, welcome to SERVER_NAME! Make yourself at home.",
+  "USER_MENTION just joined SERVER_NAME — say hi when you're ready 👋",
+  "Welcome aboard USER_MENTION! SERVER_NAME is happy to have you here.",
+  "Nice to see you, USER_MENTION 👋 Welcome to SERVER_NAME!",
 ];
 
 function getFallbackWelcome(userMention, serverName) {
@@ -48,12 +49,7 @@ function getFallbackWelcome(userMention, serverName) {
     .replace("SERVER_NAME", serverName);
 }
 
-// ── Main welcome generation ────────────────────────────────────────────
-
-/**
- * Generate an AI welcome message for a new member.
- * Returns { success, message } or { success: false, skipped: true, reason }.
- */
+// ── Main welcome generation ──────────────────────────────────────────
 async function generateWelcome({ guildId, userId, userMention, serverName }) {
   // Check AI access
   const gate = await canUseAi(guildId, userId, 1);
@@ -65,30 +61,40 @@ async function generateWelcome({ guildId, userId, userMention, serverName }) {
     };
   }
 
-  // Check welcome is enabled
+  // Check welcome is enabled + get instructions
   const premium = await prisma.guildPremium.findUnique({
     where: { guildId },
-    select: { aiWelcomeEnabled: true },
+    select: {
+      aiWelcomeEnabled: true,
+      aiWelcomeInstructions: true,
+    },
   });
   if (!premium || !premium.aiWelcomeEnabled) {
     return { success: false, skipped: true, reason: "welcome_disabled" };
   }
 
   // Rate limit check
-  const rateCheck = checkWelcomeRateLimit(guildId);
-  if (!rateCheck.allowed) {
+  if (!checkWelcomeRateLimit(guildId).allowed) {
     return { success: false, skipped: true, reason: "rate_limited" };
   }
 
-  // Build prompt
-  const userPrompt = `USER_MENTION: ${userMention}\nSERVER_NAME: ${serverName}`;
+  // Build prompt with server instructions
+  const instructions = premium.aiWelcomeInstructions
+    ? `Server welcome instructions: ${premium.aiWelcomeInstructions}\nFollow these instructions for the welcome style.`
+    : "No custom server instructions. Use a friendly, fun, general community welcome.";
+
+  const userPrompt = [
+    `USER_MENTION: ${userMention}`,
+    `SERVER_NAME: ${serverName}`,
+    instructions,
+  ].join("\n");
 
   try {
     const result = await generateDeepSeekResponse({
       systemPrompt: WELCOME_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
       maxTokens: 120,
-      temperature: 0.9, // Higher temperature for variety
+      temperature: 0.9,
     });
 
     const message = result?.text || null;
@@ -96,26 +102,20 @@ async function generateWelcome({ guildId, userId, userMention, serverName }) {
       return { success: false, skipped: true, reason: "ai_empty_response" };
     }
 
-    // Clean up the message
     let cleanMessage = message.trim();
-    // Strip quotes if the AI wrapped it
     if (
       (cleanMessage.startsWith('"') && cleanMessage.endsWith('"')) ||
       (cleanMessage.startsWith("'") && cleanMessage.endsWith("'"))
     ) {
       cleanMessage = cleanMessage.slice(1, -1);
     }
-    // Ensure it's not too long
     if (cleanMessage.length > 400) {
       cleanMessage = cleanMessage.substring(0, 397) + "...";
     }
 
-    // Consume credit on success
     await consumeAiCredits(guildId, userId, 1, "welcome");
-
     return { success: true, message: cleanMessage };
   } catch (err) {
-    // AI failure — no credit consumed since canUseAi only checks, doesn't deduct
     return {
       success: false,
       skipped: true,

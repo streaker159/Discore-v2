@@ -95,10 +95,12 @@ function buildPremiumDashboard(status, aiCredits, aiSettings, guildName) {
   const aiStatusLines = [
     `AI Translation: ${aiSettings.aiTranslationEnabled ? "✅ Enabled" : "❌ Disabled"}`,
     `AI Welcome: ${aiSettings.aiWelcomeEnabled ? "✅ Enabled" : "❌ Disabled"}`,
+    `AI Welcome Channel: ${aiSettings.aiWelcomeChannelId ? `<#${aiSettings.aiWelcomeChannelId}>` : "Not set"}`,
+    `Welcome Instructions: ${aiSettings.aiWelcomeInstructions ? aiSettings.aiWelcomeInstructions.substring(0, 60) + "..." : "Not set"}`,
   ];
   if (aiSettings.aiWelcomeEnabled && !aiSettings.aiWelcomeChannelId) {
     aiStatusLines.push(
-      "⚠️ AI Welcome has no channel set. Use `/server channel` to configure.",
+      "⚠️ AI Welcome is enabled, but no welcome channel is configured.",
     );
   }
   fields.push({

@@ -109,6 +109,7 @@ model GuildPremium {
   aiEnabled             Boolean   @default(true)
   aiTranslationEnabled  Boolean   @default(false)
   aiWelcomeEnabled      Boolean   @default(false)
+  aiWelcomeInstructions String?   @db.Text
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

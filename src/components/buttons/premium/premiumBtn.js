@@ -323,6 +323,18 @@ module.exports = [
             .setRequired(false)
             .setValue(String(settings.aiWelcomeEnabled ?? false)),
         ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("aiWelcomeInstructions")
+            .setLabel("Welcome style/instructions")
+            .setPlaceholder(
+              "e.g. Give a fun welcome, mention rules and say hi in general chat",
+            )
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false)
+            .setMaxLength(800)
+            .setValue(settings.aiWelcomeInstructions || ""),
+        ),
       );
       return interaction.showModal(modal);
     },
@@ -380,6 +392,9 @@ module.exports = [
           ),
           aiWelcomeEnabled:
             interaction.fields.getTextInputValue("aiWelcomeEnabled"),
+          aiWelcomeInstructions: interaction.fields.getTextInputValue(
+            "aiWelcomeInstructions",
+          ),
         });
         return interaction.followUp({
           content: "✅ AI feature toggles updated.",
@@ -406,14 +421,14 @@ module.exports = [
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const [todayUsage, userToday] = await Promise.all([
-        prisma.aiUsage.aggregate({
+        prisma.botAiUsage.aggregate({
           where: {
             guildId: interaction.guildId,
             createdAt: { gte: todayStart },
           },
           _sum: { creditsUsed: true },
         }),
-        prisma.aiUsage.aggregate({
+        prisma.botAiUsage.aggregate({
           where: {
             guildId: interaction.guildId,
             userId: interaction.user.id,
