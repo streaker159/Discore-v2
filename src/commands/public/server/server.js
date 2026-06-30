@@ -127,6 +127,11 @@ function buildChannelFields(guild) {
       value: channelMention(guild.adminReportsChannelId),
       inline: true,
     },
+    {
+      name: "AI Welcome",
+      value: channelMention(guild.aiWelcomeChannelId),
+      inline: true,
+    },
   ];
 }
 
@@ -497,6 +502,12 @@ module.exports = {
           o
             .setName("discore_announcements")
             .setDescription("Official Discore update announcements channel")
+            .addChannelTypes(ChannelType.GuildText),
+        )
+        .addChannelOption((o) =>
+          o
+            .setName("ai_welcome")
+            .setDescription("AI Welcome channel for new member greetings")
             .addChannelTypes(ChannelType.GuildText),
         ),
     ),
@@ -930,6 +941,7 @@ module.exports = {
           interaction,
           "discore_announcements",
         );
+        const aiWelcome = getChannelId(interaction, "ai_welcome");
 
         if (adminLog) {
           data.logChannelId = adminLog;
@@ -948,6 +960,7 @@ module.exports = {
         if (adminReports) data.adminReportsChannelId = adminReports;
         if (discoreAnnouncements)
           data.announcementChannelId = discoreAnnouncements;
+        if (aiWelcome) data.aiWelcomeChannelId = aiWelcome;
 
         if (!Object.keys(data).length) {
           return interaction.editReply({

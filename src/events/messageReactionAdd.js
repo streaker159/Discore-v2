@@ -3,77 +3,115 @@
 const {
   trackReaction,
 } = require("../modules/player/services/userActivityService");
+const { getLanguageForFlag } = require("../modules/ai/flagLanguages");
 const {
   translateMessage,
-  getLangFromFlag,
   canSendCreditError,
 } = require("../modules/ai/translation");
 const { EmbedBuilder } = require("discord.js");
 
-const DEBUG = process.env.DEBUG_SCOREBOARDS === "true"; // reuse existing debug flag
-
+// ── Debug logging ────────────────────────────────────────────────────
+const DEBUG = process.env.DEBUG_SCOREBOARDS === "true";
 function debugLog(...args) {
-  if (DEBUG) console.log("[Translation::Debug]", ...args);
+  if (DEBUG) console.log("[Reaction::Debug]", ...args);
 }
 
 module.exports = {
   name: "messageReactionAdd",
 
   async execute(reaction, user, client) {
-    // Ignore bots
-    if (user.bot) return;
+    const guildId = reaction.message.guild?.id || null;
 
-    // Ignore DMs
-    if (!reaction.message.guild) return;
+    // ── Log: every reaction received ────────────────────────────────
+    debugLog("reaction received", {
+      rawEmojiName: reaction.emoji?.name,
+      emojiId: reaction.emoji?.id || null,
+      guildId,
+      channelId: reaction.message.channelId,
+      messageId: reaction.message.id,
+      userId: user.id,
+      isBot: user.bot,
+    });
 
-    const guildId = reaction.message.guild.id;
+    // ── Early return: bot user ───────────────────────────────────────
+    if (user.bot) {
+      debugLog("early return: bot user", { userId: user.id });
+      return;
+    }
 
-    // Track user activity
+    // ── Early return: not in a guild ─────────────────────────────────
+    if (!guildId) {
+      debugLog("early return: DM (no guild)", { userId: user.id });
+      return;
+    }
+
+    // ── Track user activity (non-critical) ────────────────────────────
     try {
       const emoji = reaction.emoji.name || reaction.emoji.id;
       await trackReaction(guildId, user.id, emoji);
-    } catch (error) {
-      // Silently fail - activity tracking is not critical
+    } catch {
+      // Silently fail — activity tracking is not critical
     }
 
-    // ── AI Translation ───────────────────────────────────────────
+    // ── AI Translation ───────────────────────────────────────────────
     try {
-      const emojiStr = reaction.emoji.name || reaction.emoji.id;
+      const emojiName = reaction.emoji?.name || reaction.emoji?.id || "";
 
-      debugLog("reaction received", {
-        guildId,
-        channelId: reaction.message.channelId,
-        messageId: reaction.message.id,
-        emojiName: emojiStr,
-        userId: user.id,
-        isBot: user.bot,
+      // ── Flag detection via new bulletproof system ──────────────────
+      const flagInfo = getLanguageForFlag(emojiName);
+
+      if (!flagInfo) {
+        debugLog("unsupported flag or non-flag emoji", {
+          rawEmojiName: emojiName,
+          reason: "no_flag_match",
+        });
+        return; // Not a supported flag — no credit consumed
+      }
+
+      debugLog("supported flag detected", {
+        rawEmojiName: emojiName,
+        normalizedCode: flagInfo.code,
+        mappedLanguage: flagInfo.language,
+        displayEmoji: flagInfo.emoji,
       });
 
-      // Check if emoji is a supported flag
-      const lang = getLangFromFlag(emojiStr);
-      if (!lang) return; // Not a supported flag — ignore silently
-
-      debugLog("supported flag detected", { emojiStr, lang });
-
-      // Fetch full message if partial
+      // ── Fetch full message if partial ──────────────────────────────
       if (reaction.partial) {
-        await reaction.fetch().catch(() => null);
+        try {
+          await reaction.fetch();
+        } catch {
+          debugLog("early return: reaction fetch failed");
+          return;
+        }
       }
       if (reaction.message.partial) {
-        await reaction.message.fetch().catch(() => null);
+        try {
+          await reaction.message.fetch();
+        } catch {
+          debugLog("early return: message fetch failed", {
+            messageId: reaction.message.id,
+          });
+          return;
+        }
       }
+
+      // ── Check: message has content ─────────────────────────────────
       if (!reaction.message.content && !reaction.message.embeds?.length) {
-        debugLog("no content to translate");
+        debugLog("early return: no content to translate", {
+          messageId: reaction.message.id,
+        });
         return;
       }
 
-      // Don't translate the bot's own messages (avoid loops)
+      // ── Check: not bot's own message (avoid loops) ─────────────────
       if (reaction.message.author?.id === client.user?.id) {
-        debugLog("own message, skipping");
+        debugLog("early return: own message, skipping", {
+          messageId: reaction.message.id,
+        });
         return;
       }
 
-      // Extract text content
+      // ── Extract text content ───────────────────────────────────────
       let content = reaction.message.content || "";
       if (!content.trim() && reaction.message.embeds?.length) {
         content = reaction.message.embeds
@@ -82,35 +120,103 @@ module.exports = {
           .join("\n");
       }
       if (!content.trim()) {
-        debugLog("no useful text content");
+        debugLog("early return: no useful text content", {
+          messageId: reaction.message.id,
+        });
         return;
       }
 
-      // Check bot can send in this channel
+      debugLog("content extracted", {
+        contentLength: content.length,
+      });
+
+      // ── Permission check: bot must be able to send in channel ──────
       const channel = reaction.message.channel;
       const botPerms = channel.permissionsFor(client.user);
       if (!botPerms?.has("SendMessages")) {
-        debugLog("missing SEND_MESSAGES");
+        debugLog("early return: missing SEND_MESSAGES permission", {
+          channelId: channel.id,
+        });
         return;
       }
       if (!botPerms?.has("EmbedLinks")) {
-        debugLog("missing EMBED_LINKS");
+        debugLog("early return: missing EMBED_LINKS permission", {
+          channelId: channel.id,
+        });
         return;
       }
 
-      // Attempt translation
-      debugLog("attempting translation", { contentLength: content.length });
+      debugLog("permission check passed");
+
+      // ── Check translation enabled ───────────────────────────────────
+      const prisma = require("../lib/prisma");
+      const premium = await prisma.guildPremium.findUnique({
+        where: { guildId },
+        select: { aiTranslationEnabled: true, aiEnabled: true },
+      });
+
+      debugLog("premium check", {
+        aiEnabled: premium?.aiEnabled !== false,
+        aiTranslationEnabled: !!premium?.aiTranslationEnabled,
+      });
+
+      if (!premium || premium.aiEnabled === false) {
+        debugLog("early return: AI disabled for guild");
+        return;
+      }
+
+      if (!premium.aiTranslationEnabled) {
+        debugLog("early return: translation disabled for guild");
+        return;
+      }
+
+      // ── Credit check ────────────────────────────────────────────────
+      const { canUseAi } = require("../modules/premium/service");
+      const gate = await canUseAi(guildId, user.id, 1);
+
+      debugLog("credit gate result", {
+        ok: gate.ok,
+        reason: gate.reason || null,
+      });
+
+      if (!gate.ok) {
+        if (gate.reason === "no_credits" && canSendCreditError(guildId)) {
+          await channel
+            .send({
+              content: `${user}, AI translation is enabled, but this server has no AI credits available.`,
+            })
+            .catch(() => {});
+        } else if (
+          gate.reason === "cooldown" ||
+          gate.reason === "server_daily_limit" ||
+          gate.reason === "user_daily_limit"
+        ) {
+          await channel.send({ content: gate.message }).catch(() => {});
+        }
+        debugLog("early return: credit/limit blocked", {
+          reason: gate.reason,
+        });
+        return; // No credit consumed
+      }
+
+      // ── Attempt translation ─────────────────────────────────────────
+      debugLog("AI translation: starting AI call", {
+        contentLength: content.length,
+        targetLanguage: flagInfo.language,
+      });
+
       const result = await translateMessage({
         guildId,
         userId: user.id,
         messageContent: content,
-        targetEmoji: emojiStr,
+        targetEmoji: emojiName,
       });
 
-      debugLog("translation result", {
+      debugLog("AI translation: result", {
         success: result.success,
-        error: result.error,
-        targetLang: result.targetLang,
+        error: result.error || null,
+        targetLang: result.targetLang || null,
+        translationLength: result.translation?.length || null,
       });
 
       if (!result.success) {
@@ -130,27 +236,39 @@ module.exports = {
             })
             .catch(() => {});
         }
-        // All other errors (disabled, unsupported, etc.) — silent
+        debugLog("AI translation: sent fallback error message", {
+          error: result.error,
+        });
         return;
       }
 
-      // Build embed response
+      // ── Build embed response ─────────────────────────────────────────
       const embed = new EmbedBuilder()
-        .setTitle(`${emojiStr} ${result.targetLang} Translation`)
+        .setTitle(`${flagInfo.emoji} ${flagInfo.language} Translation`)
         .setDescription(result.translation)
         .setColor(0x1a7a9e)
         .setFooter({ text: "Discore Official AI Translation" })
         .setTimestamp();
 
-      // Send reply
+      // ── Send reply ──────────────────────────────────────────────────
       await channel.send({
         content: `${user} here is your translation:`,
         embeds: [embed],
       });
 
-      debugLog("translation sent successfully");
+      debugLog("AI translation: sent successfully", {
+        guildId,
+        channelId: channel.id,
+        messageId: reaction.message.id,
+        userId: user.id,
+        language: flagInfo.language,
+      });
     } catch (err) {
       console.error("[AI Translation] Error:", err.message);
+      debugLog("AI translation: unexpected error", {
+        error: err.message,
+        stack: err.stack,
+      });
     }
   },
 };

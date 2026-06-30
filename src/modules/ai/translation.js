@@ -6,6 +6,7 @@ const {
   refundAiCredits,
 } = require("../premium/service");
 const { generateDeepSeekResponse } = require("./providers/deepseekProvider");
+const { getLanguageForFlag } = require("./flagLanguages");
 const prisma = require("../../lib/prisma");
 
 const DEBUG = process.env.DEBUG_SCOREBOARDS === "true";
@@ -13,107 +14,22 @@ function debugLog(...args) {
   if (DEBUG) console.log("[Translation]", ...args);
 }
 
-// ── Country code to language map ─────────────────────────────────────
-const CODE_LANG = {
-  gb: "English",
-  us: "English",
-  au: "English",
-  ca: "English",
-  fr: "French",
-  de: "German",
-  es: "Spanish",
-  it: "Italian",
-  pt: "Portuguese",
-  br: "Portuguese",
-  nl: "Dutch",
-  pl: "Polish",
-  ua: "Ukrainian",
-  ru: "Russian",
-  tr: "Turkish",
-  sa: "Arabic",
-  jp: "Japanese",
-  kr: "Korean",
-  cn: "Chinese",
-  tw: "Chinese",
-  in: "Hindi",
-  id: "Indonesian",
-  ph: "Filipino/Tagalog",
-  th: "Thai",
-  vn: "Vietnamese",
-};
-
-// ── Unicode flag to country code ─────────────────────────────────────
-const UNICODE_TO_CODE = {
-  "🇬🇧": "gb",
-  "🇺🇸": "us",
-  "🇦🇺": "au",
-  "🇨🇦": "ca",
-  "🇫🇷": "fr",
-  "🇩🇪": "de",
-  "🇪🇸": "es",
-  "🇮🇹": "it",
-  "🇵🇹": "pt",
-  "🇧🇷": "br",
-  "🇳🇱": "nl",
-  "🇵🇱": "pl",
-  "🇺🇦": "ua",
-  "🇷🇺": "ru",
-  "🇹🇷": "tr",
-  "🇸🇦": "sa",
-  "🇯🇵": "jp",
-  "🇰🇷": "kr",
-  "🇨🇳": "cn",
-  "🇹🇼": "tw",
-  "🇮🇳": "in",
-  "🇮🇩": "id",
-  "🇵🇭": "ph",
-  "🇹🇭": "th",
-  "🇻🇳": "vn",
-};
-
 /**
- * Normalize any flag emoji (unicode or Discord :flag_xx:) to a country code.
- * Returns "es", "fr", "de", etc. or null if not a supported flag.
+ * Re-exported for backward compatibility.
+ * @deprecated Use getLanguageForFlag from flagLanguages instead.
  */
-function normalizeFlagEmoji(reactionEmoji) {
-  const rawName = reactionEmoji?.name || reactionEmoji;
-  if (!rawName) return null;
-
-  // Case 1: Direct unicode match (e.g. "🇪🇸")
-  if (UNICODE_TO_CODE[rawName]) {
-    debugLog("flag matched via unicode", {
-      rawName,
-      code: UNICODE_TO_CODE[rawName],
-    });
-    return UNICODE_TO_CODE[rawName];
-  }
-
-  // Case 2: Discord named emoji format (e.g. "flag_es")
-  // Strip colons and convert to lowercase
-  const normalized = String(rawName).replace(/:/g, "").toLowerCase();
-
-  // Case 3: Direct country code (e.g. "es")
-  if (CODE_LANG[normalized]) {
-    debugLog("flag matched via country code", { rawName, normalized });
-    return normalized;
-  }
-
-  // Case 4: Discord flag_xx format — extract country code
-  if (normalized.startsWith("flag_")) {
-    const code = normalized.slice(5);
-    if (CODE_LANG[code]) {
-      debugLog("flag matched via flag_ format", { rawName, code });
-      return code;
-    }
-  }
-
-  debugLog("flag not recognized", { rawName, normalized });
-  return null;
+function getLangFromFlag(emoji) {
+  const info = getLanguageForFlag(emoji);
+  return info ? info.language : null;
 }
 
-function getLangFromFlag(emoji) {
-  const code = normalizeFlagEmoji(emoji);
-  return code ? CODE_LANG[code] || null : null;
+/**
+ * Re-exported for backward compatibility.
+ * @deprecated Use normalizeFlagInput from flagLanguages instead.
+ */
+function normalizeFlagEmoji(reactionEmoji) {
+  const { normalizeFlagInput } = require("./flagLanguages");
+  return normalizeFlagInput(reactionEmoji?.name || reactionEmoji);
 }
 
 // ── Rate limiting for credit error messages ───────────────────────────
@@ -211,5 +127,4 @@ module.exports = {
   getLangFromFlag,
   normalizeFlagEmoji,
   canSendCreditError,
-  CODE_LANG,
 };
