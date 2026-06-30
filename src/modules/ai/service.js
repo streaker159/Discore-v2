@@ -70,6 +70,42 @@ function classifyQuestion(text) {
   return "GENERAL_STRATEGY";
 }
 
+// ─── Self-help question detector ──────────────────────────────────────────
+// Must run BEFORE game routing to avoid asking "which game?" for bot-help Qs
+function isDiscoreSelfHelpQuestion(text) {
+  const lower = text.toLowerCase();
+  return (
+    // Direct questions about Discore itself
+    /what (can|do) you do|what are you|who are you|who made you|what (is|are) discore|tell me about yourself|how aware are you|what are you best at/i.test(
+      lower,
+    ) ||
+    // Feature/command questions
+    /how (do|does) (your |the )?(scoreboard|target|archive|merge|restore|translation|welcome|appeal|event|suggestion|server channel|premium|ai (credit|feature|usage|translat|welcom))/i.test(
+      lower,
+    ) ||
+    /what (is|are) (a |the )?(scoreboard|target|score type|ai credit|premium)/i.test(
+      lower,
+    ) ||
+    /how (do|can) i (use|set|get|start|make|create|add|archive|restore|merge|appeal|suggest)/i.test(
+      lower,
+    ) ||
+    /explain (the |your |how )?(scoreboard|target|translation|welcome|appeal|event|suggestion|premium)/i.test(
+      lower,
+    ) ||
+    // P.I.G / developer
+    /who (is|are) (p\.?i\.?g|the developer|your (creator|maker|dev))/i.test(
+      lower,
+    ) ||
+    /(what|who) is p\.?i\.?g/i.test(lower) ||
+    // General help
+    /commands|features|what can (you|discore) do|help me|how (do|to) use/i.test(
+      lower,
+    ) ||
+    // Scoreboard-specific
+    /\bscoreboard\b|\btarget\b|\bmerge\b|\barchive\b|\brestore\b/i.test(lower)
+  );
+}
+
 const SYSTEM_PROMPT = `You are Discore Official — a smart, cheeky, and genuinely helpful strategy-community Discord bot built by P.I.G. Talk like someone in a gaming lobby or at the pub: casual, funny when it fits, but always useful.
 
 === WHO YOU ARE ===
@@ -181,6 +217,38 @@ async function handleDiscoreMention({
 
   // Extract the actual user message
   const userMsg = content.replace(/^User:.*?\nMessage:\s*/i, "").trim();
+
+  // ── SELF-HELP DETECTION ───────────────────────────────────────
+  // Must run BEFORE game routing to avoid asking "which game?" for bot-help Qs
+  if (isDiscoreSelfHelpQuestion(userMsg)) {
+    await message.channel.sendTyping().catch(() => {});
+    try {
+      const res = await generateDeepSeekResponse({
+        systemPrompt: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `The user is asking about me (Discore Official). Give a helpful, funny, self-aware answer.\n\nUser message: ${userMsg}`,
+          },
+        ],
+        maxTokens: 800,
+        temperature: 0.8,
+      });
+      await message
+        .reply({
+          content:
+            res.text?.slice(0, 1900) ||
+            "I know I am amazing, but my processor fizzled. Ask again?",
+        })
+        .catch(() => {});
+      await consumeAiCredits(guildId, userId, 1, "BOT_MENTION").catch(() => {});
+    } catch (_) {
+      await message
+        .reply({ content: "⚠️ AI unavailable. Try again." })
+        .catch(() => {});
+    }
+    return;
+  }
 
   // Detect game from message
   let detectedGame = null;
@@ -409,6 +477,7 @@ module.exports = {
   handleDiscoreMention,
   answerStrategy,
   classifyQuestion,
+  isDiscoreSelfHelpQuestion,
   STAT_HEAVY_TYPES,
   SYSTEM_PROMPT,
 };
