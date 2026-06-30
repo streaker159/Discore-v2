@@ -98,8 +98,11 @@ module.exports = [
     customIdPrefix: "premium:refresh",
     async execute(interaction) {
       await interaction.deferUpdate().catch(() => {});
-      const status = await getPremiumStatus(interaction.guildId);
-      const aiCredits = await getAiCreditStatus(interaction.guildId);
+      const [status, aiCredits, aiSettings] = await Promise.all([
+        getPremiumStatus(interaction.guildId),
+        getAiCreditStatus(interaction.guildId),
+        getAiAdminSettings(interaction.guildId),
+      ]);
       const premium = status.premium;
       const limits = status.limits;
       const fields = [
@@ -158,6 +161,23 @@ module.exports = [
         if (status.isLifetime)
           fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
       }
+
+      // ── AI Feature Status ──────────────────────────────────────────
+      const aiStatusLines = [
+        `AI Translation: ${aiSettings.aiTranslationEnabled ? "✅ Enabled" : "❌ Disabled"}`,
+        `AI Welcome: ${aiSettings.aiWelcomeEnabled ? "✅ Enabled" : "❌ Disabled"}`,
+      ];
+      if (aiSettings.aiWelcomeEnabled && !aiSettings.aiWelcomeChannelId) {
+        aiStatusLines.push(
+          "⚠️ AI Welcome has no channel set. Use `/server channel` to configure.",
+        );
+      }
+      fields.push({
+        name: "🧠 AI Feature Status",
+        value: aiStatusLines.join("\n"),
+        inline: false,
+      });
+
       const embed = new EmbedBuilder()
         .setTitle("💎 Discore Premium")
         .setColor(0x1a7a9e)

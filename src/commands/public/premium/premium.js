@@ -12,9 +12,10 @@ const {
   getPremiumStatus,
   getPremiumSource,
   getAiCreditStatus,
+  getAiAdminSettings,
 } = require("../../../modules/premium/service");
 
-function buildPremiumDashboard(status, aiCredits, guildName) {
+function buildPremiumDashboard(status, aiCredits, aiSettings, guildName) {
   const premium = status.premium;
   const limits = status.limits;
 
@@ -90,6 +91,22 @@ function buildPremiumDashboard(status, aiCredits, guildName) {
     });
   }
 
+  // ── AI Feature Status ────────────────────────────────────────────
+  const aiStatusLines = [
+    `AI Translation: ${aiSettings.aiTranslationEnabled ? "✅ Enabled" : "❌ Disabled"}`,
+    `AI Welcome: ${aiSettings.aiWelcomeEnabled ? "✅ Enabled" : "❌ Disabled"}`,
+  ];
+  if (aiSettings.aiWelcomeEnabled && !aiSettings.aiWelcomeChannelId) {
+    aiStatusLines.push(
+      "⚠️ AI Welcome has no channel set. Use `/server channel` to configure.",
+    );
+  }
+  fields.push({
+    name: "🧠 AI Feature Status",
+    value: aiStatusLines.join("\n"),
+    inline: false,
+  });
+
   return new EmbedBuilder()
     .setTitle("💎 Discore Premium")
     .setColor(0x1a7a9e)
@@ -152,13 +169,15 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-    const [status, aiCredits] = await Promise.all([
+    const [status, aiCredits, aiSettings] = await Promise.all([
       getPremiumStatus(interaction.guildId),
       getAiCreditStatus(interaction.guildId),
+      getAiAdminSettings(interaction.guildId),
     ]);
     const embed = buildPremiumDashboard(
       status,
       aiCredits,
+      aiSettings,
       interaction.guild.name,
     );
     const buttons = buildDashboardButtons();
