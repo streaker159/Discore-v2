@@ -20,10 +20,10 @@ let _lastMuted = 0;
 
 async function sendDebug(client, title, description, color) {
   if (!DEBUG) return;
-  if (!client?.isReady?.()) return;
 
   try {
-    const channel = client.channels.cache.get(OWNER_DEBUG_CHANNEL);
+    // Do NOT gate on client.isReady() — it may return false momentarily
+    const channel = client?.channels?.cache?.get(OWNER_DEBUG_CHANNEL);
     if (!channel?.isTextBased?.()) return;
 
     const { EmbedBuilder } = require("discord.js");
