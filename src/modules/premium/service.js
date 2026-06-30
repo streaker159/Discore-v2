@@ -354,7 +354,7 @@ async function processAiCreditsEntitlement(guildId, skuId, entitlementId) {
 
 async function updateAiSettings(
   guildId,
-  { serverDailyLimit, perUserDailyLimit, cooldownSeconds, aiEnabled },
+  { serverDailyLimit, perUserDailyLimit, cooldownSeconds, aiEnabled, aiTranslationEnabled, aiWelcomeEnabled },
 ) {
   const data = {};
   if (serverDailyLimit !== undefined)
@@ -364,6 +364,8 @@ async function updateAiSettings(
   if (cooldownSeconds !== undefined)
     data.cooldownSeconds = parseInt(cooldownSeconds) || 0;
   if (aiEnabled !== undefined) data.aiEnabled = aiEnabled;
+  if (aiTranslationEnabled !== undefined) data.aiTranslationEnabled = aiTranslationEnabled === true || aiTranslationEnabled === "true";
+  if (aiWelcomeEnabled !== undefined) data.aiWelcomeEnabled = aiWelcomeEnabled === true || aiWelcomeEnabled === "true";
 
   return prisma.guildPremium.upsert({
     where: { guildId },
@@ -374,11 +376,15 @@ async function updateAiSettings(
 
 async function getAiAdminSettings(guildId) {
   const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
+  const guild = await prisma.guild.findUnique({ where: { id: guildId }, select: { aiWelcomeChannelId: true } });
   return {
     serverDailyLimit: premium?.serverDailyAiLimit || 0,
     perUserDailyLimit: premium?.perUserDailyAiLimit || 0,
     cooldownSeconds: premium?.cooldownSeconds || 0,
     aiEnabled: premium?.aiEnabled !== false,
+    aiTranslationEnabled: premium?.aiTranslationEnabled === true,
+    aiWelcomeEnabled: premium?.aiWelcomeEnabled === true,
+    aiWelcomeChannelId: guild?.aiWelcomeChannelId || null,
   };
 }
 

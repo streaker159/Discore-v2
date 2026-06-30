@@ -1,0 +1,154 @@
+"use strict";
+
+const {
+  canUseAi,
+  consumeAiCredits,
+  refundAiCredits,
+} = require("../premium/service");
+const { generateDeepSeekResponse } = require("./providers/deepseekProvider");
+const prisma = require("../../lib/prisma");
+
+// ── Flag-to-language map ──────────────────────────────────────────────
+const FLAG_LANG = new Map([
+  // English variants
+  ["🇬🇧", "English"],
+  ["🇺🇸", "English"],
+  ["🇦🇺", "English"],
+  ["🇨🇦", "English"],
+  // European
+  ["🇫🇷", "French"],
+  ["🇩🇪", "German"],
+  ["🇪🇸", "Spanish"],
+  ["🇮🇹", "Italian"],
+  ["🇵🇹", "Portuguese"],
+  ["🇧🇷", "Portuguese"],
+  ["🇳🇱", "Dutch"],
+  ["🇵🇱", "Polish"],
+  // Eastern Europe
+  ["🇺🇦", "Ukrainian"],
+  ["🇷🇺", "Russian"],
+  ["🇹🇷", "Turkish"],
+  // Middle East / Asia
+  ["🇸🇦", "Arabic"],
+  ["🇯🇵", "Japanese"],
+  ["🇰🇷", "Korean"],
+  ["🇨🇳", "Chinese"],
+  ["🇹🇼", "Chinese"],
+  ["🇮🇳", "Hindi"],
+  // Southeast Asia
+  ["🇮🇩", "Indonesian"],
+  ["🇵🇭", "Filipino/Tagalog"],
+  ["🇹🇭", "Thai"],
+  ["🇻🇳", "Vietnamese"],
+]);
+
+function getLangFromFlag(emoji) {
+  return FLAG_LANG.get(emoji) || null;
+}
+
+// ── Rate limiting for credit error messages ───────────────────────────
+const creditErrorCooldowns = new Map(); // key: guildId, value: timestamp
+const CREDIT_ERROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+function canSendCreditError(guildId) {
+  const last = creditErrorCooldowns.get(guildId) || 0;
+  if (Date.now() - last < CREDIT_ERROR_COOLDOWN_MS) return false;
+  creditErrorCooldowns.set(guildId, Date.now());
+  return true;
+}
+
+// ── Translation system prompt ─────────────────────────────────────────
+const TRANSLATION_SYSTEM_PROMPT = `You are Discore Official's translation engine. Translate the provided Discord message into TARGET_LANGUAGE exactly.
+Rules:
+- Translate ONLY. Do not add commentary, explanations, or notes.
+- Preserve all mentions (<@...>, <@&...>, <#...>), URLs, channel mentions, role mentions.
+- Preserve usernames, numbers, game terms, emojis.
+- Preserve formatting like bold, italics, code blocks where possible.
+- If the message is already entirely in TARGET_LANGUAGE, respond with: "This message already appears to be in TARGET_LANGUAGE."
+- Return ONLY the translation or the "already in language" note. Nothing else.`;
+
+// ── Main translation function ─────────────────────────────────────────
+
+/**
+ * Translate a Discord message based on a flag reaction.
+ * Returns { success, translation } or { success: false, error }.
+ */
+async function translateMessage({
+  guildId,
+  userId,
+  messageContent,
+  targetFlag,
+}) {
+  const targetLang = getLangFromFlag(targetFlag);
+  if (!targetLang) {
+    return { success: false, error: "unsupported_flag" };
+  }
+
+  // Check AI access
+  const gate = await canUseAi(guildId, userId, 1);
+  if (!gate.ok) {
+    return { success: false, error: gate.reason || "ai_blocked" };
+  }
+
+  // Check translation is enabled
+  const premium = await prisma.guildPremium.findUnique({
+    where: { guildId },
+    select: { aiTranslationEnabled: true },
+  });
+  if (!premium || !premium.aiTranslationEnabled) {
+    return { success: false, error: "translation_disabled" };
+  }
+
+  // Build prompt
+  const userPrompt = targetLang + "\n\n" + messageContent;
+
+  try {
+    const result = await generateDeepSeekResponse({
+      systemPrompt: TRANSLATION_SYSTEM_PROMPT.replace(
+        /TARGET_LANGUAGE/g,
+        targetLang,
+      ),
+      messages: [{ role: "user", content: userPrompt }],
+      maxTokens: 1024,
+      temperature: 0.3,
+    });
+
+    const translation = result?.choices?.[0]?.message?.content || null;
+    if (!translation) {
+      await refundAiCredits(guildId, 1);
+      return { success: false, error: "ai_empty_response" };
+    }
+
+    // Consume credit on success
+    await consumeAiCredits(guildId, userId, 1, "translation");
+
+    // Track in analytics
+    await trackAiTranslation(guildId, userId);
+
+    return { success: true, translation: translation.trim(), targetLang };
+  } catch (err) {
+    // Refund on AI failure
+    await refundAiCredits(guildId, 1).catch(() => {});
+    return { success: false, error: err.message || "ai_failure" };
+  }
+}
+
+// ── Analytics tracking ────────────────────────────────────────────────
+
+async function trackAiTranslation(guildId, userId) {
+  try {
+    const { trackAiUsage } = require("../../lib/aiTracker");
+    if (trackAiUsage) {
+      trackAiUsage({ guildId, userId, creditsUsed: 1, feature: "translation" });
+    }
+  } catch {
+    // non-critical
+  }
+}
+
+module.exports = {
+  translateMessage,
+  getLangFromFlag,
+  canSendCreditError,
+  FLAG_LANG,
+};

@@ -54,6 +54,7 @@ model Guild {
 
   // Discore Official
   announcementChannelId  String?
+  aiWelcomeChannelId     String?
 
   // Maintenance
   maintainRolesAndChannels Boolean  @default(true)
@@ -106,6 +107,8 @@ model GuildPremium {
   perUserDailyAiLimit   Int       @default(0)
   cooldownSeconds       Int       @default(0)
   aiEnabled             Boolean   @default(true)
+  aiTranslationEnabled  Boolean   @default(false)
+  aiWelcomeEnabled      Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

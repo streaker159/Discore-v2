@@ -220,224 +220,72 @@ module.exports = [
     },
   },
 
-  // ── AI admin settings ───────────────────────────────────────────────────
+  // ── AI usage limits modal ────────────────────────────────────────────────
   {
-    customIdPrefix: "premium:ai_admin",
+    customIdPrefix: "premium:ai_usage",
     async execute(interaction) {
-      if (!isAdmin(interaction.member)) {
-        return interaction.reply({
-          content:
-            "🚫 You need Manage Server permission to change AI settings.",
-          flags: 64,
-        });
-      }
-
+      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission to change AI settings.", flags: 64 });
       const settings = await getAiAdminSettings(interaction.guildId);
-
-      const modal = new ModalBuilder()
-        .setCustomId("premium_ai_modal:")
-        .setTitle("AI Admin Settings");
-
-      const serverLimit = new TextInputBuilder()
-        .setCustomId("serverDailyLimit")
-        .setLabel("Server daily AI limit (0 = unlimited)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setValue(String(settings.serverDailyLimit));
-
-      const userLimit = new TextInputBuilder()
-        .setCustomId("perUserDailyLimit")
-        .setLabel("Per-user daily AI limit (0 = unlimited)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setValue(String(settings.perUserDailyLimit));
-
-      const cooldown = new TextInputBuilder()
-        .setCustomId("cooldownSeconds")
-        .setLabel("Cooldown in seconds (0 = none)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setValue(String(settings.cooldownSeconds));
-
-      const aiEnabled = new TextInputBuilder()
-        .setCustomId("aiEnabled")
-        .setLabel("AI enabled? (true/false)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setValue(String(settings.aiEnabled));
-
+      const modal = new ModalBuilder().setCustomId("premium_ai_usage_modal:").setTitle("AI Usage Limits");
       modal.addComponents(
-        new ActionRowBuilder().addComponents(serverLimit),
-        new ActionRowBuilder().addComponents(userLimit),
-        new ActionRowBuilder().addComponents(cooldown),
-        new ActionRowBuilder().addComponents(aiEnabled),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("serverDailyLimit").setLabel("Server daily AI limit (0 = unlimited)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.serverDailyLimit))),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("perUserDailyLimit").setLabel("Per-user daily AI limit (0 = unlimited)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.perUserDailyLimit))),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("cooldownSeconds").setLabel("Cooldown in seconds (0 = none)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.cooldownSeconds))),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("aiEnabled").setLabel("AI enabled? (true/false)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.aiEnabled))),
       );
-
       return interaction.showModal(modal);
     },
   },
 
-  // ── Contact Developer ───────────────────────────────────────────────────
+  // ── AI feature toggles modal ──────────────────────────────────────────────
   {
-    customIdPrefix: "premium:contact_dev",
+    customIdPrefix: "premium:ai_features",
     async execute(interaction) {
-      // Simple anti-spam cooldown (in-memory)
-      if (!contactDevCooldowns) var contactDevCooldowns = new Map(); // eslint-disable-line no-var
-      const key = `${interaction.guildId}_${interaction.user.id}`;
-      const last = contactDevCooldowns.get(key);
-      if (last && Date.now() - last < 10 * 60 * 1000) {
-        return interaction.reply({
-          content:
-            "⏳ You recently sent a developer report. Please wait before sending another.",
-          flags: 64,
-        });
-      }
-
-      const modal = new ModalBuilder()
-        .setCustomId("premium_contact_modal:")
-        .setTitle("Contact Discore Developer");
-
-      const issueType = new TextInputBuilder()
-        .setCustomId("issueType")
-        .setLabel("Issue Type")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(80)
-        .setPlaceholder("Premium, AI Credits, Billing, Setup, Bug, Other");
-
-      const message = new TextInputBuilder()
-        .setCustomId("message")
-        .setLabel("Message")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(1500)
-        .setPlaceholder(
-          "Explain what you need help with. Include what command you used and what went wrong.",
-        );
-
-      const contactInfo = new TextInputBuilder()
-        .setCustomId("contactInfo")
-        .setLabel("Contact Info (optional)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setMaxLength(200)
-        .setPlaceholder(
-          "Optional: Discord username, email, or best way to contact you",
-        );
-
+      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission to change AI settings.", flags: 64 });
+      const settings = await getAiAdminSettings(interaction.guildId);
+      const modal = new ModalBuilder().setCustomId("premium_ai_features_modal:").setTitle("AI Feature Toggles");
       modal.addComponents(
-        new ActionRowBuilder().addComponents(issueType),
-        new ActionRowBuilder().addComponents(message),
-        new ActionRowBuilder().addComponents(contactInfo),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("aiTranslationEnabled").setLabel("AI translation enabled? (true/false)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.aiTranslationEnabled ?? false))),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("aiWelcomeEnabled").setLabel("AI welcome enabled? (true/false)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.aiWelcomeEnabled ?? false))),
       );
-
       return interaction.showModal(modal);
     },
   },
 
-  // ── Contact modal submit ────────────────────────────────────────────────
+  // ── AI usage limits modal submit ──────────────────────────────────────────
   {
-    customIdPrefix: "premium_contact_modal:",
+    customIdPrefix: "premium_ai_usage_modal:",
     async execute(interaction) {
-      const issueType = interaction.fields.getTextInputValue("issueType");
-      const message = interaction.fields.getTextInputValue("message");
-      const contactInfo = interaction.fields.getTextInputValue("contactInfo");
-
-      // Set cooldown
-      if (!contactDevCooldowns) var contactDevCooldowns = new Map();
-      const key = `${interaction.guildId}_${interaction.user.id}`;
-      contactDevCooldowns.set(key, Date.now());
-
-      const reportChannelId = process.env.DEV_REPORT_CHANNEL_ID;
-      if (!reportChannelId) {
-        return interaction.reply({
-          content:
-            "⚠️ I could not send the report right now.\n\nFor immediate live support, join:\nhttps://discord.gg/Zu7wntUKUC",
-          flags: 64,
-        });
-      }
-
+      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission.", flags: 64 });
+      await interaction.deferUpdate().catch(() => {});
       try {
-        const [status, aiCredits] = await Promise.all([
-          require("../../../modules/premium/service").getPremiumStatus(
-            interaction.guildId,
-          ),
-          require("../../../modules/premium/service").getAiCreditStatus(
-            interaction.guildId,
-          ),
-        ]);
-
-        const guildName = interaction.guild.name;
-        const ownerId = interaction.guild.ownerId;
-
-        const reportEmbed = new EmbedBuilder()
-          .setTitle("📩 Developer Contact Report")
-          .setColor(0xe74c3c)
-          .addFields(
-            { name: "Issue Type", value: issueType, inline: true },
-            { name: "Message", value: message, inline: false },
-            {
-              name: "Submitted By",
-              value: `${interaction.user.tag} / ${interaction.user.id}`,
-              inline: false,
-            },
-            {
-              name: "Server",
-              value: `${guildName} / ${interaction.guildId}`,
-              inline: true,
-            },
-            {
-              name: "Server Owner",
-              value: `<@${ownerId}> / ${ownerId}`,
-              inline: true,
-            },
-            {
-              name: "Premium Status",
-              value: status.isActive
-                ? `Premium (${getPremiumSource(status.premium)})`
-                : "Free",
-              inline: true,
-            },
-            {
-              name: "AI Credits",
-              value: `Monthly: ${aiCredits.monthlyRemaining} remaining | Extra: ${aiCredits.extraCredits} | Total: ${aiCredits.totalAvailable}`,
-              inline: true,
-            },
-            {
-              name: "Command Context",
-              value: "Submitted from /premium dashboard",
-              inline: true,
-            },
-          )
-          .setFooter({ text: "Discore Developer Contact" })
-          .setTimestamp();
-
-        if (contactInfo) {
-          reportEmbed.addFields({
-            name: "Contact Info",
-            value: contactInfo,
-            inline: false,
-          });
-        }
-
-        const ch = await interaction.client.channels
-          .fetch(reportChannelId)
-          .catch(() => null);
-        if (ch && ch.isTextBased()) {
-          await ch.send({ embeds: [reportEmbed] }).catch(() => {});
-        }
-
-        return interaction.reply({
-          content:
-            "✅ Report sent to the developer.\n\nFor immediate live support, join:\nhttps://discord.gg/Zu7wntUKUC",
-          flags: 64,
+        await updateAiSettings(interaction.guildId, {
+          serverDailyLimit: interaction.fields.getTextInputValue("serverDailyLimit"),
+          perUserDailyLimit: interaction.fields.getTextInputValue("perUserDailyLimit"),
+          cooldownSeconds: interaction.fields.getTextInputValue("cooldownSeconds"),
+          aiEnabled: interaction.fields.getTextInputValue("aiEnabled"),
         });
-      } catch {
-        return interaction.reply({
-          content:
-            "⚠️ I could not send the report right now.\n\nFor immediate live support, join:\nhttps://discord.gg/Zu7wntUKUC",
-          flags: 64,
+        return interaction.followUp({ content: "✅ AI usage limits updated.", flags: 64 });
+      } catch (err) {
+        return interaction.followUp({ content: "❌ Failed to update settings: " + err.message, flags: 64 });
+      }
+    },
+  },
+
+  // ── AI feature toggles modal submit ───────────────────────────────────────
+  {
+    customIdPrefix: "premium_ai_features_modal:",
+    async execute(interaction) {
+      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission.", flags: 64 });
+      await interaction.deferUpdate().catch(() => {});
+      try {
+        await updateAiSettings(interaction.guildId, {
+          aiTranslationEnabled: interaction.fields.getTextInputValue("aiTranslationEnabled"),
+          aiWelcomeEnabled: interaction.fields.getTextInputValue("aiWelcomeEnabled"),
         });
+        return interaction.followUp({ content: "✅ AI feature toggles updated.", flags: 64 });
+      } catch (err) {
+        return interaction.followUp({ content: "❌ Failed to update settings: " + err.message, flags: 64 });
       }
     },
   },
@@ -511,7 +359,7 @@ module.exports = [
       const settings = await getAiAdminSettings(interaction.guildId);
       embed.addFields({
         name: "Settings",
-        value: `Server daily limit: ${settings.serverDailyLimit || "Unlimited"}\nPer-user daily limit: ${settings.perUserDailyLimit || "Unlimited"}\nCooldown: ${settings.cooldownSeconds || 0}s\nAI Enabled: ${settings.aiEnabled ? "Yes" : "No"}`,
+        value: `Server daily limit: ${settings.serverDailyLimit || "Unlimited"}\nPer-user daily limit: ${settings.perUserDailyLimit || "Unlimited"}\nCooldown: ${settings.cooldownSeconds || 0}s\nAI Enabled: ${settings.aiEnabled ? "Yes" : "No"}\nAI Translation: ${settings.aiTranslationEnabled ? "Enabled" : "Disabled"}\nAI Welcome: ${settings.aiWelcomeEnabled ? "Enabled" : "Disabled"}${settings.aiWelcomeEnabled && !settings.aiWelcomeChannelId ? "\n⚠️ AI Welcome is enabled, but no welcome channel is configured. Set one with /server channel." : ""}`,
         inline: false,
       });
 
