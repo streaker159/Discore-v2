@@ -36,7 +36,6 @@ module.exports = [
           flags: 64,
         });
       }
-
       const embed = new EmbedBuilder()
         .setTitle("💎 Upgrade to Discore Premium")
         .setColor(0x1a7a9e)
@@ -58,7 +57,6 @@ module.exports = [
         )
         .setFooter({ text: "Powered by Discore" })
         .setTimestamp();
-
       return interaction.reply({ embeds: [embed], flags: 64 });
     },
   },
@@ -74,7 +72,6 @@ module.exports = [
           flags: 64,
         });
       }
-
       const embed = new EmbedBuilder()
         .setTitle("🤖 Buy 3,000 AI Credits")
         .setColor(0x1a7a9e)
@@ -92,7 +89,6 @@ module.exports = [
         )
         .setFooter({ text: "Powered by Discore" })
         .setTimestamp();
-
       return interaction.reply({ embeds: [embed], flags: 64 });
     },
   },
@@ -104,8 +100,6 @@ module.exports = [
       await interaction.deferUpdate().catch(() => {});
       const status = await getPremiumStatus(interaction.guildId);
       const aiCredits = await getAiCreditStatus(interaction.guildId);
-
-      // Rebuild the same dashboard structure
       const premium = status.premium;
       const limits = status.limits;
       const fields = [
@@ -136,7 +130,6 @@ module.exports = [
           inline: true,
         },
       ];
-
       if (status.isActive) {
         fields.push(
           {
@@ -165,7 +158,6 @@ module.exports = [
         if (status.isLifetime)
           fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
       }
-
       const embed = new EmbedBuilder()
         .setTitle("💎 Discore Premium")
         .setColor(0x1a7a9e)
@@ -173,7 +165,6 @@ module.exports = [
         .setTimestamp()
         .addFields(fields);
 
-      // Keep buttons visible after refresh
       const {
         ActionRowBuilder,
         ButtonBuilder,
@@ -199,10 +190,17 @@ module.exports = [
         ),
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId("premium:ai_admin")
-            .setLabel("AI Admin Settings")
+            .setCustomId("premium:ai_usage")
+            .setLabel("AI Usage Limits")
             .setEmoji("⚙️")
             .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId("premium:ai_features")
+            .setLabel("AI Feature Toggles")
+            .setEmoji("🧠")
+            .setStyle(ButtonStyle.Primary),
+        ),
+        new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("premium:usage")
             .setLabel("Usage Details")
@@ -224,14 +222,50 @@ module.exports = [
   {
     customIdPrefix: "premium:ai_usage",
     async execute(interaction) {
-      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission to change AI settings.", flags: 64 });
+      if (!isAdmin(interaction.member)) {
+        return interaction.reply({
+          content:
+            "🚫 You need Manage Server permission to change AI settings.",
+          flags: 64,
+        });
+      }
       const settings = await getAiAdminSettings(interaction.guildId);
-      const modal = new ModalBuilder().setCustomId("premium_ai_usage_modal:").setTitle("AI Usage Limits");
+      const modal = new ModalBuilder()
+        .setCustomId("premium_ai_usage_modal:")
+        .setTitle("AI Usage Limits");
       modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("serverDailyLimit").setLabel("Server daily AI limit (0 = unlimited)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.serverDailyLimit))),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("perUserDailyLimit").setLabel("Per-user daily AI limit (0 = unlimited)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.perUserDailyLimit))),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("cooldownSeconds").setLabel("Cooldown in seconds (0 = none)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.cooldownSeconds))),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("aiEnabled").setLabel("AI enabled? (true/false)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.aiEnabled))),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("serverDailyLimit")
+            .setLabel("Server daily AI limit (0 = unlimited)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.serverDailyLimit)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("perUserDailyLimit")
+            .setLabel("Per-user daily AI limit (0 = unlimited)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.perUserDailyLimit)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("cooldownSeconds")
+            .setLabel("Cooldown in seconds (0 = none)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.cooldownSeconds)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("aiEnabled")
+            .setLabel("AI enabled? (true/false)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.aiEnabled)),
+        ),
       );
       return interaction.showModal(modal);
     },
@@ -241,12 +275,34 @@ module.exports = [
   {
     customIdPrefix: "premium:ai_features",
     async execute(interaction) {
-      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission to change AI settings.", flags: 64 });
+      if (!isAdmin(interaction.member)) {
+        return interaction.reply({
+          content:
+            "🚫 You need Manage Server permission to change AI settings.",
+          flags: 64,
+        });
+      }
       const settings = await getAiAdminSettings(interaction.guildId);
-      const modal = new ModalBuilder().setCustomId("premium_ai_features_modal:").setTitle("AI Feature Toggles");
+      const modal = new ModalBuilder()
+        .setCustomId("premium_ai_features_modal:")
+        .setTitle("AI Feature Toggles");
       modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("aiTranslationEnabled").setLabel("AI translation enabled? (true/false)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.aiTranslationEnabled ?? false))),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("aiWelcomeEnabled").setLabel("AI welcome enabled? (true/false)").setStyle(TextInputStyle.Short).setRequired(false).setValue(String(settings.aiWelcomeEnabled ?? false))),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("aiTranslationEnabled")
+            .setLabel("AI translation enabled? (true/false)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.aiTranslationEnabled ?? false)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("aiWelcomeEnabled")
+            .setLabel("AI welcome enabled? (true/false)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.aiWelcomeEnabled ?? false)),
+        ),
       );
       return interaction.showModal(modal);
     },
@@ -256,18 +312,32 @@ module.exports = [
   {
     customIdPrefix: "premium_ai_usage_modal:",
     async execute(interaction) {
-      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission.", flags: 64 });
+      if (!isAdmin(interaction.member)) {
+        return interaction.reply({
+          content: "🚫 You need Manage Server permission.",
+          flags: 64,
+        });
+      }
       await interaction.deferUpdate().catch(() => {});
       try {
         await updateAiSettings(interaction.guildId, {
-          serverDailyLimit: interaction.fields.getTextInputValue("serverDailyLimit"),
-          perUserDailyLimit: interaction.fields.getTextInputValue("perUserDailyLimit"),
-          cooldownSeconds: interaction.fields.getTextInputValue("cooldownSeconds"),
+          serverDailyLimit:
+            interaction.fields.getTextInputValue("serverDailyLimit"),
+          perUserDailyLimit:
+            interaction.fields.getTextInputValue("perUserDailyLimit"),
+          cooldownSeconds:
+            interaction.fields.getTextInputValue("cooldownSeconds"),
           aiEnabled: interaction.fields.getTextInputValue("aiEnabled"),
         });
-        return interaction.followUp({ content: "✅ AI usage limits updated.", flags: 64 });
+        return interaction.followUp({
+          content: "✅ AI usage limits updated.",
+          flags: 64,
+        });
       } catch (err) {
-        return interaction.followUp({ content: "❌ Failed to update settings: " + err.message, flags: 64 });
+        return interaction.followUp({
+          content: "❌ Failed to update settings: " + err.message,
+          flags: 64,
+        });
       }
     },
   },
@@ -276,16 +346,30 @@ module.exports = [
   {
     customIdPrefix: "premium_ai_features_modal:",
     async execute(interaction) {
-      if (!isAdmin(interaction.member)) return interaction.reply({ content: "🚫 You need Manage Server permission.", flags: 64 });
+      if (!isAdmin(interaction.member)) {
+        return interaction.reply({
+          content: "🚫 You need Manage Server permission.",
+          flags: 64,
+        });
+      }
       await interaction.deferUpdate().catch(() => {});
       try {
         await updateAiSettings(interaction.guildId, {
-          aiTranslationEnabled: interaction.fields.getTextInputValue("aiTranslationEnabled"),
-          aiWelcomeEnabled: interaction.fields.getTextInputValue("aiWelcomeEnabled"),
+          aiTranslationEnabled: interaction.fields.getTextInputValue(
+            "aiTranslationEnabled",
+          ),
+          aiWelcomeEnabled:
+            interaction.fields.getTextInputValue("aiWelcomeEnabled"),
         });
-        return interaction.followUp({ content: "✅ AI feature toggles updated.", flags: 64 });
+        return interaction.followUp({
+          content: "✅ AI feature toggles updated.",
+          flags: 64,
+        });
       } catch (err) {
-        return interaction.followUp({ content: "❌ Failed to update settings: " + err.message, flags: 64 });
+        return interaction.followUp({
+          content: "❌ Failed to update settings: " + err.message,
+          flags: 64,
+        });
       }
     },
   },
@@ -299,7 +383,6 @@ module.exports = [
         getPremiumStatus(interaction.guildId),
         getAiCreditStatus(interaction.guildId),
       ]);
-
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const [todayUsage, userToday] = await Promise.all([
@@ -319,7 +402,6 @@ module.exports = [
           _sum: { creditsUsed: true },
         }),
       ]);
-
       const embed = new EmbedBuilder()
         .setTitle("📊 AI Usage Details")
         .setColor(0x1a7a9e)
@@ -355,14 +437,12 @@ module.exports = [
             inline: true,
           },
         );
-
       const settings = await getAiAdminSettings(interaction.guildId);
       embed.addFields({
         name: "Settings",
         value: `Server daily limit: ${settings.serverDailyLimit || "Unlimited"}\nPer-user daily limit: ${settings.perUserDailyLimit || "Unlimited"}\nCooldown: ${settings.cooldownSeconds || 0}s\nAI Enabled: ${settings.aiEnabled ? "Yes" : "No"}\nAI Translation: ${settings.aiTranslationEnabled ? "Enabled" : "Disabled"}\nAI Welcome: ${settings.aiWelcomeEnabled ? "Enabled" : "Disabled"}${settings.aiWelcomeEnabled && !settings.aiWelcomeChannelId ? "\n⚠️ AI Welcome is enabled, but no welcome channel is configured. Set one with /server channel." : ""}`,
         inline: false,
       });
-
       return interaction.editReply({ embeds: [embed] });
     },
   },
