@@ -104,17 +104,54 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
   // Send translation
   const { EmbedBuilder } = require("discord.js");
+
+  // Resolve author display name
+  let authorName = reaction.message.author?.username || "Unknown";
+  try {
+    const member = await reaction.message.guild?.members
+      .fetch(reaction.message.author.id)
+      .catch(() => null);
+    if (member)
+      authorName = member.displayName || member.user?.username || authorName;
+  } catch {}
+
+  // Safe truncation helpers
+  const MAX_FIELD_LEN = 1024;
+  function safeTrim(text, max = MAX_FIELD_LEN) {
+    const t = String(text || "").trim();
+    return t.length > max ? t.substring(0, max - 3) + "..." : t;
+  }
+
+  const origText = safeTrim(content);
+  const transText = safeTrim(result.translation);
+
+  const embed = new EmbedBuilder()
+    .setTitle("🌍 Translation Complete")
+    .setDescription(
+      `👤 **Message from:** ${authorName}\n🎯 **Target language:** ${flagInfo.emoji} ${flagInfo.language}`,
+    )
+    .setColor(0x1a7a9e)
+    .addFields(
+      {
+        name: "💬 Original Message",
+        value: origText || "(empty)",
+        inline: false,
+      },
+      {
+        name: "🌐 Translated Message",
+        value: transText || "(empty)",
+        inline: false,
+      },
+    )
+    .setFooter({
+      text: `Triggered by ${flagInfo.emoji} • AI Translation • Discore Official`,
+    })
+    .setTimestamp();
+
   await channel
     .send({
       content: `${user} here is your translation:`,
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(`${flagInfo.emoji} ${flagInfo.language} Translation`)
-          .setDescription(result.translation)
-          .setColor(0x1a7a9e)
-          .setFooter({ text: "Discore Official AI Translation" })
-          .setTimestamp(),
-      ],
+      embeds: [embed],
     })
     .catch(() => {});
 });

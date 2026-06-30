@@ -72,11 +72,43 @@ module.exports = {
     });
     if (!result.success) return;
 
+    // Resolve author display name
+    let authorName = reaction.message.author?.username || "Unknown";
+    try {
+      const member = await reaction.message.guild?.members
+        .fetch(reaction.message.author.id)
+        .catch(() => null);
+      if (member)
+        authorName = member.displayName || member.user?.username || authorName;
+    } catch {}
+
+    const MAX_FIELD_LEN = 1024;
+    function safeTrim(text, max = MAX_FIELD_LEN) {
+      const t = String(text || "").trim();
+      return t.length > max ? t.substring(0, max - 3) + "..." : t;
+    }
+
     const embed = new EmbedBuilder()
-      .setTitle(`${flagInfo.emoji} ${flagInfo.language} Translation`)
-      .setDescription(result.translation)
+      .setTitle("🌍 Translation Complete")
+      .setDescription(
+        `👤 **Message from:** ${authorName}\n🎯 **Target language:** ${flagInfo.emoji} ${flagInfo.language}`,
+      )
       .setColor(0x1a7a9e)
-      .setFooter({ text: "Discore Official AI Translation" })
+      .addFields(
+        {
+          name: "💬 Original Message",
+          value: safeTrim(content) || "(empty)",
+          inline: false,
+        },
+        {
+          name: "🌐 Translated Message",
+          value: safeTrim(result.translation) || "(empty)",
+          inline: false,
+        },
+      )
+      .setFooter({
+        text: `Triggered by ${flagInfo.emoji} • AI Translation • Discore Official`,
+      })
       .setTimestamp();
 
     await channel
