@@ -91,7 +91,7 @@ async function generateWelcome({ guildId, userId, userMention, serverName }) {
       temperature: 0.9, // Higher temperature for variety
     });
 
-    const message = result?.choices?.[0]?.message?.content || null;
+    const message = result?.text || null;
     if (!message) {
       return { success: false, skipped: true, reason: "ai_empty_response" };
     }

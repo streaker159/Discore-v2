@@ -29,11 +29,7 @@ function buildPremiumDashboard(status, aiCredits, guildName) {
       value: status.isActive ? "Discore Premium" : "None",
       inline: true,
     },
-    {
-      name: "Source",
-      value: getPremiumSource(premium),
-      inline: true,
-    },
+    { name: "Source", value: getPremiumSource(premium), inline: true },
     {
       name: "Live Scoreboards",
       value: `${limits.liveScoreboards} limit`,
@@ -69,7 +65,6 @@ function buildPremiumDashboard(status, aiCredits, guildName) {
         inline: true,
       },
     );
-
     if (aiCredits.monthlyPeriodEnd) {
       fields.push({
         name: "Next Monthly Refill",
@@ -77,11 +72,9 @@ function buildPremiumDashboard(status, aiCredits, guildName) {
         inline: true,
       });
     }
-
     if (status.isLifetime) {
       fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
     }
-
     fields.push({
       name: "Premium Features",
       value:
@@ -97,14 +90,12 @@ function buildPremiumDashboard(status, aiCredits, guildName) {
     });
   }
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setTitle("💎 Discore Premium")
     .setColor(0x1a7a9e)
     .setFooter({ text: guildName || "Discore" })
     .setTimestamp()
     .addFields(fields);
-
-  return embed;
 }
 
 function buildDashboardButtons() {
@@ -128,10 +119,17 @@ function buildDashboardButtons() {
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId("premium:ai_admin")
-        .setLabel("AI Admin Settings")
+        .setCustomId("premium:ai_usage")
+        .setLabel("AI Usage Limits")
         .setEmoji("⚙️")
         .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("premium:ai_features")
+        .setLabel("AI Feature Toggles")
+        .setEmoji("🧠")
+        .setStyle(ButtonStyle.Primary),
+    ),
+    new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("premium:usage")
         .setLabel("Usage Details")
@@ -154,19 +152,16 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-
     const [status, aiCredits] = await Promise.all([
       getPremiumStatus(interaction.guildId),
       getAiCreditStatus(interaction.guildId),
     ]);
-
     const embed = buildPremiumDashboard(
       status,
       aiCredits,
       interaction.guild.name,
     );
     const buttons = buildDashboardButtons();
-
     return interaction.editReply({ embeds: [embed], components: buttons });
   },
 };

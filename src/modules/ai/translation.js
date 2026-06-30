@@ -92,7 +92,7 @@ async function translateMessage({
       maxTokens: 1024,
       temperature: 0.3,
     });
-    const translation = result?.choices?.[0]?.message?.content || null;
+    const translation = result?.text || null;
     if (!translation) {
       await refundAiCredits(guildId, 1);
       return { success: false, error: "ai_empty_response" };
