@@ -13,25 +13,20 @@ const { EmbedBuilder } = require("discord.js");
 // ── Configuration ─────────────────────────────────────────────────────
 const DEBUG = process.env.DEBUG_AI_TRANSLATION === "true";
 const OWNER_DEBUG_CHANNEL = "1367326139109871738";
-const SEND_COOLDOWN_MS = 2000; // 2 seconds between owner debug embeds
-const MUTED_COOLDOWN_MS = 4500; // 4.5 seconds between STOP messages for common cases
+const MUTED_COOLDOWN_MS = 4000; // 4s between unsupported-emoji STOP messages
 
-// ── Rate-limited owner debug embed sender ──────────────────────────────
-let _lastSend = 0;
+// ── Debug embed sender (NO COOLDOWN — we need to see every step) ─────
 let _lastMuted = 0;
 
 async function sendDebug(client, title, description, color) {
   if (!DEBUG) return;
   if (!client?.isReady?.()) return;
 
-  const now = Date.now();
-  if (now - _lastSend < SEND_COOLDOWN_MS) return;
-  _lastSend = now;
-
   try {
     const channel = client.channels.cache.get(OWNER_DEBUG_CHANNEL);
     if (!channel?.isTextBased?.()) return;
 
+    const { EmbedBuilder } = require("discord.js");
     const embed = new EmbedBuilder()
       .setTitle(title)
       .setDescription(String(description).substring(0, 4096))
