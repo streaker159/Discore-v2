@@ -13,97 +13,145 @@ const { EmbedBuilder } = require("discord.js");
 // ── Configuration ─────────────────────────────────────────────────────
 const DEBUG = process.env.DEBUG_AI_TRANSLATION === "true";
 const OWNER_DEBUG_CHANNEL = "1367326139109871738";
-const DEBUG_SEND_COOLDOWN_MS = 5000;
+const SEND_COOLDOWN_MS = 2000; // 2 seconds between owner debug embeds
+const MUTED_COOLDOWN_MS = 4500; // 4.5 seconds between STOP messages for common cases
 
-// ── Owner debug notification (rate-limited) ────────────────────────────
-let _lastDebugSend = 0;
-let _debugClient = null;
+// ── Rate-limited owner debug embed sender ──────────────────────────────
+let _lastSend = 0;
+let _lastMuted = 0;
 
-function ownerDebugLog(text) {
+async function sendDebug(client, title, description, color) {
   if (!DEBUG) return;
-  console.log("[AI_TRANSLATE_DEBUG]", text);
-}
-
-function ownerDebugSend(client, text) {
-  if (!DEBUG) return;
-  if (!client?.isReady()) return;
+  if (!client?.isReady?.()) return;
 
   const now = Date.now();
-  if (now - _lastDebugSend < DEBUG_SEND_COOLDOWN_MS) return;
-  _lastDebugSend = now;
+  if (now - _lastSend < SEND_COOLDOWN_MS) return;
+  _lastSend = now;
 
-  const channel = client.channels.cache.get(OWNER_DEBUG_CHANNEL);
-  if (!channel) return;
+  try {
+    const channel = client.channels.cache.get(OWNER_DEBUG_CHANNEL);
+    if (!channel?.isTextBased?.()) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle("🔍 AI Translate Debug")
-    .setDescription(
-      typeof text === "string" ? text : JSON.stringify(text, null, 2),
-    )
-    .setColor(0x3498db)
-    .setTimestamp();
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setDescription(String(description).substring(0, 4096))
+      .setColor(color || 0x3498db)
+      .setTimestamp();
 
-  channel.send({ embeds: [embed] }).catch(() => {});
+    await channel.send({ embeds: [embed] }).catch(() => {});
+  } catch {}
 }
 
 module.exports = {
   name: "messageReactionAdd",
 
   async execute(reaction, user, client) {
-    // ── UNCONDITIONAL first-line log ──────────────────────────────────
-    // This MUST fire before any return statement so we know the event works.
+    // ── Unconditional first-line log ─────────────────────────────────
     const guildId = reaction.message.guild?.id || null;
+    const channelId = reaction.message.channelId || null;
+    const messageId = reaction.message.id || null;
     const emojiName = reaction.emoji?.name || null;
     const emojiId = reaction.emoji?.id || null;
     const emojiIdentifier = reaction.emoji?.identifier || null;
 
-    ownerDebugLog(
-      `messageReactionAdd FIRED | guild=${guildId || "DM"} channel=${reaction.message.channelId} message=${reaction.message.id} user=${user.id} bot=${user.bot} emojiName=${emojiName} emojiId=${emojiId} emojiIdentifier=${emojiIdentifier} reactionPartial=${!!reaction.partial} messagePartial=${!!reaction.message.partial}`,
+    console.log(
+      `[AI_TRANSLATE_DEBUG] REACTION FIRED | guild=${guildId || "DM"} channel=${channelId} message=${messageId} user=${user.id} bot=${user.bot} emojiName="${emojiName}" emojiId="${emojiId}" identifier="${emojiIdentifier}" reactionPartial=${!!reaction.partial} messagePartial=${!!reaction.message.partial}`,
     );
 
-    // ── Early return: bot user ────────────────────────────────────────
+    // Send: event fired notification (always)
+    await sendDebug(
+      client,
+      "⚡ Reaction Event Fired",
+      [
+        `**Guild:** ${guildId || "DM"}`,
+        `**Channel:** <#${channelId}>`,
+        `**Message:** \`${messageId}\``,
+        `**User:** <@${user.id}> (\`${user.id}\`)`,
+        `**Bot:** ${user.bot ? "Yes" : "No"}`,
+        `**Emoji Name:** \`${emojiName}\``,
+        `**Emoji ID:** \`${emojiId || "none"}\``,
+        `**Identifier:** \`${emojiIdentifier || "none"}\``,
+        `**Reaction Partial:** ${!!reaction.partial}`,
+        `**Message Partial:** ${!!reaction.message.partial}`,
+      ].join("\n"),
+      0x9b59b6,
+    );
+
+    // ── Early return: bot user ───────────────────────────────────────
     if (user.bot) {
-      ownerDebugLog(`STOP: bot user ignored | user=${user.id}`);
+      await sendDebug(
+        client,
+        "🛑 STOP: Bot User",
+        `User <@${user.id}> is a bot. Ignored.`,
+        0xe74c3c,
+      );
       return;
     }
 
-    // ── Early return: not in a guild ──────────────────────────────────
+    // ── Early return: not in a guild ─────────────────────────────────
     if (!guildId) {
-      ownerDebugLog(`STOP: DM (no guild) | user=${user.id}`);
+      await sendDebug(
+        client,
+        "🛑 STOP: DM (No Guild)",
+        `Reaction from <@${user.id}> in DMs. Ignored.`,
+        0xe74c3c,
+      );
       return;
     }
 
-    // ── Track user activity (non-critical) ────────────────────────────
+    // ── Track user activity (non-critical) ───────────────────────────
     try {
       const emoji = reaction.emoji.name || reaction.emoji.id;
       await trackReaction(guildId, user.id, emoji);
-    } catch {
-      // Silently fail
-    }
+    } catch {}
 
-    // ── AI Translation ────────────────────────────────────────────────
+    // ── AI Translation ───────────────────────────────────────────────
     try {
-      // ── Flag detection ──────────────────────────────────────────────
+      // ── Flag detection ─────────────────────────────────────────────
       const flagInfo = getLanguageForFlag(emojiName);
 
       if (!flagInfo) {
-        ownerDebugLog(
-          `STOP: unsupported emoji | raw="${emojiName}" guild=${guildId} channel=${reaction.message.channelId}`,
-        );
-        return; // No credit consumed
+        const now = Date.now();
+        if (now - _lastMuted > MUTED_COOLDOWN_MS) {
+          _lastMuted = now;
+          await sendDebug(
+            client,
+            "🛑 STOP: Unsupported Emoji",
+            [
+              `**Raw emoji:** \`${emojiName}\``,
+              `**Guild:** ${guildId}`,
+              `**Channel:** <#${channelId}>`,
+              `Emoji is not a supported flag or not mapped to a language.`,
+            ].join("\n"),
+            0xe67e22,
+          );
+        }
+        return;
       }
 
-      ownerDebugLog(
-        `FLAG MATCHED | raw="${emojiName}" code=${flagInfo.code} language=${flagInfo.language} emoji=${flagInfo.emoji} guild=${guildId}`,
+      await sendDebug(
+        client,
+        "🏳️ Flag Matched",
+        [
+          `**Raw:** \`${emojiName}\``,
+          `**Code:** ${flagInfo.code}`,
+          `**Language:** ${flagInfo.language}`,
+          `**Emoji:** ${flagInfo.emoji}`,
+          `**Guild:** ${guildId}`,
+        ].join("\n"),
+        0x2ecc71,
       );
 
-      // ── Fetch full message if partial ───────────────────────────────
+      // ── Fetch full message if partial ──────────────────────────────
       if (reaction.partial) {
         try {
           await reaction.fetch();
         } catch {
-          ownerDebugLog(
-            `STOP: reaction fetch failed | guild=${guildId} channel=${reaction.message.channelId}`,
+          await sendDebug(
+            client,
+            "🛑 STOP: Reaction Fetch Failed",
+            `Guild: ${guildId} | Channel: <#${channelId}>`,
+            0xe74c3c,
           );
           return;
         }
@@ -112,30 +160,44 @@ module.exports = {
         try {
           await reaction.message.fetch();
         } catch {
-          ownerDebugLog(
-            `STOP: message fetch failed | guild=${guildId} messageId=${reaction.message.id}`,
+          await sendDebug(
+            client,
+            "🛑 STOP: Message Fetch Failed",
+            `Guild: ${guildId} | Message: \`${messageId}\``,
+            0xe74c3c,
           );
           return;
         }
       }
 
-      // ── Check: message has content ──────────────────────────────────
+      // ── Check: message has content ─────────────────────────────────
       if (!reaction.message.content && !reaction.message.embeds?.length) {
-        ownerDebugLog(
-          `STOP: no content to translate | guild=${guildId} messageId=${reaction.message.id}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: No Content",
+          [
+            `**Guild:** ${guildId}`,
+            `**Message:** \`${messageId}\``,
+            `Message has no text content and no embeds.`,
+            `This may indicate Message Content Intent is missing.`,
+          ].join("\n"),
+          0xe74c3c,
         );
         return;
       }
 
-      // ── Check: not bot's own message (avoid loops) ──────────────────
+      // ── Check: not bot's own message ───────────────────────────────
       if (reaction.message.author?.id === client.user?.id) {
-        ownerDebugLog(
-          `STOP: own message | guild=${guildId} messageId=${reaction.message.id}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: Own Message",
+          `Bot message. Skipping to avoid loop. Guild: ${guildId}`,
+          0xe67e22,
         );
         return;
       }
 
-      // ── Extract text content ────────────────────────────────────────
+      // ── Extract text content ───────────────────────────────────────
       let content = reaction.message.content || "";
       if (!content.trim() && reaction.message.embeds?.length) {
         content = reaction.message.embeds
@@ -144,33 +206,57 @@ module.exports = {
           .join("\n");
       }
       if (!content.trim()) {
-        ownerDebugLog(
-          `STOP: no useful text content | guild=${guildId} messageId=${reaction.message.id}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: No Useful Text",
+          `Guild: ${guildId} | Message: \`${messageId}\` | Content after extraction is empty.`,
+          0xe74c3c,
         );
         return;
       }
 
-      ownerDebugLog(`CONTENT OK | length=${content.length} guild=${guildId}`);
-
-      // ── Permission check ────────────────────────────────────────────
+      // ── Permission check ───────────────────────────────────────────
       const channel = reaction.message.channel;
       const botPerms = channel.permissionsFor(client.user);
+
+      if (!botPerms?.has("ViewChannel")) {
+        await sendDebug(
+          client,
+          "🛑 STOP: Missing ViewChannel",
+          `Guild: ${guildId} | Channel: <#${channel.id}>`,
+          0xe74c3c,
+        );
+        return;
+      }
+      if (!botPerms?.has("ReadMessageHistory")) {
+        await sendDebug(
+          client,
+          "🛑 STOP: Missing ReadMessageHistory",
+          `Guild: ${guildId} | Channel: <#${channel.id}>`,
+          0xe74c3c,
+        );
+        return;
+      }
       if (!botPerms?.has("SendMessages")) {
-        ownerDebugLog(
-          `STOP: missing SEND_MESSAGES | guild=${guildId} channel=${channel.id}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: Missing SendMessages",
+          `Guild: ${guildId} | Channel: <#${channel.id}>`,
+          0xe74c3c,
         );
         return;
       }
       if (!botPerms?.has("EmbedLinks")) {
-        ownerDebugLog(
-          `STOP: missing EMBED_LINKS | guild=${guildId} channel=${channel.id}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: Missing EmbedLinks",
+          `Guild: ${guildId} | Channel: <#${channel.id}>`,
+          0xe74c3c,
         );
         return;
       }
 
-      ownerDebugLog(`PERMS OK | guild=${guildId} channel=${channel.id}`);
-
-      // ── Check AI enabled ────────────────────────────────────────────
+      // ── Check AI enabled ───────────────────────────────────────────
       const prisma = require("../lib/prisma");
       const premium = await prisma.guildPremium.findUnique({
         where: { guildId },
@@ -178,24 +264,40 @@ module.exports = {
       });
 
       if (!premium || premium.aiEnabled === false) {
-        ownerDebugLog(`STOP: AI disabled | guild=${guildId}`);
+        await sendDebug(
+          client,
+          "🛑 STOP: AI Disabled",
+          `Guild: ${guildId} | aiEnabled: ${premium?.aiEnabled}, hasRecord: ${!!premium}`,
+          0xe74c3c,
+        );
         return;
       }
 
       if (!premium.aiTranslationEnabled) {
-        ownerDebugLog(`STOP: translation disabled | guild=${guildId}`);
+        await sendDebug(
+          client,
+          "🛑 STOP: Translation Disabled",
+          `Guild: ${guildId} | aiTranslationEnabled: false`,
+          0xe74c3c,
+        );
         return;
       }
 
-      ownerDebugLog(`AI ENABLED | guild=${guildId} translation=true`);
-
-      // ── Credit check ────────────────────────────────────────────────
+      // ── Credit check ───────────────────────────────────────────────
       const { canUseAi } = require("../modules/premium/service");
       const gate = await canUseAi(guildId, user.id, 1);
 
       if (!gate.ok) {
-        ownerDebugLog(
-          `STOP: credit blocked | reason=${gate.reason} guild=${guildId} user=${user.id}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: Credit Blocked",
+          [
+            `**Guild:** ${guildId}`,
+            `**User:** <@${user.id}>`,
+            `**Reason:** ${gate.reason}`,
+            `**Message:** ${gate.message || "N/A"}`,
+          ].join("\n"),
+          0xe74c3c,
         );
 
         if (gate.reason === "no_credits" && canSendCreditError(guildId)) {
@@ -211,14 +313,20 @@ module.exports = {
         ) {
           await channel.send({ content: gate.message }).catch(() => {});
         }
-        return; // No credit consumed
+        return;
       }
 
-      ownerDebugLog(`CREDITS OK | guild=${guildId}`);
-
-      // ── Attempt translation ─────────────────────────────────────────
-      ownerDebugLog(
-        `AI CALL START | guild=${guildId} lang=${flagInfo.language} contentLen=${content.length}`,
+      // ── Attempt translation ────────────────────────────────────────
+      await sendDebug(
+        client,
+        "🤖 AI Call Started",
+        [
+          `**Guild:** ${guildId}`,
+          `**Language:** ${flagInfo.emoji} ${flagInfo.language}`,
+          `**Content length:** ${content.length}`,
+          `**Content preview:** ${content.substring(0, 100)}...`,
+        ].join("\n"),
+        0x3498db,
       );
 
       const result = await translateMessage({
@@ -229,8 +337,16 @@ module.exports = {
       });
 
       if (!result.success) {
-        ownerDebugLog(
-          `STOP: AI failed | error=${result.error} guild=${guildId}`,
+        await sendDebug(
+          client,
+          "🛑 STOP: AI Failed",
+          [
+            `**Guild:** ${guildId}`,
+            `**Error:** ${result.error}`,
+            `**Language:** ${flagInfo.language}`,
+            `No credit consumed.`,
+          ].join("\n"),
+          0xe74c3c,
         );
 
         if (result.error === "no_credits" && canSendCreditError(guildId)) {
@@ -252,11 +368,7 @@ module.exports = {
         return;
       }
 
-      ownerDebugLog(
-        `AI CALL OK | guild=${guildId} translationLen=${result.translation?.length}`,
-      );
-
-      // ── Build embed response ────────────────────────────────────────
+      // ── Send translation ───────────────────────────────────────────
       const embed = new EmbedBuilder()
         .setTitle(`${flagInfo.emoji} ${flagInfo.language} Translation`)
         .setDescription(result.translation)
@@ -264,32 +376,33 @@ module.exports = {
         .setFooter({ text: "Discore Official AI Translation" })
         .setTimestamp();
 
-      // ── Send reply ──────────────────────────────────────────────────
       await channel.send({
         content: `${user} here is your translation:`,
         embeds: [embed],
       });
 
-      ownerDebugLog(
-        `SENT | guild=${guildId} channel=${channel.id} lang=${flagInfo.language}`,
-      );
-
-      // Also send a mini debug notification to owner channel
-      ownerDebugSend(
+      await sendDebug(
         client,
+        "✅ Translation Sent",
         [
-          `**Translation sent**`,
-          `Guild: ${guildId}`,
-          `Channel: <#${channel.id}>`,
-          `Language: ${flagInfo.emoji} ${flagInfo.language}`,
-          `Content length: ${content.length}`,
-          `Translation length: ${result.translation.length}`,
-          `User: <@${user.id}>`,
+          `**Guild:** ${guildId}`,
+          `**Channel:** <#${channel.id}>`,
+          `**Language:** ${flagInfo.emoji} ${flagInfo.language}`,
+          `**Content length:** ${content.length}`,
+          `**Translation length:** ${result.translation.length}`,
+          `**Credit consumed:** 1`,
+          `**User:** <@${user.id}>`,
         ].join("\n"),
+        0x2ecc71,
       );
     } catch (err) {
       console.error("[AI Translation] Error:", err.message);
-      ownerDebugLog(`EXCEPTION: ${err.message} | guild=${guildId}`);
+      await sendDebug(
+        client,
+        "💥 EXCEPTION",
+        `**Guild:** ${guildId}\n**Error:** ${err.message}\n**Stack:** ${String(err.stack).substring(0, 500)}`,
+        0xe74c3c,
+      );
     }
   },
 };

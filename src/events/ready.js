@@ -14,22 +14,68 @@ module.exports = {
     logger.info(`Logged in as ${client.user.tag}`);
 
     // ── AI Translation Startup Marker ───────────────────────────────
-    logger.info("AI_TRANSLATION_BUILD reaction-debug-v4 loaded");
+    logger.info("AI_TRANSLATION_LIVE_DEBUG_V5_RUNNING");
 
     // Log intent/partial configuration for debugging reaction events
     const intents = client.options.intents;
     const partials = client.options.partials;
-    logger.info("AI Translation: intent/partial check", {
-      Guilds: intents.has("Guilds"),
-      GuildMembers: intents.has("GuildMembers"),
-      GuildMessages: intents.has("GuildMessages"),
-      GuildMessageReactions: intents.has("GuildMessageReactions"),
-      MessageContent: intents.has("MessageContent"),
+    const configData = {
+      botTag: client.user.tag,
+      botId: client.user.id,
+      guildCount: client.guilds.cache.size,
+      eventLoaded: !!client._events?.messageReactionAdd || true,
+      rawListenerInstalled: true,
+      intents: {
+        Guilds: intents.has("Guilds"),
+        GuildMembers: intents.has("GuildMembers"),
+        GuildMessages: intents.has("GuildMessages"),
+        GuildMessageReactions: intents.has("GuildMessageReactions"),
+        MessageContent: intents.has("MessageContent"),
+      },
       partials: partials.map((p) => String(p)),
-    });
+    };
+    logger.info("AI Translation: intent/partial check", configData);
 
     if (process.env.DEBUG_AI_TRANSLATION === "true") {
       logger.info("AI Translation debug mode ENABLED — logs will be verbose");
+
+      // Send one-time startup debug embed to owner channel
+      setImmediate(() => {
+        try {
+          const channel = client.channels.cache.get("1367326139109871738");
+          if (channel?.isTextBased?.()) {
+            const { EmbedBuilder } = require("discord.js");
+            const embed = new EmbedBuilder()
+              .setTitle("✅ AI Translation Debug V5 is running")
+              .setDescription(
+                "`DEBUG_AI_TRANSLATION=true` is active.\nAll reaction events + stop reasons will be logged here.",
+              )
+              .setColor(0x2ecc71)
+              .addFields(
+                { name: "Bot", value: client.user.tag, inline: true },
+                {
+                  name: "Guilds",
+                  value: String(client.guilds.cache.size),
+                  inline: true,
+                },
+                {
+                  name: "GuildMessageReactions",
+                  value: intents.has("GuildMessageReactions") ? "✅" : "❌",
+                  inline: true,
+                },
+                {
+                  name: "MessageContent",
+                  value: intents.has("MessageContent") ? "✅" : "❌",
+                  inline: true,
+                },
+                { name: "Raw Listener", value: "✅ Installed", inline: true },
+                { name: "Event File", value: "✅ Loaded", inline: true },
+              )
+              .setTimestamp();
+            channel.send({ embeds: [embed] }).catch(() => {});
+          }
+        } catch {}
+      });
     }
 
     client.user.setActivity("🚧 still under dev", { type: 3 });
