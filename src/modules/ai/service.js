@@ -314,15 +314,33 @@ async function handleDiscoreMention({
       ];
       if (ctx) msgs.unshift({ role: "user", content: ctx });
       try {
+        const msgsWithContext = contextStr
+          ? [
+              ...msgs,
+              { role: "user", content: `Recent conversation:\n${contextStr}` },
+            ]
+          : msgs;
         const res = await generateDeepSeekResponse({
           systemPrompt: sp,
-          messages: msgs,
+          messages: msgsWithContext,
           maxTokens: 1024,
           temperature: 0.7,
         });
-        await message
-          .reply({ content: res.text?.slice(0, 1900) || "..." })
+        const replyText = res.text?.slice(0, 1900) || "...";
+        const sent = await message
+          .reply({ content: replyText })
           .catch(() => {});
+        if (sent) {
+          addMemoryTurn({
+            guildId,
+            channelId,
+            userId,
+            role: "assistant",
+            content: replyText.substring(0, 200),
+            messageId: sent.id,
+            intent: "game",
+          });
+        }
         await consumeAiCredits(guildId, userId, 1, "BOT_MENTION").catch(
           () => {},
         );
@@ -378,9 +396,15 @@ async function handleDiscoreMention({
   if (extraContext) messages.unshift({ role: "user", content: extraContext });
 
   try {
+    const msgsWithContext = contextStr
+      ? [
+          ...messages,
+          { role: "user", content: `Recent conversation:\n${contextStr}` },
+        ]
+      : messages;
     const res = await generateDeepSeekResponse({
       systemPrompt,
-      messages,
+      messages: msgsWithContext,
       maxTokens: 1024,
       temperature: 0.7,
     });
@@ -388,7 +412,18 @@ async function handleDiscoreMention({
     const replyText =
       res.text?.slice(0, 1900) ||
       "Hmm, my tactical computer fizzled. Try again, commander.";
-    await message.reply({ content: replyText }).catch(() => {});
+    const sent = await message.reply({ content: replyText }).catch(() => {});
+    if (sent) {
+      addMemoryTurn({
+        guildId,
+        channelId,
+        userId,
+        role: "assistant",
+        content: replyText.substring(0, 200),
+        messageId: sent.id,
+        intent: "general",
+      });
+    }
 
     try {
       await consumeAiCredits(guildId, userId, 1, "BOT_MENTION");
