@@ -28,7 +28,7 @@ module.exports = {
 
     const viewMode = board.hasCategories ? "combined" : "flat";
 
-    const { embed, page, totalPages } = buildInteractiveShowEmbed(
+    const { embed, page, totalPages } = await buildInteractiveShowEmbed(
       board,
       viewMode,
       1,

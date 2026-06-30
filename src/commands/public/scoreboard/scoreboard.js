@@ -110,12 +110,57 @@ async function announceLeaderChange(interaction, board, newLeaderId) {
     .catch(() => {});
 }
 
+// ── debug logging (only fires when env.DEBUG_SCOREBOARDS is set) ─────────────
+
+function debugLog(...args) {
+  if (process.env.DEBUG_SCOREBOARDS === "true") {
+    console.log("[Scoreboard::Debug]", ...args);
+  }
+}
+
+// ── consistent lookup helpers ────────────────────────────────────────────────
+
+async function findActiveScoreboardsForGuild(guildId, query) {
+  const boards = await prisma.scoreboard.findMany({
+    where: { guildId, isArchived: false },
+    include: { entries: true },
+    orderBy: { name: "asc" },
+  });
+  if (!query) return boards.slice(0, 25);
+  const lower = query.toLowerCase();
+  return boards
+    .filter((b) => b.name.toLowerCase().includes(lower))
+    .slice(0, 25);
+}
+
+async function findArchivedScoreboardsForGuild(guildId, query) {
+  const boards = await prisma.scoreboard.findMany({
+    where: { guildId, isArchived: true },
+    include: { entries: true },
+    orderBy: { archivedAt: "desc" },
+  });
+  if (!query) return boards.slice(0, 25);
+  const lower = query.toLowerCase();
+  return boards
+    .filter((b) => b.name.toLowerCase().includes(lower))
+    .slice(0, 25);
+}
+
 // ── autocomplete ─────────────────────────────────────────────────────────────
 
 async function autocomplete(interaction) {
-  const focused = interaction.options.getFocused().toLowerCase();
   const sub = interaction.options.getSubcommand(false);
   const focusedOpt = interaction.options.getFocused(true);
+  const focused = (focusedOpt?.value || "").toLowerCase();
+  const guildId = interaction.guildId;
+
+  debugLog("autocomplete called", {
+    guildId,
+    subcommand: sub,
+    focusedOptionName: focusedOpt?.name,
+    typedValue: interaction.options.getFocused(),
+    commandName: interaction.commandName,
+  });
 
   // ── target autocomplete: show roles or users based on selected board type ─
   if (focusedOpt?.name === "target") {
@@ -124,7 +169,6 @@ async function autocomplete(interaction) {
       return interaction.respond([]).catch(() => {});
     }
 
-    // Find the selected board to determine its type
     const board = await prisma.scoreboard.findFirst({
       where: {
         guildId: interaction.guildId,
@@ -137,7 +181,6 @@ async function autocomplete(interaction) {
     let choices = [];
 
     if (board.type === "ROLE") {
-      // Show roles from the guild cache (Collection → array for slice)
       const filtered = guild.roles.cache
         .filter((r) => r.name !== "@everyone" && !r.managed)
         .filter(
@@ -150,7 +193,6 @@ async function autocomplete(interaction) {
         value: r.id,
       }));
     } else if (board.type === "USER") {
-      // Show members from the guild cache
       const filtered = guild.members.cache
         .filter((m) => {
           const name = (m.displayName || m.user?.username || "").toLowerCase();
@@ -166,7 +208,6 @@ async function autocomplete(interaction) {
         value: m.id,
       }));
     }
-    // CUSTOM type gets no autocomplete — user types freely
 
     return interaction.respond(choices).catch(() => {});
   }
@@ -197,42 +238,106 @@ async function autocomplete(interaction) {
     return interaction.respond(choices).catch(() => {});
   }
 
-  // ── scoreboard name autocomplete (existing logic) ────────────────────────
-  const includeArchived = false;
+  // ── scoreboard name autocomplete ────────────────────────────────────────
+  if (focusedOpt?.name === "name") {
+    try {
+      const boards = await findActiveScoreboardsForGuild(
+        guildId,
+        interaction.options.getFocused(),
+      );
 
-  let boards;
-  if (includeArchived) {
-    boards = await prisma.scoreboard.findMany({
-      where: { guildId: interaction.guildId },
-      include: { entries: true },
-      orderBy: { name: "asc" },
-    });
-  } else {
-    boards = await listActiveScoreboards(interaction.guildId).catch(() => []);
+      debugLog("name autocomplete query", {
+        guildId,
+        subcommand: sub,
+        boardsFound: boards.length,
+        queryMode: "active",
+        typedValue: interaction.options.getFocused(),
+      });
+
+      // Filter by metric for addwin/addloss/addpoints
+      const metricFilter =
+        sub === "addwin" || sub === "addloss"
+          ? "WIN_LOSS"
+          : sub === "addpoints"
+            ? "POINTS"
+            : null;
+
+      const choices = boards
+        .filter((b) => !metricFilter || b.metric === metricFilter)
+        .map((b) => {
+          const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
+          const typeLabel =
+            b.type === "ROLE"
+              ? "Roles"
+              : b.type === "CUSTOM"
+                ? "Custom"
+                : "Users";
+          return {
+            name: `${b.liveTitle || b.name}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
+            value: b.name,
+          };
+        });
+
+      debugLog("autocomplete choices", {
+        choicesCount: choices.length,
+        metricFilter: metricFilter || "none",
+      });
+
+      await interaction.respond(choices).catch((err) => {
+        console.error(
+          "[Scoreboard] autocomplete response failed:",
+          err.message,
+        );
+      });
+    } catch (err) {
+      console.error(
+        "[Scoreboard] autocomplete error:",
+        err.stack || err.message,
+      );
+      try {
+        // Fallback: direct query without service layer
+        const boards = await prisma.scoreboard.findMany({
+          where: { guildId, isArchived: false },
+          include: { entries: true },
+          orderBy: { name: "asc" },
+        });
+        const metricFilter =
+          sub === "addwin" || sub === "addloss"
+            ? "WIN_LOSS"
+            : sub === "addpoints"
+              ? "POINTS"
+              : null;
+        const choices = boards
+          .filter((b) => !metricFilter || b.metric === metricFilter)
+          .filter((b) => b.name.toLowerCase().includes(focused))
+          .slice(0, 25)
+          .map((b) => {
+            const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
+            const typeLabel =
+              b.type === "ROLE"
+                ? "Roles"
+                : b.type === "CUSTOM"
+                  ? "Custom"
+                  : "Users";
+            return {
+              name: `${b.liveTitle || b.name}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
+              value: b.name,
+            };
+          });
+        await interaction.respond(choices).catch(() => {});
+      } catch (fallbackErr) {
+        console.error(
+          "[Scoreboard] autocomplete fallback error:",
+          fallbackErr.stack || fallbackErr.message,
+        );
+        await interaction.respond([]).catch(() => {});
+      }
+    }
+    return;
   }
 
-  const metricFilter =
-    sub === "addwin" || sub === "addloss"
-      ? "WIN_LOSS"
-      : sub === "addpoints"
-        ? "POINTS"
-        : null;
-
-  const choices = boards
-    .filter((b) => !metricFilter || b.metric === metricFilter)
-    .filter((b) => b.name.toLowerCase().includes(focused))
-    .slice(0, 25)
-    .map((b) => {
-      const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-      const typeLabel =
-        b.type === "ROLE" ? "Roles" : b.type === "CUSTOM" ? "Custom" : "Users";
-      const archivedLabel = b.isArchived ? " 📦" : "";
-      return {
-        name: `${b.liveTitle || b.name}${archivedLabel}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
-        value: b.name,
-      };
-    });
-  await interaction.respond(choices).catch(() => {});
+  // ── fallback: respond empty for any other focused option ──────────────────
+  await interaction.respond([]).catch(() => {});
 }
 
 module.exports = {
@@ -671,7 +776,6 @@ module.exports = {
       const name = interaction.options.getString("name");
 
       if (!name) {
-        // Show dropdown of active scoreboards
         const boards = await listActiveScoreboards(interaction.guildId);
         if (!boards.length) {
           return interaction.reply({
@@ -715,7 +819,7 @@ module.exports = {
       const board = await getScoreboard(interaction.guildId, name);
       if (!board)
         return interaction.reply({
-          content: "Scoreboard not found.",
+          content: `I could not find an active scoreboard named **${name}** in this server.`,
           ephemeral: true,
         });
 
@@ -895,19 +999,23 @@ module.exports = {
       const boardCheck = await getScoreboard(interaction.guildId, boardName);
       if (!boardCheck)
         return interaction.reply({
-          content: `❌ Scoreboard **${boardName}** not found.`,
+          content: `I could not find an active scoreboard named **${boardName}** in this server.`,
+          flags: 64,
+        });
+      if (boardCheck.isArchived)
+        return interaction.reply({
+          content: `**${boardCheck.liveTitle || boardCheck.name}** is archived. Restore it before adding scores.`,
           flags: 64,
         });
       if (boardCheck.metric !== "WIN_LOSS")
         return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Points board — use \`/scoreboard addpoints\`.`,
+          content: `**${boardCheck.liveTitle || boardCheck.name}** is a Points board — use \`/scoreboard addpoints\`.`,
           flags: 64,
         });
 
       // Auto-resolve target based on scoreboard type
       let targetId, targetType, targetName, targetLabel;
       if (boardCheck.type === "USER") {
-        // Try to parse as user mention/ID
         const match = targetInput.match(/^<@!?(\d+)>$/);
         const userId = match ? match[1] : targetInput.replace(/\D/g, "");
         targetId = userId || targetInput;
@@ -950,14 +1058,24 @@ module.exports = {
         );
         const actionLabel = action === "WIN" ? "win 🏆" : "loss ☠️";
 
-        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+        pushLiveEmbed(interaction.client, result.board).catch(() => {
+          console.error(
+            "[Scoreboard] pushLiveEmbed failed for board:",
+            result.board.id,
+          );
+        });
         if (freshEntry)
           pushEntryLiveEmbed(
             interaction.client,
             interaction.guild,
             result.board,
             freshEntry,
-          ).catch(() => {});
+          ).catch(() => {
+            console.error(
+              "[Scoreboard] pushEntryLiveEmbed failed for entry:",
+              freshEntry.id,
+            );
+          });
         if (result.leaderChange)
           announceLeaderChange(
             interaction,
@@ -977,7 +1095,19 @@ module.exports = {
             .join("\n"),
         });
       } catch (err) {
-        return interaction.editReply({ content: `❌ ${err.message}` });
+        console.error("[Scoreboard] addwin/addloss error:", {
+          guildId: interaction.guildId,
+          subcommand: sub,
+          userId: interaction.user.id,
+          scoreboardName: boardName,
+          boardId: boardCheck.id,
+          error: err.stack || err.message,
+        });
+        return interaction.editReply({
+          content: err.message.startsWith("Failed to save category stats")
+            ? `❌ ${err.message}`
+            : `❌ ${err.message}`,
+        });
       }
     }
 
@@ -991,12 +1121,17 @@ module.exports = {
       const boardCheck = await getScoreboard(interaction.guildId, boardName);
       if (!boardCheck)
         return interaction.reply({
-          content: `❌ Scoreboard **${boardName}** not found.`,
+          content: `I could not find an active scoreboard named **${boardName}** in this server.`,
+          flags: 64,
+        });
+      if (boardCheck.isArchived)
+        return interaction.reply({
+          content: `**${boardCheck.liveTitle || boardCheck.name}** is archived. Restore it before adding scores.`,
           flags: 64,
         });
       if (boardCheck.metric !== "POINTS")
         return interaction.reply({
-          content: `❌ **${boardCheck.liveTitle || boardCheck.name}** is a Win/Loss board. Use \`/scoreboard addwin\` or \`addloss\`.`,
+          content: `**${boardCheck.liveTitle || boardCheck.name}** is a Win/Loss board. Use \`/scoreboard addwin\` or \`addloss\`.`,
           flags: 64,
         });
 
@@ -1044,14 +1179,24 @@ module.exports = {
           (e) => e.targetId === targetId,
         );
 
-        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+        pushLiveEmbed(interaction.client, result.board).catch(() => {
+          console.error(
+            "[Scoreboard] pushLiveEmbed failed for board:",
+            result.board.id,
+          );
+        });
         if (freshEntry)
           pushEntryLiveEmbed(
             interaction.client,
             interaction.guild,
             result.board,
             freshEntry,
-          ).catch(() => {});
+          ).catch(() => {
+            console.error(
+              "[Scoreboard] pushEntryLiveEmbed failed for entry:",
+              freshEntry.id,
+            );
+          });
         if (result.leaderChange)
           announceLeaderChange(
             interaction,
@@ -1069,7 +1214,19 @@ module.exports = {
             .join("\n"),
         });
       } catch (err) {
-        return interaction.editReply({ content: `❌ ${err.message}` });
+        console.error("[Scoreboard] addpoints error:", {
+          guildId: interaction.guildId,
+          subcommand: sub,
+          userId: interaction.user.id,
+          scoreboardName: boardName,
+          boardId: boardCheck.id,
+          error: err.stack || err.message,
+        });
+        return interaction.editReply({
+          content: err.message.startsWith("Failed to save category stats")
+            ? `❌ ${err.message}`
+            : `❌ ${err.message}`,
+        });
       }
     }
 
