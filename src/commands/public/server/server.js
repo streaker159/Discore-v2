@@ -42,8 +42,6 @@ function getRoleId(interaction, name) {
   return role?.id || null;
 }
 
-// ─── Alliance code validation ─────────────────────────────────────────────────
-
 const ALLIANCE_CODE_RE = /^[A-Za-z0-9]{1,6}$/;
 
 function validateAllianceCode(raw) {
@@ -59,16 +57,11 @@ function validateAllianceCode(raw) {
 
 async function checkAllianceCodeUnique(code, ownGuildId) {
   const existing = await prisma.guild.findFirst({
-    where: {
-      allianceCode: code,
-      id: { not: ownGuildId },
-    },
+    where: { allianceCode: code, id: { not: ownGuildId } },
     select: { id: true },
   });
   return !existing;
 }
-
-// ─── Embed builders ───────────────────────────────────────────────────────────
 
 function buildChannelFields(guild) {
   return [
@@ -113,16 +106,6 @@ function buildChannelFields(guild) {
       inline: true,
     },
     {
-      name: "AvA Requests",
-      value: channelMention(guild.avaRequestChannelId),
-      inline: true,
-    },
-    {
-      name: "AvA Chat",
-      value: channelMention(guild.avaChatChannelId),
-      inline: true,
-    },
-    {
       name: "Admin Reports",
       value: channelMention(guild.adminReportsChannelId),
       inline: true,
@@ -148,16 +131,6 @@ function buildRoleFields(guild) {
       inline: true,
     },
     {
-      name: "AvA Role",
-      value: roleMention(guild.discoreAvaRoleId),
-      inline: true,
-    },
-    {
-      name: "AvA Alert Role",
-      value: roleMention(guild.avaAlertRoleId),
-      inline: true,
-    },
-    {
       name: "Muted Role",
       value: roleMention(guild.discoreMutedRoleId),
       inline: true,
@@ -176,7 +149,6 @@ function buildRoleFields(guild) {
 }
 
 function buildSetupIdentityFields(guild) {
-  // Identity fields — shown in /server setup reply and /server settings
   return [
     {
       name: "Alliance Code",
@@ -188,11 +160,7 @@ function buildSetupIdentityFields(guild) {
       value: guild.allianceName || "Not set",
       inline: true,
     },
-    {
-      name: "Theme Color",
-      value: guild.themeColor || "#1a7a9e",
-      inline: true,
-    },
+    { name: "Theme Color", value: guild.themeColor || "#1a7a9e", inline: true },
     {
       name: "Custom Footer",
       value: guild.customFooter || "Powered by Discore",
@@ -202,7 +170,6 @@ function buildSetupIdentityFields(guild) {
 }
 
 function buildSetupRoleFields(guild) {
-  // Setup-specific role fields
   return [
     {
       name: "Discore Manager Role",
@@ -219,21 +186,10 @@ function buildSetupRoleFields(guild) {
       value: roleMention(guild.disAdminRoleId),
       inline: true,
     },
-    {
-      name: "AvA Alert Role",
-      value: roleMention(guild.avaAlertRoleId),
-      inline: true,
-    },
-    {
-      name: "AvA Role",
-      value: roleMention(guild.discoreAvaRoleId),
-      inline: true,
-    },
   ];
 }
 
 function buildSettingsFields(guild) {
-  // Full read-only settings display — used by /server settings
   return [
     {
       name: "Alliance Code",
@@ -250,11 +206,7 @@ function buildSettingsFields(guild) {
       value: guild.defaultGame || "Not set",
       inline: true,
     },
-    {
-      name: "Theme color",
-      value: guild.themeColor || "#1a7a9e",
-      inline: true,
-    },
+    { name: "Theme color", value: guild.themeColor || "#1a7a9e", inline: true },
     {
       name: "Custom footer",
       value: guild.customFooter || "Powered by Discore",
@@ -268,7 +220,6 @@ function buildSettingsFields(guild) {
 function getServerSettingsTitle(sub) {
   if (sub === "channels") return "📡 Server Channels Updated";
   if (sub === "branding") return "🎨 Server Branding Updated";
-  if (sub === "timezone") return "🕒 Server Timezone Updated";
   if (sub === "default-game") return "🎮 Default Game Updated";
   if (sub === "setup") return "✅ Server Setup Updated";
   return "⚙️ Server Settings";
@@ -290,26 +241,20 @@ module.exports = {
     .setDescription("Configure Discore server settings.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 
-    // ── setup-guide ──
     .addSubcommand((s) =>
       s
         .setName("setup-guide")
         .setDescription("Resend the onboarding setup guide to a safe channel."),
     )
-
-    // ── info ──
     .addSubcommand((s) =>
       s
         .setName("info")
         .setDescription("Show local server stats and Discore setup health."),
     )
-
-    // ── settings (read-only) ──
     .addSubcommand((s) =>
       s.setName("settings").setDescription("Show current server settings."),
     )
 
-    // ── setup (identity + key roles) ──
     .addSubcommand((s) =>
       s
         .setName("setup")
@@ -340,20 +285,9 @@ module.exports = {
           o
             .setName("discore_admin_role")
             .setDescription("Discore advanced admin role"),
-        )
-        .addRoleOption((o) =>
-          o
-            .setName("ava_alert_role")
-            .setDescription("Role pinged for AvA alerts/requests"),
-        )
-        .addRoleOption((o) =>
-          o
-            .setName("ava_role")
-            .setDescription("Role allowed to use AvA features"),
         ),
     )
 
-    // ── default-game ──
     .addSubcommand((s) =>
       s
         .setName("default-game")
@@ -376,7 +310,6 @@ module.exports = {
         ),
     )
 
-    // ── branding (premium) ──
     .addSubcommand((s) =>
       s
         .setName("branding")
@@ -394,6 +327,7 @@ module.exports = {
           o.setName("footer").setDescription("Custom embed footer text"),
         ),
     )
+
     .addSubcommand((s) =>
       s
         .setName("scoreboard-image")
@@ -412,6 +346,7 @@ module.exports = {
             .setRequired(true),
         ),
     )
+
     .addSubcommand((s) =>
       s
         .setName("clear-scoreboard-image")
@@ -427,7 +362,6 @@ module.exports = {
         ),
     )
 
-    // ── channels ──
     .addSubcommand((s) =>
       s
         .setName("channels")
@@ -482,18 +416,6 @@ module.exports = {
         )
         .addChannelOption((o) =>
           o
-            .setName("ava_requests")
-            .setDescription("AvA request channel")
-            .addChannelTypes(ChannelType.GuildText),
-        )
-        .addChannelOption((o) =>
-          o
-            .setName("ava_chat")
-            .setDescription("AvA chat channel")
-            .addChannelTypes(ChannelType.GuildText),
-        )
-        .addChannelOption((o) =>
-          o
             .setName("admin_reports")
             .setDescription("Admin reports/bot status channel")
             .addChannelTypes(ChannelType.GuildText),
@@ -520,7 +442,6 @@ module.exports = {
       });
     }
 
-    // Permission check — require Manage Server
     if (!isAdmin(interaction)) {
       return interaction.reply({
         content:
@@ -535,7 +456,6 @@ module.exports = {
       const sub = interaction.options.getSubcommand();
       let guild;
 
-      // ── info ──────────────────────────────────────────────────────────
       if (sub === "info") {
         const [dbGuild, scoreboards, events, premiumStatus] = await Promise.all(
           [
@@ -569,43 +489,30 @@ module.exports = {
           ? "🌟 LIFETIME"
           : premiumStatus.tier === "FREE"
             ? "Free"
-            : `${premiumStatus.tier}${
-                premiumStatus.expiresAt
-                  ? ` (expires <t:${Math.floor(
-                      new Date(premiumStatus.expiresAt).getTime() / 1000,
-                    )}:R>)`
-                  : ""
-              }`;
+            : `${premiumStatus.tier}${premiumStatus.expiresAt ? ` (expires <t:${Math.floor(new Date(premiumStatus.expiresAt).getTime() / 1000)}:R>)` : ""}`;
 
         const statusLines = [
           dbGuild.logChannelId || dbGuild.adminLogChan
             ? `✅ Admin log: ${channelMention(dbGuild.logChannelId || dbGuild.adminLogChan)}`
             : "⚠️ Admin log channel not set",
-
           dbGuild.moderationLogChannelId
             ? `✅ Moderation log: ${channelMention(dbGuild.moderationLogChannelId)}`
             : "⚠️ Moderation log channel not set",
-
           dbGuild.appealChannelId
             ? `✅ Appeals: ${channelMention(dbGuild.appealChannelId)}`
             : "⚠️ Appeals channel not set",
-
           dbGuild.appealCategoryId
             ? `✅ Appeal category: ${channelMention(dbGuild.appealCategoryId)}`
             : "⚠️ Appeal category not set",
-
           dbGuild.discoreAppealRoleId
             ? `✅ Appeal role: ${roleMention(dbGuild.discoreAppealRoleId)}`
             : "⚠️ Appeal ping role not set",
-
           dbGuild.scoreboardChan
             ? `✅ Default scoreboard: ${channelMention(dbGuild.scoreboardChan)}`
             : "⚠️ Default scoreboard channel not set",
-
           dbGuild.allianceCode
             ? `✅ Alliance code: ${dbGuild.allianceCode}`
-            : "⚠️ Alliance code not set — needed for AvA",
-
+            : "⚠️ Alliance code not set",
           brokenBoards > 0
             ? `❌ ${brokenBoards} scoreboard(s) need repair — run \`/scoreboard repair\``
             : "✅ All scoreboards healthy",
@@ -647,11 +554,7 @@ module.exports = {
               value: dbGuild.timezone || "UTC",
               inline: true,
             },
-            {
-              name: "Premium",
-              value: premiumText,
-              inline: true,
-            },
+            { name: "Premium", value: premiumText, inline: true },
             {
               name: "AI Credits",
               value:
@@ -684,58 +587,44 @@ module.exports = {
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // ── setup (identity + key roles) ────────────────────────────────────
       if (sub === "setup") {
         const data = {};
 
-        // ── Alliance code ──────────────────────────────────────────────────
         const rawCode = interaction.options.getString("alliance_code");
         if (rawCode !== null) {
           const validation = validateAllianceCode(rawCode);
-          if (validation.error) {
+          if (validation.error)
             return interaction.editReply({ content: validation.error });
-          }
           const unique = await checkAllianceCodeUnique(
             validation.code,
             interaction.guildId,
           );
-          if (!unique) {
+          if (!unique)
             return interaction.editReply({
               content: `⚠️ Alliance code **${validation.code}** is already used by another server. Please choose a different code.`,
             });
-          }
           data.allianceCode = validation.code;
         }
 
-        // ── Alliance name ───────────────────────────────────────────────────
         const allianceName = interaction.options.getString("alliance_name");
         if (allianceName) data.allianceName = allianceName;
 
-        // ── Roles ───────────────────────────────────────────────────────────
-
-        // ── Roles ───────────────────────────────────────────────────────────
         const managerRole = getRoleId(interaction, "discore_manager_role");
         const scoreboardMgrRole = getRoleId(
           interaction,
           "scoreboard_manager_role",
         );
         const adminRole = getRoleId(interaction, "discore_admin_role");
-        const avaAlertRole = getRoleId(interaction, "ava_alert_role");
-        const avaRole = getRoleId(interaction, "ava_role");
 
         if (managerRole) data.discoreManagerRoleId = managerRole;
         if (scoreboardMgrRole) data.scoreboardManagerRoleId = scoreboardMgrRole;
         if (adminRole) data.disAdminRoleId = adminRole;
-        if (avaAlertRole) data.avaAlertRoleId = avaAlertRole;
-        if (avaRole) data.discoreAvaRoleId = avaRole;
 
-        // ── If no options provided, open interactive setup panel ──────────
         if (!Object.keys(data).length) {
           const {
             ensureGuild: eg,
           } = require("../../../modules/serverSettings/service");
           const g = await eg(interaction.guildId);
-          const { EmbedBuilder } = require("discord.js");
 
           const embed = new EmbedBuilder()
             .setTitle("⚙️ Server Setup")
@@ -779,10 +668,6 @@ module.exports = {
                   )
                   .setValue("manager_roles"),
                 new StringSelectMenuOptionBuilder()
-                  .setLabel("⚔️ AvA Roles")
-                  .setDescription("Set AvA alert and AvA feature roles")
-                  .setValue("ava_roles"),
-                new StringSelectMenuOptionBuilder()
                   .setLabel("🔄 Refresh")
                   .setDescription("Refresh the setup panel")
                   .setValue("refresh"),
@@ -796,8 +681,6 @@ module.exports = {
         }
 
         guild = await updateGuildSettings(interaction.guildId, data);
-
-        // Build setup-specific embed (identity + setup roles only, no channels)
         const embed = await createDiscoreEmbed(interaction, {
           guildSettings: guild,
           title: "✅ Server Setup Updated",
@@ -806,55 +689,35 @@ module.exports = {
             ...buildSetupRoleFields(guild),
           ],
         });
-
         return interaction.editReply({ embeds: [embed] });
-      }
-
-      // ── default-game ────────────────────────────────────────────────────
-      else if (sub === "default-game") {
+      } else if (sub === "default-game") {
         guild = await updateGuildSettings(interaction.guildId, {
           defaultGame: interaction.options.getString("game", true),
         });
-      }
-
-      // ── branding ────────────────────────────────────────────────────────
-      else if (sub === "branding") {
+      } else if (sub === "branding") {
         if (!(await requireFeature(interaction, "branding.basic"))) return;
-
         const data = {};
         const name = interaction.options.getString("name");
         const logo = interaction.options.getString("logo");
         const logoUpload = interaction.options.getAttachment("logo_upload");
         const footer = interaction.options.getString("footer");
-
         if (name) data.allianceName = name;
         if (logoUpload?.url) data.allianceLogo = logoUpload.url;
         else if (logo) data.allianceLogo = logo;
-
         if (footer) data.customFooter = footer;
-
-        if (!Object.keys(data).length) {
+        if (!Object.keys(data).length)
           return interaction.editReply({
             content: "Please provide at least one branding option.",
           });
-        }
-
         guild = await updateGuildSettings(interaction.guildId, data);
-      }
-
-      // ── scoreboard-image ───────────────────────────────────────────────
-      else if (sub === "scoreboard-image") {
+      } else if (sub === "scoreboard-image") {
         if (!(await requireFeature(interaction, "branding.basic"))) return;
-
         const boardName = interaction.options.getString("scoreboard", true);
         const attachment = interaction.options.getAttachment("image", true);
-
-        if (!attachment.contentType?.startsWith("image/")) {
+        if (!attachment.contentType?.startsWith("image/"))
           return interaction.editReply({
             content: "⚠️ Please upload a valid image file.",
           });
-        }
-
         const board = await prisma.scoreboard.findFirst({
           where: {
             guildId: interaction.guildId,
@@ -866,13 +729,10 @@ module.exports = {
           return interaction.editReply({
             content: "⚠️ Scoreboard not found or is archived.",
           });
-
         await prisma.scoreboard.update({
           where: { id: board.id },
           data: { brandingImageUrl: attachment.url },
         });
-
-        // Refresh live embed
         const {
           pushLiveEmbed,
         } = require("../../../modules/scoreboards/service");
@@ -880,18 +740,12 @@ module.exports = {
           ...board,
           brandingImageUrl: attachment.url,
         }).catch(() => {});
-
         return interaction.editReply({
           content: `✅ Scoreboard image updated for **${board.name}**.\nThe live scoreboard has been refreshed.`,
         });
-      }
-
-      // ── clear-scoreboard-image ─────────────────────────────────────────
-      else if (sub === "clear-scoreboard-image") {
+      } else if (sub === "clear-scoreboard-image") {
         if (!(await requireFeature(interaction, "branding.basic"))) return;
-
         const boardName = interaction.options.getString("scoreboard", true);
-
         const board = await prisma.scoreboard.findFirst({
           where: {
             guildId: interaction.guildId,
@@ -903,12 +757,10 @@ module.exports = {
           return interaction.editReply({
             content: "⚠️ Scoreboard not found or is archived.",
           });
-
         await prisma.scoreboard.update({
           where: { id: board.id },
           data: { brandingImageUrl: null },
         });
-
         const {
           pushLiveEmbed,
         } = require("../../../modules/scoreboards/service");
@@ -916,65 +768,47 @@ module.exports = {
           ...board,
           brandingImageUrl: null,
         }).catch(() => {});
-
         return interaction.editReply({
           content: `✅ Scoreboard image removed from **${board.name}**.`,
         });
-      }
-
-      // ── channels ────────────────────────────────────────────────────────
-      else if (sub === "channels") {
+      } else if (sub === "channels") {
         const data = {};
-
         const adminLog = getChannelId(interaction, "admin_log");
-        const moderationLog = getChannelId(interaction, "moderation_log");
-        const appeals = getChannelId(interaction, "appeals");
-        const appealsCategory = getChannelId(interaction, "appeals_category");
-        const scoreboard = getChannelId(interaction, "scoreboard");
-        const events = getChannelId(interaction, "events");
-        const suggestions = getChannelId(interaction, "suggestions");
-        const premiumNotice = getChannelId(interaction, "premium_notice");
-        const avaRequests = getChannelId(interaction, "ava_requests");
-        const avaChat = getChannelId(interaction, "ava_chat");
-        const adminReports = getChannelId(interaction, "admin_reports");
-        const discoreAnnouncements = getChannelId(
-          interaction,
-          "discore_announcements",
-        );
-        const aiWelcome = getChannelId(interaction, "ai_welcome");
-
         if (adminLog) {
           data.logChannelId = adminLog;
           data.adminLogChan = adminLog;
         }
-
+        const moderationLog = getChannelId(interaction, "moderation_log");
         if (moderationLog) data.moderationLogChannelId = moderationLog;
+        const appeals = getChannelId(interaction, "appeals");
         if (appeals) data.appealChannelId = appeals;
+        const appealsCategory = getChannelId(interaction, "appeals_category");
         if (appealsCategory) data.appealCategoryId = appealsCategory;
+        const scoreboard = getChannelId(interaction, "scoreboard");
         if (scoreboard) data.scoreboardChan = scoreboard;
+        const events = getChannelId(interaction, "events");
         if (events) data.eventChannelId = events;
+        const suggestions = getChannelId(interaction, "suggestions");
         if (suggestions) data.suggestionChannelId = suggestions;
+        const premiumNotice = getChannelId(interaction, "premium_notice");
         if (premiumNotice) data.premiumNoticeChan = premiumNotice;
-        if (avaRequests) data.avaRequestChannelId = avaRequests;
-        if (avaChat) data.avaChatChannelId = avaChat;
+        const adminReports = getChannelId(interaction, "admin_reports");
         if (adminReports) data.adminReportsChannelId = adminReports;
+        const discoreAnnouncements = getChannelId(
+          interaction,
+          "discore_announcements",
+        );
         if (discoreAnnouncements)
           data.announcementChannelId = discoreAnnouncements;
+        const aiWelcome = getChannelId(interaction, "ai_welcome");
         if (aiWelcome) data.aiWelcomeChannelId = aiWelcome;
-
-        if (!Object.keys(data).length) {
+        if (!Object.keys(data).length)
           return interaction.editReply({
             content: "Please provide at least one channel/category.",
           });
-        }
-
         guild = await updateGuildSettings(interaction.guildId, data);
-      }
-
-      // ── settings (read-only display) ─────────────────────────────────────
-      else if (sub === "settings") {
+      } else if (sub === "settings") {
         guild = await ensureGuild(interaction.guildId);
-        // settings is read-only — just display
         const embed = await createDiscoreEmbed(interaction, {
           guildSettings: guild,
           title: "⚙️ Server Settings",
@@ -983,21 +817,17 @@ module.exports = {
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // ── setup-guide (manual onboarding resend) ──────────────────────────
       if (sub === "setup-guide") {
         const {
           findBestChannel,
           sendOnboarding,
         } = require("../../../modules/onboarding/service");
-
         const channel = findBestChannel(interaction.guild);
-        if (!channel) {
+        if (!channel)
           return interaction.editReply({
             content:
               "⚠️ Could not find a suitable channel to post the setup guide.",
           });
-        }
-
         try {
           await sendOnboarding(interaction.guild, channel);
           return interaction.editReply({
@@ -1010,7 +840,6 @@ module.exports = {
         }
       }
 
-      // ── default embed reply for non-settings and non-setup subcommands ───
       if (sub !== "settings" && sub !== "setup") {
         const embed = await createDiscoreEmbed(interaction, {
           guildSettings: guild,
@@ -1019,16 +848,11 @@ module.exports = {
         });
         return interaction.editReply({ embeds: [embed] });
       }
-
-      // settings reply already handled above
-      // setup reply handled in its own branch
     } catch (error) {
       console.error("[Server Command Error]", error);
-
       const message = isDatabaseConnectionError(error)
         ? "⚠️ Discore could not reach the database right now. Supabase may be waking up or the pooler may be unavailable. Try again in a moment."
         : `⚠️ Server command failed: ${error.message}`;
-
       return interaction.editReply({ content: message }).catch(() => {});
     }
   },
