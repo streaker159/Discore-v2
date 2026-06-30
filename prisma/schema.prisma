@@ -1313,3 +1313,81 @@ model BotHourlyStatusReport {
   status      String    @default("success") // success | failed
   payloadJson String?   @db.Text
 }
+
+// ── SAFE VAULT (Discore Vault Global Safecrack Game) ──────
+
+model SafeVaultRound {
+  id          String   @id @default(cuid())
+
+  code        String
+
+  status      String   @default("ACTIVE")
+  // ACTIVE
+  // PENDING_PRIZE
+  // CRACKED
+  // EXPIRED
+
+  generatedAt DateTime @default(now())
+  expiresAt   DateTime?
+
+  crackedAt          DateTime?
+  crackedByUserId    String?
+  crackedByUserTag   String?
+  crackedByDisplayName String?
+  crackedInGuildId   String?
+  crackedInGuildName String?
+
+  selectedPrize String?
+  prizeStatus   String?
+  // AWAITING_SELECTION
+  // PENDING_CLAIM
+  // CLAIMED
+  // CANCELLED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attempts  SafeVaultAttempt[]
+
+  @@index([status])
+  @@index([generatedAt])
+  @@index([crackedByUserId])
+}
+
+model SafeVaultAttempt {
+  id          String   @id @default(cuid())
+
+  roundId     String
+  round       SafeVaultRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  userId      String
+  userTag     String?
+  displayName String?
+
+  guildId     String
+  guildName   String?
+
+  guessedCode String
+  correct     Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+
+  @@index([roundId])
+  @@index([userId])
+  @@index([guildId])
+  @@index([createdAt])
+}
+
+model SafeVaultDailyLimit {
+  id          String   @id @default(cuid())
+
+  userId      String
+  dateKey     String
+  attemptsUsed Int    @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, dateKey])
+  @@index([dateKey])
+}

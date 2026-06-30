@@ -166,6 +166,89 @@ module.exports = {
           );
         } catch (e) {}
 
+        // SafeVault tables
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "SafeVaultRound" ("id" TEXT NOT NULL, "code" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'ACTIVE', "generatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "expiresAt" TIMESTAMPTZ, "crackedAt" TIMESTAMPTZ, "crackedByUserId" TEXT, "crackedByUserTag" TEXT, "crackedByDisplayName" TEXT, "crackedInGuildId" TEXT, "crackedInGuildName" TEXT, "selectedPrize" TEXT, "prizeStatus" TEXT, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMPTZ NOT NULL, CONSTRAINT "SafeVaultRound_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: SafeVaultRound table", {
+            error: e.message?.slice(0, 80),
+          });
+        }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultRound_status_idx" ON "SafeVaultRound" ("status")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultRound_generatedAt_idx" ON "SafeVaultRound" ("generatedAt")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultRound_crackedByUserId_idx" ON "SafeVaultRound" ("crackedByUserId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "SafeVaultAttempt" ("id" TEXT NOT NULL, "roundId" TEXT NOT NULL, "userId" TEXT NOT NULL, "userTag" TEXT, "displayName" TEXT, "guildId" TEXT NOT NULL, "guildName" TEXT, "guessedCode" TEXT NOT NULL, "correct" BOOLEAN NOT NULL DEFAULT false, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), CONSTRAINT "SafeVaultAttempt_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: SafeVaultAttempt table", {
+            error: e.message?.slice(0, 80),
+          });
+        }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultAttempt_roundId_idx" ON "SafeVaultAttempt" ("roundId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultAttempt_userId_idx" ON "SafeVaultAttempt" ("userId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultAttempt_guildId_idx" ON "SafeVaultAttempt" ("guildId")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultAttempt_createdAt_idx" ON "SafeVaultAttempt" ("createdAt")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE TABLE IF NOT EXISTS "SafeVaultDailyLimit" ("id" TEXT NOT NULL, "userId" TEXT NOT NULL, "dateKey" TEXT NOT NULL, "attemptsUsed" INTEGER NOT NULL DEFAULT 0, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMPTZ NOT NULL, CONSTRAINT "SafeVaultDailyLimit_pkey" PRIMARY KEY ("id"))`,
+          );
+        } catch (e) {
+          logger.info("Migration: SafeVaultDailyLimit table", {
+            error: e.message?.slice(0, 80),
+          });
+        }
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE UNIQUE INDEX IF NOT EXISTS "SafeVaultDailyLimit_userId_dateKey_key" ON "SafeVaultDailyLimit" ("userId", "dateKey")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE INDEX IF NOT EXISTS "SafeVaultDailyLimit_dateKey_idx" ON "SafeVaultDailyLimit" ("dateKey")`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "SafeVaultAttempt" ADD CONSTRAINT "SafeVaultAttempt_roundId_fkey" FOREIGN KEY ("roundId") REFERENCES "SafeVaultRound"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+          );
+        } catch (e) {
+          logger.info("Migration: SafeVault FK", {
+            error: e.message?.slice(0, 60),
+          });
+        }
+
         logger.info("Startup migration check complete");
 
         // 1b. Schedule hourly analytics job (runs at minute 1 past every hour)
@@ -261,6 +344,24 @@ module.exports = {
         }
       } catch (err) {
         logger.error("ready: onboarding sweep failed", { error: err.message });
+      }
+    });
+
+    // ── Safe Vault: ensure one active safe exists on startup ────
+    setImmediate(async () => {
+      try {
+        // Wait a bit for the client to be fully ready
+        await new Promise((r) => setTimeout(r, 5000));
+
+        const {
+          ensureActiveSafe,
+        } = require("../modules/safe/safeVaultService");
+        await ensureActiveSafe(client);
+        logger.info("SafeVault startup check completed");
+      } catch (err) {
+        logger.error("SafeVault: ensureActiveSafe failed", {
+          error: err.message,
+        });
       }
     });
   },
