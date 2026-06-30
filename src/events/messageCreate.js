@@ -4,6 +4,10 @@ const {
   trackMessage,
 } = require("../modules/player/services/userActivityService");
 const { handleDiscoreMention } = require("../modules/ai/service");
+const {
+  isConversationContinuation,
+  addTurn,
+} = require("../modules/ai/conversationMemory");
 
 module.exports = {
   name: "messageCreate",
@@ -23,8 +27,18 @@ module.exports = {
     }
 
     // ── Bot mention AI ──────────────────────────────────────────────────
+    const guildId = message.guild.id;
+    const userId = message.author.id;
+    const channelId = message.channel.id;
+
     const botMentioned = message.mentions.has(client.user);
-    if (!botMentioned) return;
+
+    // Check if this is a continuation of a recent conversation (reply or correction)
+    const isContinuation =
+      !botMentioned &&
+      isConversationContinuation({ guildId, channelId, userId, message });
+
+    if (!botMentioned && !isContinuation) return;
 
     // Strip mention and clean content
     const content = message.content
@@ -33,12 +47,22 @@ module.exports = {
 
     if (!content) return; // Empty mention — ignore
 
+    // Store this turn before handling
+    addTurn({
+      guildId,
+      channelId,
+      userId,
+      role: "user",
+      content: content.substring(0, 200),
+      messageId: message.id,
+    });
+
     await handleDiscoreMention({
       message,
       client,
-      guildId: message.guild.id,
-      userId: message.author.id,
-      channelId: message.channel.id,
+      guildId,
+      userId,
+      channelId,
       content: `User: ${message.author.username}\nMessage: ${content}`,
     });
   },

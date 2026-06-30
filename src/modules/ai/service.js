@@ -218,29 +218,51 @@ async function handleDiscoreMention({
   // Extract the actual user message
   const userMsg = content.replace(/^User:.*?\nMessage:\s*/i, "").trim();
 
+  // ── CONVERSATION MEMORY ──────────────────────────────────────────
+  const {
+    getContextString,
+    isCorrectionMessage,
+    isGameSelectorAnswer,
+    addTurn: addMemoryTurn,
+  } = require("./conversationMemory");
+
+  const contextStr = getContextString({ guildId, channelId, userId });
+  const isCorrection = isCorrectionMessage(userMsg);
+  const isGameAnswer = isGameSelectorAnswer(userMsg);
+
   // ── SELF-HELP DETECTION ───────────────────────────────────────
   // Must run BEFORE game routing to avoid asking "which game?" for bot-help Qs
-  if (isDiscoreSelfHelpQuestion(userMsg)) {
+  // If the user is correcting us ("no, not the game"), treat as self-help
+  if (isDiscoreSelfHelpQuestion(userMsg) || isCorrection) {
+    const promptContext = contextStr
+      ? `Recent conversation history:\n${contextStr}\n\nUse this context. If the previous answer was wrong, briefly acknowledge and correct it. Do not repeat the same clarification if the user already corrected it.\n\nUser message: ${userMsg}`
+      : `The user is asking about me (Discore Official). Give a helpful, funny, self-aware answer.\n\nUser message: ${userMsg}`;
+
     await message.channel.sendTyping().catch(() => {});
     try {
       const res = await generateDeepSeekResponse({
         systemPrompt: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `The user is asking about me (Discore Official). Give a helpful, funny, self-aware answer.\n\nUser message: ${userMsg}`,
-          },
-        ],
+        messages: [{ role: "user", content: promptContext }],
         maxTokens: 800,
         temperature: 0.8,
       });
-      await message
-        .reply({
-          content:
-            res.text?.slice(0, 1900) ||
-            "I know I am amazing, but my processor fizzled. Ask again?",
-        })
-        .catch(() => {});
+      const replyText =
+        res.text?.slice(0, 1900) ||
+        "I know I am amazing, but my processor fizzled. Ask again?";
+
+      // Store our reply in memory
+      const sent = await message.reply({ content: replyText }).catch(() => {});
+      if (sent) {
+        addMemoryTurn({
+          guildId,
+          channelId,
+          userId,
+          role: "assistant",
+          content: replyText.substring(0, 200),
+          messageId: sent.id,
+          intent: "self_help",
+        });
+      }
       await consumeAiCredits(guildId, userId, 1, "BOT_MENTION").catch(() => {});
     } catch (_) {
       await message
