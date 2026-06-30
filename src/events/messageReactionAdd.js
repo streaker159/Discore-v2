@@ -37,10 +37,27 @@ async function sendDebug(client, title, description, color) {
   } catch {}
 }
 
+// ── MODULE-LEVEL LOAD PROOF ────────────────────────────────────────────
+console.log("[AI_TRANSLATE_DEBUG] messageReactionAdd.js MODULE LOADED", {
+  timestamp: new Date().toISOString(),
+  debug: process.env.DEBUG_AI_TRANSLATION,
+});
+
 module.exports = {
   name: "messageReactionAdd",
 
   async execute(reaction, user, client) {
+    // ── ABSOLUTE FIRST LINE — proves execute() was called ────────────
+    console.log("=== messageReactionAdd EXECUTE() CALLED ===");
+    console.log(
+      "reaction type:",
+      typeof reaction,
+      "user type:",
+      typeof user,
+      "client ready:",
+      client?.isReady?.(),
+    );
+
     // ── Unconditional first-line log ─────────────────────────────────
     const guildId = reaction.message.guild?.id || null;
     const channelId = reaction.message.channelId || null;
