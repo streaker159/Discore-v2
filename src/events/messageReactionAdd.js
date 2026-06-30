@@ -104,7 +104,7 @@ module.exports = {
         guildId,
         userId: user.id,
         messageContent: content,
-        targetFlag: emojiStr,
+        targetEmoji: emojiStr,
       });
 
       debugLog("translation result", {
