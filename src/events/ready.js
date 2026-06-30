@@ -137,6 +137,22 @@ module.exports = {
             error: e.message?.slice(0, 60),
           });
         }
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiTranslationEnabled" BOOLEAN NOT NULL DEFAULT false`
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiWelcomeEnabled" BOOLEAN NOT NULL DEFAULT false`
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "Guild" ADD COLUMN IF NOT EXISTS "aiWelcomeChannelId" TEXT`
+          );
+        } catch (e) {}
+
         logger.info("Startup migration check complete");
 
         // 1b. Schedule hourly analytics job (runs at minute 1 past every hour)
