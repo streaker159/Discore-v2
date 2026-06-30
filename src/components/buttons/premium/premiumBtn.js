@@ -133,33 +133,47 @@ module.exports = [
           inline: true,
         },
       ];
-      if (status.isActive) {
-        fields.push(
-          {
-            name: "Monthly AI Remaining",
-            value: aiCredits.monthlyRemaining.toLocaleString(),
-            inline: true,
-          },
-          {
-            name: "Extra Purchased AI Credits",
-            value: aiCredits.extraCredits.toLocaleString(),
-            inline: true,
-          },
-          {
-            name: "Total AI Credits Available",
-            value: aiCredits.totalAvailable.toLocaleString(),
-            inline: true,
-          },
-        );
-        if (aiCredits.monthlyPeriodEnd) {
-          fields.push({
-            name: "Next Monthly Refill",
-            value: `<t:${Math.floor(new Date(aiCredits.monthlyPeriodEnd).getTime() / 1000)}:R>`,
-            inline: true,
-          });
-        }
-        if (status.isLifetime)
-          fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
+      // ── Premium-specific ───────────────────────────────────────────
+      if (status.isLifetime)
+        fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
+
+      // ── AI Credits (shown regardless of Premium) ───────────────────
+      const aiAccessSource = status.isActive
+        ? "Premium"
+        : aiCredits.totalAvailable > 0
+          ? "AI Credits"
+          : "None";
+      const aiAccessActive = aiCredits.totalAvailable > 0;
+      fields.push(
+        {
+          name: "AI Access",
+          value: aiAccessActive
+            ? `✅ Active via ${aiAccessSource}`
+            : "❌ No AI credits available",
+          inline: true,
+        },
+        {
+          name: "Monthly AI Remaining",
+          value: aiCredits.monthlyRemaining.toLocaleString(),
+          inline: true,
+        },
+        {
+          name: "Extra Purchased AI Credits",
+          value: aiCredits.extraCredits.toLocaleString(),
+          inline: true,
+        },
+        {
+          name: "Total AI Credits Available",
+          value: aiCredits.totalAvailable.toLocaleString(),
+          inline: true,
+        },
+      );
+      if (aiCredits.monthlyPeriodEnd) {
+        fields.push({
+          name: "Next Monthly Refill",
+          value: `<t:${Math.floor(new Date(aiCredits.monthlyPeriodEnd).getTime() / 1000)}:R>`,
+          inline: true,
+        });
       }
 
       // ── AI Feature Status ──────────────────────────────────────────

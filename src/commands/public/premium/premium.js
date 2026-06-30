@@ -48,31 +48,8 @@ function buildPremiumDashboard(status, aiCredits, aiSettings, guildName) {
     },
   ];
 
+  // ── Premium-specific fields ─────────────────────────────────────
   if (status.isActive) {
-    fields.push(
-      {
-        name: "Monthly AI Remaining",
-        value: aiCredits.monthlyRemaining.toLocaleString(),
-        inline: true,
-      },
-      {
-        name: "Extra Purchased AI Credits",
-        value: aiCredits.extraCredits.toLocaleString(),
-        inline: true,
-      },
-      {
-        name: "Total AI Credits Available",
-        value: aiCredits.totalAvailable.toLocaleString(),
-        inline: true,
-      },
-    );
-    if (aiCredits.monthlyPeriodEnd) {
-      fields.push({
-        name: "Next Monthly Refill",
-        value: `<t:${Math.floor(new Date(aiCredits.monthlyPeriodEnd).getTime() / 1000)}:R>`,
-        inline: true,
-      });
-    }
     if (status.isLifetime) {
       fields.push({ name: "Type", value: "🌟 Lifetime", inline: true });
     }
@@ -84,10 +61,49 @@ function buildPremiumDashboard(status, aiCredits, aiSettings, guildName) {
     });
   } else {
     fields.push({
-      name: "Upgrade",
+      name: "Premium Status",
       value:
-        "Upgrade to Discore Premium to unlock expanded scoreboards, archives, merging, premium branding, advanced setup tools, and 2,000 monthly AI credits.",
+        "Premium not active. Upgrade to Discore Premium to unlock expanded scoreboards, archives, merging, premium branding, advanced setup tools, and 2,000 monthly AI credits.",
       inline: false,
+    });
+  }
+
+  // ── AI Credits (shown regardless of Premium status) ──────────────
+  const aiAccessSource = status.isActive
+    ? "Premium"
+    : aiCredits.totalAvailable > 0
+      ? "AI Credits"
+      : "None";
+  const aiAccessActive = aiCredits.totalAvailable > 0;
+  fields.push(
+    {
+      name: "AI Access",
+      value: aiAccessActive
+        ? `✅ Active via ${aiAccessSource}`
+        : "❌ No AI credits available",
+      inline: true,
+    },
+    {
+      name: "Monthly AI Remaining",
+      value: aiCredits.monthlyRemaining.toLocaleString(),
+      inline: true,
+    },
+    {
+      name: "Extra Purchased AI Credits",
+      value: aiCredits.extraCredits.toLocaleString(),
+      inline: true,
+    },
+    {
+      name: "Total AI Credits Available",
+      value: aiCredits.totalAvailable.toLocaleString(),
+      inline: true,
+    },
+  );
+  if (aiCredits.monthlyPeriodEnd) {
+    fields.push({
+      name: "Next Monthly Refill",
+      value: `<t:${Math.floor(new Date(aiCredits.monthlyPeriodEnd).getTime() / 1000)}:R>`,
+      inline: true,
     });
   }
 

@@ -121,7 +121,7 @@ async function canUseAi(guildId, userId, estimatedCost) {
     return {
       ok: false,
       reason: "no_premium_record",
-      message: "This server has no premium record.",
+      message: "⚠️ AI is not configured for this server.",
     };
   if (premium.aiEnabled === false)
     return {
