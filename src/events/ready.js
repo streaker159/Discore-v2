@@ -12,6 +12,26 @@ module.exports = {
   once: true,
   async execute(client) {
     logger.info(`Logged in as ${client.user.tag}`);
+
+    // ── AI Translation Startup Marker ───────────────────────────────
+    logger.info("AI_TRANSLATION_BUILD reaction-debug-v4 loaded");
+
+    // Log intent/partial configuration for debugging reaction events
+    const intents = client.options.intents;
+    const partials = client.options.partials;
+    logger.info("AI Translation: intent/partial check", {
+      Guilds: intents.has("Guilds"),
+      GuildMembers: intents.has("GuildMembers"),
+      GuildMessages: intents.has("GuildMessages"),
+      GuildMessageReactions: intents.has("GuildMessageReactions"),
+      MessageContent: intents.has("MessageContent"),
+      partials: partials.map((p) => String(p)),
+    });
+
+    if (process.env.DEBUG_AI_TRANSLATION === "true") {
+      logger.info("AI Translation debug mode ENABLED — logs will be verbose");
+    }
+
     client.user.setActivity("🚧 still under dev", { type: 3 });
 
     // Verify SKU configuration
@@ -139,17 +159,17 @@ module.exports = {
         }
         try {
           await prisma.$executeRawUnsafe(
-            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiTranslationEnabled" BOOLEAN NOT NULL DEFAULT false`
+            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiTranslationEnabled" BOOLEAN NOT NULL DEFAULT false`,
           );
         } catch (e) {}
         try {
           await prisma.$executeRawUnsafe(
-            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiWelcomeEnabled" BOOLEAN NOT NULL DEFAULT false`
+            `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiWelcomeEnabled" BOOLEAN NOT NULL DEFAULT false`,
           );
         } catch (e) {}
         try {
           await prisma.$executeRawUnsafe(
-            `ALTER TABLE "Guild" ADD COLUMN IF NOT EXISTS "aiWelcomeChannelId" TEXT`
+            `ALTER TABLE "Guild" ADD COLUMN IF NOT EXISTS "aiWelcomeChannelId" TEXT`,
           );
         } catch (e) {}
 

@@ -1,7 +1,7 @@
 "use strict";
 
 // ── Debug logging ──────────────────────────────────────────────────────
-const DEBUG = process.env.DEBUG_SCOREBOARDS === "true";
+const DEBUG = process.env.DEBUG_AI_TRANSLATION === "true";
 function debugLog(...args) {
   if (DEBUG) console.log("[FlagLanguages]", ...args);
 }

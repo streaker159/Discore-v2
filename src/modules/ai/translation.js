@@ -1,15 +1,11 @@
 "use strict";
 
-const {
-  canUseAi,
-  consumeAiCredits,
-  refundAiCredits,
-} = require("../premium/service");
+const { canUseAi, consumeAiCredits } = require("../premium/service");
 const { generateDeepSeekResponse } = require("./providers/deepseekProvider");
 const { getLanguageForFlag } = require("./flagLanguages");
 const prisma = require("../../lib/prisma");
 
-const DEBUG = process.env.DEBUG_SCOREBOARDS === "true";
+const DEBUG = process.env.DEBUG_AI_TRANSLATION === "true";
 function debugLog(...args) {
   if (DEBUG) console.log("[Translation]", ...args);
 }
@@ -52,6 +48,14 @@ Rules:
 - If the message is already entirely in TARGET_LANGUAGE, respond with: "This message already appears to be in TARGET_LANGUAGE."
 - Return ONLY the translation.`;
 
+/**
+ * Translate a message to the target language.
+ *
+ * CREDIT MODEL: Consume credits only AFTER a successful AI response.
+ * If the AI call fails or returns empty, no credits are consumed.
+ * canUseAi() only checks availability — it does NOT deduct.
+ * consumeAiCredits() is called ONLY on success.
+ */
 async function translateMessage({
   guildId,
   userId,
@@ -67,30 +71,33 @@ async function translateMessage({
 
   const targetLang = getLangFromFlag(targetEmoji);
   if (!targetLang) {
-    debugLog("unsupported flag", { targetEmoji });
+    debugLog("translateMessage: unsupported flag", { targetEmoji });
     return { success: false, error: "unsupported_flag" };
   }
 
-  debugLog("target language resolved", { targetLang });
+  debugLog("translateMessage: target language resolved", { targetLang });
 
+  // Credit gate check (does NOT deduct — only verifies availability)
   const gate = await canUseAi(guildId, userId, 1);
   if (!gate.ok) {
-    debugLog("AI credit check failed", { reason: gate.reason });
+    debugLog("translateMessage: AI credit check failed", {
+      reason: gate.reason,
+    });
     return { success: false, error: gate.reason || "ai_blocked" };
   }
 
-  debugLog("AI credit check passed");
+  debugLog("translateMessage: AI credit check passed");
 
   const premium = await prisma.guildPremium.findUnique({
     where: { guildId },
     select: { aiTranslationEnabled: true },
   });
   if (!premium?.aiTranslationEnabled) {
-    debugLog("translation disabled for guild");
+    debugLog("translateMessage: translation disabled for guild");
     return { success: false, error: "translation_disabled" };
   }
 
-  debugLog("translation enabled, calling AI");
+  debugLog("translateMessage: translation enabled, calling AI");
 
   try {
     const result = await generateDeepSeekResponse({
@@ -107,18 +114,23 @@ async function translateMessage({
 
     const translation = result?.text || null;
     if (!translation) {
-      debugLog("AI returned empty response, refunding");
-      await refundAiCredits(guildId, 1);
+      // AI returned empty — no credit was deducted, so no refund needed
+      debugLog(
+        "translateMessage: AI returned empty response (no credit consumed)",
+      );
       return { success: false, error: "ai_empty_response" };
     }
 
-    debugLog("AI translation received, consuming credit");
+    // SUCCESS: consume credit now
+    debugLog("translateMessage: AI translation received, consuming credit");
     await consumeAiCredits(guildId, userId, 1, "translation");
     return { success: true, translation: translation.trim(), targetLang };
   } catch (err) {
-    debugLog("AI call failed, refunding", { error: err.message });
-    await refundAiCredits(guildId, 1).catch(() => {});
-    return { success: false, error: err.message || "ai_failure" };
+    // AI call threw — no credit was deducted, so no refund needed
+    debugLog("translateMessage: AI call failed (no credit consumed)", {
+      error: err.message,
+    });
+    return { success: false, error: "ai_failure" };
   }
 }
 

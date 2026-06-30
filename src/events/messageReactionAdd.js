@@ -10,38 +10,66 @@ const {
 } = require("../modules/ai/translation");
 const { EmbedBuilder } = require("discord.js");
 
-// ── Debug logging ────────────────────────────────────────────────────
-const DEBUG = process.env.DEBUG_SCOREBOARDS === "true";
-function debugLog(...args) {
-  if (DEBUG) console.log("[Reaction::Debug]", ...args);
+// ── Configuration ─────────────────────────────────────────────────────
+const DEBUG = process.env.DEBUG_AI_TRANSLATION === "true";
+const OWNER_DEBUG_CHANNEL = "1367326139109871738";
+const DEBUG_SEND_COOLDOWN_MS = 5000;
+
+// ── Owner debug notification (rate-limited) ────────────────────────────
+let _lastDebugSend = 0;
+let _debugClient = null;
+
+function ownerDebugLog(text) {
+  if (!DEBUG) return;
+  console.log("[AI_TRANSLATE_DEBUG]", text);
+}
+
+function ownerDebugSend(client, text) {
+  if (!DEBUG) return;
+  if (!client?.isReady()) return;
+
+  const now = Date.now();
+  if (now - _lastDebugSend < DEBUG_SEND_COOLDOWN_MS) return;
+  _lastDebugSend = now;
+
+  const channel = client.channels.cache.get(OWNER_DEBUG_CHANNEL);
+  if (!channel) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("🔍 AI Translate Debug")
+    .setDescription(
+      typeof text === "string" ? text : JSON.stringify(text, null, 2),
+    )
+    .setColor(0x3498db)
+    .setTimestamp();
+
+  channel.send({ embeds: [embed] }).catch(() => {});
 }
 
 module.exports = {
   name: "messageReactionAdd",
 
   async execute(reaction, user, client) {
+    // ── UNCONDITIONAL first-line log ──────────────────────────────────
+    // This MUST fire before any return statement so we know the event works.
     const guildId = reaction.message.guild?.id || null;
+    const emojiName = reaction.emoji?.name || null;
+    const emojiId = reaction.emoji?.id || null;
+    const emojiIdentifier = reaction.emoji?.identifier || null;
 
-    // ── Log: every reaction received ────────────────────────────────
-    debugLog("reaction received", {
-      rawEmojiName: reaction.emoji?.name,
-      emojiId: reaction.emoji?.id || null,
-      guildId,
-      channelId: reaction.message.channelId,
-      messageId: reaction.message.id,
-      userId: user.id,
-      isBot: user.bot,
-    });
+    ownerDebugLog(
+      `messageReactionAdd FIRED | guild=${guildId || "DM"} channel=${reaction.message.channelId} message=${reaction.message.id} user=${user.id} bot=${user.bot} emojiName=${emojiName} emojiId=${emojiId} emojiIdentifier=${emojiIdentifier} reactionPartial=${!!reaction.partial} messagePartial=${!!reaction.message.partial}`,
+    );
 
-    // ── Early return: bot user ───────────────────────────────────────
+    // ── Early return: bot user ────────────────────────────────────────
     if (user.bot) {
-      debugLog("early return: bot user", { userId: user.id });
+      ownerDebugLog(`STOP: bot user ignored | user=${user.id}`);
       return;
     }
 
-    // ── Early return: not in a guild ─────────────────────────────────
+    // ── Early return: not in a guild ──────────────────────────────────
     if (!guildId) {
-      debugLog("early return: DM (no guild)", { userId: user.id });
+      ownerDebugLog(`STOP: DM (no guild) | user=${user.id}`);
       return;
     }
 
@@ -50,37 +78,33 @@ module.exports = {
       const emoji = reaction.emoji.name || reaction.emoji.id;
       await trackReaction(guildId, user.id, emoji);
     } catch {
-      // Silently fail — activity tracking is not critical
+      // Silently fail
     }
 
-    // ── AI Translation ───────────────────────────────────────────────
+    // ── AI Translation ────────────────────────────────────────────────
     try {
-      const emojiName = reaction.emoji?.name || reaction.emoji?.id || "";
-
-      // ── Flag detection via new bulletproof system ──────────────────
+      // ── Flag detection ──────────────────────────────────────────────
       const flagInfo = getLanguageForFlag(emojiName);
 
       if (!flagInfo) {
-        debugLog("unsupported flag or non-flag emoji", {
-          rawEmojiName: emojiName,
-          reason: "no_flag_match",
-        });
-        return; // Not a supported flag — no credit consumed
+        ownerDebugLog(
+          `STOP: unsupported emoji | raw="${emojiName}" guild=${guildId} channel=${reaction.message.channelId}`,
+        );
+        return; // No credit consumed
       }
 
-      debugLog("supported flag detected", {
-        rawEmojiName: emojiName,
-        normalizedCode: flagInfo.code,
-        mappedLanguage: flagInfo.language,
-        displayEmoji: flagInfo.emoji,
-      });
+      ownerDebugLog(
+        `FLAG MATCHED | raw="${emojiName}" code=${flagInfo.code} language=${flagInfo.language} emoji=${flagInfo.emoji} guild=${guildId}`,
+      );
 
-      // ── Fetch full message if partial ──────────────────────────────
+      // ── Fetch full message if partial ───────────────────────────────
       if (reaction.partial) {
         try {
           await reaction.fetch();
         } catch {
-          debugLog("early return: reaction fetch failed");
+          ownerDebugLog(
+            `STOP: reaction fetch failed | guild=${guildId} channel=${reaction.message.channelId}`,
+          );
           return;
         }
       }
@@ -88,30 +112,30 @@ module.exports = {
         try {
           await reaction.message.fetch();
         } catch {
-          debugLog("early return: message fetch failed", {
-            messageId: reaction.message.id,
-          });
+          ownerDebugLog(
+            `STOP: message fetch failed | guild=${guildId} messageId=${reaction.message.id}`,
+          );
           return;
         }
       }
 
-      // ── Check: message has content ─────────────────────────────────
+      // ── Check: message has content ──────────────────────────────────
       if (!reaction.message.content && !reaction.message.embeds?.length) {
-        debugLog("early return: no content to translate", {
-          messageId: reaction.message.id,
-        });
+        ownerDebugLog(
+          `STOP: no content to translate | guild=${guildId} messageId=${reaction.message.id}`,
+        );
         return;
       }
 
-      // ── Check: not bot's own message (avoid loops) ─────────────────
+      // ── Check: not bot's own message (avoid loops) ──────────────────
       if (reaction.message.author?.id === client.user?.id) {
-        debugLog("early return: own message, skipping", {
-          messageId: reaction.message.id,
-        });
+        ownerDebugLog(
+          `STOP: own message | guild=${guildId} messageId=${reaction.message.id}`,
+        );
         return;
       }
 
-      // ── Extract text content ───────────────────────────────────────
+      // ── Extract text content ────────────────────────────────────────
       let content = reaction.message.content || "";
       if (!content.trim() && reaction.message.embeds?.length) {
         content = reaction.message.embeds
@@ -120,66 +144,60 @@ module.exports = {
           .join("\n");
       }
       if (!content.trim()) {
-        debugLog("early return: no useful text content", {
-          messageId: reaction.message.id,
-        });
+        ownerDebugLog(
+          `STOP: no useful text content | guild=${guildId} messageId=${reaction.message.id}`,
+        );
         return;
       }
 
-      debugLog("content extracted", {
-        contentLength: content.length,
-      });
+      ownerDebugLog(`CONTENT OK | length=${content.length} guild=${guildId}`);
 
-      // ── Permission check: bot must be able to send in channel ──────
+      // ── Permission check ────────────────────────────────────────────
       const channel = reaction.message.channel;
       const botPerms = channel.permissionsFor(client.user);
       if (!botPerms?.has("SendMessages")) {
-        debugLog("early return: missing SEND_MESSAGES permission", {
-          channelId: channel.id,
-        });
+        ownerDebugLog(
+          `STOP: missing SEND_MESSAGES | guild=${guildId} channel=${channel.id}`,
+        );
         return;
       }
       if (!botPerms?.has("EmbedLinks")) {
-        debugLog("early return: missing EMBED_LINKS permission", {
-          channelId: channel.id,
-        });
+        ownerDebugLog(
+          `STOP: missing EMBED_LINKS | guild=${guildId} channel=${channel.id}`,
+        );
         return;
       }
 
-      debugLog("permission check passed");
+      ownerDebugLog(`PERMS OK | guild=${guildId} channel=${channel.id}`);
 
-      // ── Check translation enabled ───────────────────────────────────
+      // ── Check AI enabled ────────────────────────────────────────────
       const prisma = require("../lib/prisma");
       const premium = await prisma.guildPremium.findUnique({
         where: { guildId },
         select: { aiTranslationEnabled: true, aiEnabled: true },
       });
 
-      debugLog("premium check", {
-        aiEnabled: premium?.aiEnabled !== false,
-        aiTranslationEnabled: !!premium?.aiTranslationEnabled,
-      });
-
       if (!premium || premium.aiEnabled === false) {
-        debugLog("early return: AI disabled for guild");
+        ownerDebugLog(`STOP: AI disabled | guild=${guildId}`);
         return;
       }
 
       if (!premium.aiTranslationEnabled) {
-        debugLog("early return: translation disabled for guild");
+        ownerDebugLog(`STOP: translation disabled | guild=${guildId}`);
         return;
       }
+
+      ownerDebugLog(`AI ENABLED | guild=${guildId} translation=true`);
 
       // ── Credit check ────────────────────────────────────────────────
       const { canUseAi } = require("../modules/premium/service");
       const gate = await canUseAi(guildId, user.id, 1);
 
-      debugLog("credit gate result", {
-        ok: gate.ok,
-        reason: gate.reason || null,
-      });
-
       if (!gate.ok) {
+        ownerDebugLog(
+          `STOP: credit blocked | reason=${gate.reason} guild=${guildId} user=${user.id}`,
+        );
+
         if (gate.reason === "no_credits" && canSendCreditError(guildId)) {
           await channel
             .send({
@@ -193,17 +211,15 @@ module.exports = {
         ) {
           await channel.send({ content: gate.message }).catch(() => {});
         }
-        debugLog("early return: credit/limit blocked", {
-          reason: gate.reason,
-        });
         return; // No credit consumed
       }
 
+      ownerDebugLog(`CREDITS OK | guild=${guildId}`);
+
       // ── Attempt translation ─────────────────────────────────────────
-      debugLog("AI translation: starting AI call", {
-        contentLength: content.length,
-        targetLanguage: flagInfo.language,
-      });
+      ownerDebugLog(
+        `AI CALL START | guild=${guildId} lang=${flagInfo.language} contentLen=${content.length}`,
+      );
 
       const result = await translateMessage({
         guildId,
@@ -212,14 +228,11 @@ module.exports = {
         targetEmoji: emojiName,
       });
 
-      debugLog("AI translation: result", {
-        success: result.success,
-        error: result.error || null,
-        targetLang: result.targetLang || null,
-        translationLength: result.translation?.length || null,
-      });
-
       if (!result.success) {
+        ownerDebugLog(
+          `STOP: AI failed | error=${result.error} guild=${guildId}`,
+        );
+
         if (result.error === "no_credits" && canSendCreditError(guildId)) {
           await channel
             .send({
@@ -236,13 +249,14 @@ module.exports = {
             })
             .catch(() => {});
         }
-        debugLog("AI translation: sent fallback error message", {
-          error: result.error,
-        });
         return;
       }
 
-      // ── Build embed response ─────────────────────────────────────────
+      ownerDebugLog(
+        `AI CALL OK | guild=${guildId} translationLen=${result.translation?.length}`,
+      );
+
+      // ── Build embed response ────────────────────────────────────────
       const embed = new EmbedBuilder()
         .setTitle(`${flagInfo.emoji} ${flagInfo.language} Translation`)
         .setDescription(result.translation)
@@ -256,19 +270,26 @@ module.exports = {
         embeds: [embed],
       });
 
-      debugLog("AI translation: sent successfully", {
-        guildId,
-        channelId: channel.id,
-        messageId: reaction.message.id,
-        userId: user.id,
-        language: flagInfo.language,
-      });
+      ownerDebugLog(
+        `SENT | guild=${guildId} channel=${channel.id} lang=${flagInfo.language}`,
+      );
+
+      // Also send a mini debug notification to owner channel
+      ownerDebugSend(
+        client,
+        [
+          `**Translation sent**`,
+          `Guild: ${guildId}`,
+          `Channel: <#${channel.id}>`,
+          `Language: ${flagInfo.emoji} ${flagInfo.language}`,
+          `Content length: ${content.length}`,
+          `Translation length: ${result.translation.length}`,
+          `User: <@${user.id}>`,
+        ].join("\n"),
+      );
     } catch (err) {
       console.error("[AI Translation] Error:", err.message);
-      debugLog("AI translation: unexpected error", {
-        error: err.message,
-        stack: err.stack,
-      });
+      ownerDebugLog(`EXCEPTION: ${err.message} | guild=${guildId}`);
     }
   },
 };
