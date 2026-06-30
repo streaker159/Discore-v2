@@ -160,6 +160,11 @@ module.exports = {
             `ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiWelcomeInstructions" TEXT`,
           );
         } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "BotAiUsage" ADD COLUMN IF NOT EXISTS "requestType" TEXT`,
+          );
+        } catch (e) {}
 
         logger.info("Startup migration check complete");
 

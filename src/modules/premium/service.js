@@ -260,7 +260,7 @@ async function consumeAiCredits(guildId, userId, cost, commandName) {
         userId: userId || null,
         success: true,
         creditsUsed: cost,
-        commandName: commandName || "unknown",
+        requestType: commandName || "unknown",
       },
     })
     .catch(() => {});

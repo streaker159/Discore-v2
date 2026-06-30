@@ -1282,12 +1282,14 @@ model BotAiUsage {
   id           String    @id @default(cuid())
   guildId      String?
   userId       String?
+  requestType  String?
   success      Boolean   @default(true)
   creditsUsed  Int       @default(0)
   createdAt    DateTime  @default(now())
 
   @@index([createdAt])
   @@index([guildId])
+  @@index([requestType])
 }
 
 model BotGuildInstallEvent {
