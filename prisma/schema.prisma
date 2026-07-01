@@ -27,12 +27,7 @@ model Guild {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
   allianceCode             String?          @unique
-  avaAlertRoleId           String?
-  avaCategoryId            String?
-  avaChatChannelId         String?
-  avaRequestChannelId      String?
   discoreAppealRoleId      String?
-  discoreAvaRoleId         String?
   discoreManagerRoleId     String?
   discoreMutedRoleId       String?
   logChannelId             String?
@@ -521,8 +516,6 @@ model PlayerProfile {
   role                    String?
   playstyle               String?
   discoreElo              Int                @default(1000)
-  avaWins                 Int                @default(0)
-  avaLosses               Int                @default(0)
   winRate                 Float?
   performanceScore        Int?
   combatStyle             String?
@@ -594,8 +587,6 @@ model AllianceProfile {
   updatedAt                                         DateTime              @updatedAt
   recentMatches                                     AllianceRecentMatch[]
   updateLogs                                        AllianceUpdateLog[]
-  AvaMatch_AvaMatch_awayAllianceIdToAllianceProfile AvaMatch[]            @relation("AvaMatch_awayAllianceIdToAllianceProfile")
-  AvaMatch_AvaMatch_homeAllianceIdToAllianceProfile AvaMatch[]            @relation("AvaMatch_homeAllianceIdToAllianceProfile")
 
   @@unique([tag, game])
   @@index([game])
@@ -1135,25 +1126,6 @@ model SafeVaultDailyLimit {
   @@index([dateKey])
 }
 
-model AvaMatch {
-  id                                                       String          @id
-  homeAllianceId                                           String
-  awayAllianceId                                           String
-  game                                                     String
-  status                                                   AvaStatus       @default(PENDING)
-  winnerId                                                 String?
-  evidenceUrl                                              String?
-  submittedBy                                              String?
-  confirmedBy                                              String?
-  scheduledAt                                              DateTime?
-  createdAt                                                DateTime        @default(now())
-  updatedAt                                                DateTime
-  AllianceProfile_AvaMatch_awayAllianceIdToAllianceProfile AllianceProfile @relation("AvaMatch_awayAllianceIdToAllianceProfile", fields: [awayAllianceId], references: [id])
-  AllianceProfile_AvaMatch_homeAllianceIdToAllianceProfile AllianceProfile @relation("AvaMatch_homeAllianceIdToAllianceProfile", fields: [homeAllianceId], references: [id])
-
-  @@index([homeAllianceId, awayAllianceId])
-}
-
 model TrackedRole {
   guildId   String
   roleId    String
@@ -1253,22 +1225,10 @@ enum MatchResult {
 
 enum LeaderboardType {
   TOP_PLAYERS_KD
-  TOP_PLAYERS_WINS
   TOP_PLAYERS_ELO
   TOP_ALLIANCES_ELO
   TOP_ALLIANCES_WINS
   TOP_ALLIANCES_RANK
-}
-
-enum AvaStatus {
-  PENDING
-  ACTIVE
-  RESULT_SUBMITTED
-  AWAITING_CONFIRMATION
-  VERIFIED
-  DISPUTED
-  VOIDED
-  CANCELED
 }
 
 enum ModActionType {

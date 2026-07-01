@@ -23,7 +23,6 @@ module.exports = {
   // Alliance & players
   "alliance.profiles": "FREE",
   "alliance.globalRanking": "FREE",
-  "ava.verified": "PRO",
   // Analytics
   "analytics.advanced": "ELITE",
   // Suggestions

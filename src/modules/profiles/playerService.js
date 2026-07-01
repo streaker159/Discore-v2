@@ -125,8 +125,6 @@ async function updatePlayerFromParsed(
       discordId,
       isPublic: true,
       discoreElo: 1000,
-      avaWins: 0,
-      avaLosses: 0,
       ...data,
     },
     include: {
@@ -170,8 +168,6 @@ async function updatePlayerManual(discordId, fields) {
       discordId,
       isPublic: true,
       discoreElo: 1000,
-      avaWins: 0,
-      avaLosses: 0,
       ...fields,
       lastUpdateAt: new Date(),
     },
@@ -211,16 +207,15 @@ async function setPlayerPrivacy(discordId, isPublic) {
   return prisma.playerProfile.upsert({
     where: { discordId },
     update: { isPublic },
-    create: { discordId, isPublic, discoreElo: 1000, avaWins: 0, avaLosses: 0 },
+    create: { discordId, isPublic, discoreElo: 1000 },
   });
 }
 
-// ── LEADERBOARD QUERIES ──────────────────────────────────────────────────────
+// ── LEADERBOARD QUERIES ──────────────────────────────────────
 
 async function getTopPlayers(metric = "discoreElo", limit = 10) {
   const validMetrics = {
     discoreElo: { discoreElo: "desc" },
-    avaWins: { avaWins: "desc" },
     kdRatio: { kdRatio: "desc" },
     performanceScore: { performanceScore: "desc" },
   };

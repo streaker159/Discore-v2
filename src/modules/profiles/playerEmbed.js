@@ -21,13 +21,6 @@ function buildPlayerEmbed(profile, discordUser) {
     profile.gameUsername || discordUser?.username || "Unknown Player";
   const rank = profile.inGameRank ? ` — ${profile.inGameRank}` : "";
   const elo = n(profile.discoreElo);
-  const wins = n(profile.avaWins, "0");
-  const losses = n(profile.avaLosses, "0");
-  const totalGames = (profile.avaWins ?? 0) + (profile.avaLosses ?? 0);
-  const wr =
-    totalGames > 0
-      ? `${((profile.avaWins / totalGames) * 100).toFixed(1)}%`
-      : "N/A";
 
   const embed = new EmbedBuilder()
     .setColor(PROFILE_COLOR)
@@ -134,9 +127,6 @@ function buildPlayerEmbed(profile, discordUser) {
   embed.addFields(
     { name: "\u200b", value: "**✅ Discore Stats**", inline: false },
     { name: "Discore Elo", value: elo, inline: true },
-    { name: "Verified Wins", value: wins, inline: true },
-    { name: "Verified Losses", value: losses, inline: true },
-    { name: "Win Rate", value: wr, inline: true },
     { name: "Role", value: n(profile.role), inline: true },
     {
       name: "Performance Score",

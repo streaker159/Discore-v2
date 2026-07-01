@@ -20,7 +20,7 @@ async function buildTopPlayersEloEmbed() {
   const players = await getTopPlayers("discoreElo", 15);
   const lines = players.map(
     (p, i) =>
-      `${medal(i)} <@${p.discordId}> — **${p.gameUsername || "Unknown"}** | Elo: ${p.discoreElo} | W/L: ${p.avaWins}/${p.avaLosses}`,
+      `${medal(i)} <@${p.discordId}> — **${p.gameUsername || "Unknown"}** | Elo: ${p.discoreElo}`,
   );
   return new EmbedBuilder()
     .setColor(0x1a3a5c)
@@ -41,26 +41,6 @@ async function buildTopPlayersKDEmbed() {
   return new EmbedBuilder()
     .setColor(0x1a3a5c)
     .setTitle("🗡️ Top Players — K/D Ratio")
-    .setDescription(
-      lines.length ? lines.join("\n") : "*No players ranked yet.*",
-    )
-    .setTimestamp()
-    .setFooter({ text: "Discore • Player Leaderboard" });
-}
-
-async function buildTopPlayersWinsEmbed() {
-  const players = await getTopPlayers("avaWins", 15);
-  const lines = players.map(
-    (p, i) =>
-      `${medal(i)} <@${p.discordId}> — **${p.gameUsername || "Unknown"}** | Wins: ${p.avaWins} | Win Rate: ${
-        p.avaWins + p.avaLosses > 0
-          ? ((p.avaWins / (p.avaWins + p.avaLosses)) * 100).toFixed(1) + "%"
-          : "N/A"
-      }`,
-  );
-  return new EmbedBuilder()
-    .setColor(0x1a3a5c)
-    .setTitle("🏅 Top Players — Verified Wins")
     .setDescription(
       lines.length ? lines.join("\n") : "*No players ranked yet.*",
     )
@@ -124,7 +104,6 @@ async function buildTopAlliancesRankEmbed() {
 const LEADERBOARD_BUILDERS = {
   TOP_PLAYERS_ELO: buildTopPlayersEloEmbed,
   TOP_PLAYERS_KD: buildTopPlayersKDEmbed,
-  TOP_PLAYERS_WINS: buildTopPlayersWinsEmbed,
   TOP_ALLIANCES_ELO: buildTopAlliancesEloEmbed,
   TOP_ALLIANCES_WINS: buildTopAlliancesWinsEmbed,
   TOP_ALLIANCES_RANK: buildTopAlliancesRankEmbed,

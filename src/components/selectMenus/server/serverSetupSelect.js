@@ -77,16 +77,6 @@ function buildSetupRoleFields(guild) {
       value: roleMention(guild.disAdminRoleId),
       inline: true,
     },
-    {
-      name: "AvA Alert Role",
-      value: roleMention(guild.avaAlertRoleId),
-      inline: true,
-    },
-    {
-      name: "AvA Role",
-      value: roleMention(guild.discoreAvaRoleId),
-      inline: true,
-    },
   ];
 }
 
@@ -110,10 +100,6 @@ function buildSetupSelectMenu() {
             "Set Discore manager, scoreboard manager, and admin roles",
           )
           .setValue("manager_roles"),
-        new StringSelectMenuOptionBuilder()
-          .setLabel("⚔️ AvA Roles")
-          .setDescription("Set AvA alert and AvA feature roles")
-          .setValue("ava_roles"),
         new StringSelectMenuOptionBuilder()
           .setLabel("🔄 Refresh")
           .setDescription("Refresh the setup panel")
@@ -236,27 +222,6 @@ module.exports = {
         content:
           "🛡️ **Select the manager roles below.**\nSelect a role to save it, or dismiss this message.",
         components: [discoreManager, scoreboardMgr, adminRole],
-        embeds: [],
-      });
-    }
-
-    // ── AvA Roles → role selects ─────────────────────────────────────────
-    if (choice === "ava_roles") {
-      const avaAlert = new ActionRowBuilder().addComponents(
-        new RoleSelectMenuBuilder()
-          .setCustomId("server_setup_role:ava_alert_role")
-          .setPlaceholder("Select AvA Alert Role"),
-      );
-      const avaRole = new ActionRowBuilder().addComponents(
-        new RoleSelectMenuBuilder()
-          .setCustomId("server_setup_role:ava_role")
-          .setPlaceholder("Select AvA Role"),
-      );
-
-      return interaction.update({
-        content:
-          "⚔️ **Select the AvA roles below.**\nSelect a role to save it, or dismiss this message.",
-        components: [avaAlert, avaRole],
         embeds: [],
       });
     }

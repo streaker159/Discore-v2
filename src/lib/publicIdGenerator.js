@@ -20,7 +20,6 @@ const PREFIXES = {
   AUTOMOD: "AMC",
   EVENT: "EVT",
   SCOREBOARD: "SCB",
-  AVA: "AVA",
   PLAYER: "PLY",
   SERVER: "SRV",
 };
@@ -97,10 +96,6 @@ async function generateScoreboardId(checkExists) {
   return generatePublicId(PREFIXES.SCOREBOARD, checkExists);
 }
 
-async function generateAvaId(checkExists) {
-  return generatePublicId(PREFIXES.AVA, checkExists);
-}
-
 async function generatePlayerId(checkExists) {
   return generatePublicId(PREFIXES.PLAYER, checkExists);
 }
@@ -118,7 +113,6 @@ module.exports = {
   generateAutoModId,
   generateEventId,
   generateScoreboardId,
-  generateAvaId,
   generatePlayerId,
   generateServerId,
 };

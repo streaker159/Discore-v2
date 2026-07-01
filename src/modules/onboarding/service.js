@@ -31,18 +31,6 @@ const RECOMMENDED_ROLES = [
     desc: "Manages scoreboards",
   },
   {
-    name: "AvA Alerts",
-    color: "#f39c12",
-    field: "avaAlertRoleId",
-    desc: "Pinged for AvA requests/alerts",
-  },
-  {
-    name: "AvA Team",
-    color: "#9b59b6",
-    field: "discoreAvaRoleId",
-    desc: "Access/use AvA features",
-  },
-  {
     name: "Appeal Ping",
     color: "#e67e22",
     field: "discoreAppealRoleId",
@@ -123,23 +111,6 @@ const CHANNEL_LAYOUT = [
         name: "appeals",
         field: "appealChannelId",
         desc: "Appeal dashboards are posted here",
-        type: ChannelType.GuildText,
-      },
-    ],
-  },
-  {
-    category: "AvA",
-    channels: [
-      {
-        name: "ava-requests",
-        field: "avaRequestChannelId",
-        desc: "Incoming/outgoing AvA requests",
-        type: ChannelType.GuildText,
-      },
-      {
-        name: "ava-chat",
-        field: "avaChatChannelId",
-        desc: "AvA coordination chat",
         type: ChannelType.GuildText,
       },
     ],
@@ -342,7 +313,7 @@ function buildOnboardingEmbed() {
   return new EmbedBuilder()
     .setTitle("👋 Welcome to Discore Official")
     .setDescription(
-      "Discore helps your server manage **scoreboards, suggestions, moderation, appeals, archives, AvA setup, and community records.**\n\n" +
+      "Discore helps your server manage **scoreboards, suggestions, moderation, appeals, archives, and community records.**\n\n" +
         "Admins, choose an option below to get started.",
     )
     .setColor(0x1a7a9e)
@@ -369,12 +340,6 @@ function buildOnboardingEmbed() {
         name: "⚖️ Appeals",
         value:
           "Appeals are linked to moderation cases. Discore posts an appeal dashboard in `#appeals` and creates a private appeal chat under the **Appeals** category for staff/member discussion.",
-        inline: false,
-      },
-      {
-        name: "⚔️ AvA Tools",
-        value:
-          "Set your alliance code and prepare for alliance-vs-alliance requests between servers.",
         inline: false,
       },
       {
@@ -433,7 +398,7 @@ function buildCommandsEmbed() {
     .setColor(0x1a7a9e)
     .setDescription(
       "**`/server setup`** — Set alliance code, alliance name, theme color, footer, and key roles\n" +
-        "**`/server channels`** — Set channels for scoreboards, suggestions, appeals, moderation, AvA, and reports\n" +
+        "**`/server channels`** — Set channels for scoreboards, suggestions, appeals, moderation, and reports\n" +
         "**`/server settings`** — View current server settings\n" +
         "**`/server info`** — View setup health and server status\n" +
         "**`/suggestion submit`** — Submit suggestions\n" +

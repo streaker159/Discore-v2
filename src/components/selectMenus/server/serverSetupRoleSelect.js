@@ -55,16 +55,6 @@ function buildSetupRoleFields(guild) {
       value: roleMention(guild.disAdminRoleId),
       inline: true,
     },
-    {
-      name: "AvA Alert Role",
-      value: roleMention(guild.avaAlertRoleId),
-      inline: true,
-    },
-    {
-      name: "AvA Role",
-      value: roleMention(guild.discoreAvaRoleId),
-      inline: true,
-    },
   ];
 }
 
@@ -89,10 +79,6 @@ function buildSetupSelectMenu() {
           )
           .setValue("manager_roles"),
         new StringSelectMenuOptionBuilder()
-          .setLabel("⚔️ AvA Roles")
-          .setDescription("Set AvA alert and AvA feature roles")
-          .setValue("ava_roles"),
-        new StringSelectMenuOptionBuilder()
           .setLabel("🔄 Refresh")
           .setDescription("Refresh the setup panel")
           .setValue("refresh"),
@@ -106,16 +92,12 @@ const ROLE_FIELD_MAP = {
   discore_manager_role: "discoreManagerRoleId",
   scoreboard_manager_role: "scoreboardManagerRoleId",
   discore_admin_role: "disAdminRoleId",
-  ava_alert_role: "avaAlertRoleId",
-  ava_role: "discoreAvaRoleId",
 };
 
 const ROLE_LABELS = {
   discore_manager_role: "Discore Manager Role",
   scoreboard_manager_role: "Scoreboard Manager Role",
   discore_admin_role: "Discore Admin Role",
-  ava_alert_role: "AvA Alert Role",
-  ava_role: "AvA Role",
 };
 
 // ─── Component handler ───────────────────────────────────────────────────────
