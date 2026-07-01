@@ -10,21 +10,19 @@ module.exports = {
   "events.liveLimit": "FREE",
   // Game data
   "game.lookup": "FREE",
-  // AI strategy
-  "strategy.ai": "PRO",
-  "strategy.deepReport": "ELITE",
+  // Note: AI features (/ask, translation, welcome AI) are NOT gated by tier
+  // here. They're gated purely by AI credits (see modules/premium/service.js
+  // canUseAi/consumeAiCredits) — a FREE server can use AI if it has purchased
+  // credits, and Premium includes 2,000 AI credits/month automatically.
   // Game finder
   "match.finder": "PRO",
   // Branding
   "branding.basic": "PRO",
   "branding.customNickname": "PRO",
   "branding.customFooter": "PRO",
-  "branding.full": "ELITE",
   // Alliance & players
   "alliance.profiles": "FREE",
   "alliance.globalRanking": "FREE",
-  // Analytics
-  "analytics.advanced": "ELITE",
   // Suggestions
   "suggestions.create": "FREE",
 };

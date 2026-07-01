@@ -2,7 +2,6 @@ const PLAN_RANK = {
   FREE: 0,
   PREMIUM: 1,
   PRO: 1,
-  ELITE: 2,
   LIFETIME: 99,
 };
 
@@ -20,11 +19,6 @@ const PLAN_LIMITS = {
   PRO: {
     liveScoreboards: 50,
     liveEvents: 50,
-    aiCreditsMonthly: 2000,
-  },
-  ELITE: {
-    liveScoreboards: 100,
-    liveEvents: 250,
     aiCreditsMonthly: 2000,
   },
   LIFETIME: {

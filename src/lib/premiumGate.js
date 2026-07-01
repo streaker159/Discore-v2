@@ -34,9 +34,8 @@ async function hasFeature(guildId, featureKey) {
 async function requireFeature(interaction, featureKey) {
   const ok = await hasFeature(interaction.guildId, featureKey);
   if (ok) return true;
-  const requiredTier = FEATURE_REQUIREMENTS[featureKey] || 'PRO';
   await interaction.reply({
-    content: `🔒 **Discore ${requiredTier} required.** This feature is premium locked.`,
+    content: `🔒 **Discore Premium required.** This feature is premium locked.`,
     ephemeral: true,
   });
   return false;

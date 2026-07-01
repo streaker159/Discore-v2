@@ -26,7 +26,6 @@ module.exports = {
             .setRequired(true)
             .addChoices(
               { name: "PRO", value: "PRO" },
-              { name: "ELITE", value: "ELITE" },
               { name: "LIFETIME", value: "LIFETIME" },
             ),
         ),
@@ -64,7 +63,6 @@ module.exports = {
             .setRequired(true)
             .addChoices(
               { name: "PRO", value: "PRO" },
-              { name: "ELITE", value: "ELITE" },
               { name: "LIFETIME", value: "LIFETIME" },
             ),
         )

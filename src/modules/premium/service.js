@@ -43,7 +43,7 @@ async function getPremiumStatus(guildId) {
   }
 
   return {
-    tier: tier === "PRO" || tier === "ELITE" ? "PREMIUM" : tier,
+    tier: tier === "PRO" ? "PREMIUM" : tier,
     premium,
     limits: getPlanLimits(tier),
     isLifetime: false,
