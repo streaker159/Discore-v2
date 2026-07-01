@@ -56,8 +56,10 @@ function createAttachment(name) {
 
 // ── Active (sealed) embed ──────────────────────────────────
 
-function buildActiveEmbed(attemptsUsed, maxAttempts) {
+function buildActiveEmbed(globalAttemptCount) {
   const closedAttachment = createAttachment("closed.png");
+
+  const label = globalAttemptCount === 1 ? "attempt" : "attempts";
 
   const embed = new EmbedBuilder()
     .setColor(0x00ff00) // green
@@ -67,29 +69,29 @@ function buildActiveEmbed(attemptsUsed, maxAttempts) {
     )
     .addFields(
       {
-        name: "Attempts Today",
-        value: `${attemptsUsed}/${maxAttempts}`,
-        inline: true,
+        name: "🌍 Global Attempts On This Vault",
+        value: `\`${globalAttemptCount} ${label}\``,
+        inline: false,
       },
       {
-        name: "Possible Prizes",
+        name: "🎁 Possible Prizes",
         value: PRIZES.map((p) => p.label).join("\n"),
         inline: false,
       },
       {
-        name: "Official Server",
+        name: "🔗 Official Server",
         value: OFFICIAL_INVITE,
         inline: false,
       },
       {
-        name: "Rules",
+        name: "📜 Rules",
         value:
           "Free promotional game. No purchase required. Prizes are manually reviewed by Discore Official.",
         inline: false,
       },
     )
     .setFooter({
-      text: "Discore Vault • One global safe • 5 attempts per day",
+      text: "Discore Vault • One global safe • 5 attempts per user per day",
     });
 
   if (closedAttachment) {
@@ -101,7 +103,7 @@ function buildActiveEmbed(attemptsUsed, maxAttempts) {
 
 // ── Wrong code embed ──────────────────────────────────────
 
-function buildWrongEmbed(attemptsUsed, maxAttempts) {
+function buildWrongEmbed(attemptsUsed, maxAttempts, nextResetTimestamp) {
   const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed);
   const closedAttachment = createAttachment("closed.png");
 
@@ -111,13 +113,13 @@ function buildWrongEmbed(attemptsUsed, maxAttempts) {
     .setDescription("The vault stayed shut. It may have judged you a little.")
     .addFields(
       {
-        name: "Attempts Used Today",
-        value: `${attemptsUsed}/${maxAttempts}`,
+        name: "👤 Your Attempts Today",
+        value: `\`${attemptsUsed}/${maxAttempts}\``,
         inline: true,
       },
       {
-        name: "Attempts Left",
-        value: `${attemptsLeft}`,
+        name: "🔁 Attempts Reset",
+        value: nextResetTimestamp ? `<t:${nextResetTimestamp}:R>` : "Tomorrow",
         inline: true,
       },
       { name: "Status", value: "Locked", inline: true },
@@ -266,14 +268,30 @@ function buildPrizeConfirmationEmbed(prizeLabel) {
 
 // ── No attempts left embed ────────────────────────────────
 
-function buildNoAttemptsLeftEmbed() {
+function buildNoAttemptsLeftEmbed(
+  attemptsUsed,
+  maxAttempts,
+  nextResetTimestamp,
+) {
   return new EmbedBuilder()
     .setColor(0xff0000)
-    .setTitle("🔴 No Attempts Left")
+    .setTitle("⏳ No Attempts Left")
     .setDescription(
-      "You have used all 5 safecrack attempts today. Come back tomorrow, code gremlin.",
+      "You have used all 5 safecrack attempts today. Come back when the vault goblins refill your keypad privileges.",
     )
-    .setFooter({ text: "Discore Vault • Resets at midnight UTC" });
+    .addFields(
+      {
+        name: "👤 Your Attempts Today",
+        value: `\`${attemptsUsed}/${maxAttempts}\``,
+        inline: true,
+      },
+      {
+        name: "🔁 Attempts Reset",
+        value: nextResetTimestamp ? `<t:${nextResetTimestamp}:R>` : "Tomorrow",
+        inline: true,
+      },
+    )
+    .setFooter({ text: "Discore Vault • Attempts reset daily" });
 }
 
 module.exports = {

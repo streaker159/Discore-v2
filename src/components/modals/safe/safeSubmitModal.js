@@ -16,6 +16,7 @@ const {
 const {
   submitGuess,
   MAX_ATTEMPTS_PER_DAY,
+  getNextResetTimestamp,
 } = require("../../../modules/safe/safeVaultService");
 
 const logger = require("../../../lib/logger");
@@ -50,6 +51,8 @@ module.exports = {
         code,
       );
 
+      const nextReset = getNextResetTimestamp();
+
       if (result.message === "INVALID_CODE") {
         return interaction.reply({
           content: "Enter exactly 4 digits, like 0042 or 9876.",
@@ -69,7 +72,13 @@ module.exports = {
           buildNoAttemptsLeftEmbed,
         } = require("../../../modules/safe/safeVaultEmbeds");
         return interaction.reply({
-          embeds: [buildNoAttemptsLeftEmbed()],
+          embeds: [
+            buildNoAttemptsLeftEmbed(
+              result.attemptsUsed,
+              MAX_ATTEMPTS_PER_DAY,
+              nextReset,
+            ),
+          ],
           flags: 64,
         });
       }
@@ -78,6 +87,7 @@ module.exports = {
         const { embed, attachment, attemptsLeft } = buildWrongEmbed(
           result.attemptsUsed,
           MAX_ATTEMPTS_PER_DAY,
+          nextReset,
         );
 
         const payload = { embeds: [embed], flags: 64 };

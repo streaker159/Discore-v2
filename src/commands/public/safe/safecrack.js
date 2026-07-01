@@ -15,9 +15,11 @@ const {
 } = require("../../../modules/safe/safeVaultEmbeds");
 const {
   MAX_ATTEMPTS_PER_DAY,
+  getNextResetTimestamp,
   getDailyLimits,
   getCurrentRound,
   getPendingPrizeRound,
+  getGlobalAttemptCount,
 } = require("../../../modules/safe/safeVaultService");
 
 const logger = require("../../../lib/logger");
@@ -47,7 +49,7 @@ module.exports = {
         return showCrackedEmbed(interaction, pendingPrize, userId);
       }
 
-      // 2. Get daily limits
+      // 2. Get daily limits for this user
       const limit = await getDailyLimits(userId);
       const attemptsUsed = limit.attemptsUsed;
 
@@ -55,7 +57,6 @@ module.exports = {
       const round = await getCurrentRound();
 
       if (!round) {
-        // No active round - this shouldn't happen due to startup ensure
         return interaction.reply({
           content:
             "🔐 No active vault code is set. The bot owner has been notified. Please try again shortly.",
@@ -63,20 +64,25 @@ module.exports = {
         });
       }
 
-      // 4. Check attempts
+      // 4. Get global attempt count for this round
+      const globalAttemptCount = await getGlobalAttemptCount(round.id);
+
+      // 5. Check if user has attempts left
       if (attemptsUsed >= MAX_ATTEMPTS_PER_DAY) {
-        const embed = buildNoAttemptsLeftEmbed();
+        const nextReset = getNextResetTimestamp();
+        const embed = buildNoAttemptsLeftEmbed(
+          attemptsUsed,
+          MAX_ATTEMPTS_PER_DAY,
+          nextReset,
+        );
         return interaction.reply({
           embeds: [embed],
           flags: [MessageFlags.Ephemeral],
         });
       }
 
-      // 5. Show active embed with button
-      const { embed, attachment } = buildActiveEmbed(
-        attemptsUsed,
-        MAX_ATTEMPTS_PER_DAY,
-      );
+      // 6. Show active embed with global attempt count (no personal attempts)
+      const { embed, attachment } = buildActiveEmbed(globalAttemptCount);
 
       const button = new ButtonBuilder()
         .setCustomId("safe:enter")
@@ -117,6 +123,7 @@ async function showCrackedEmbed(interaction, round, userId) {
   } = require("../../../modules/safe/safeVaultEmbeds");
   const {
     MAX_ATTEMPTS_PER_DAY,
+    getDailyLimits,
   } = require("../../../modules/safe/safeVaultService");
   const { StringSelectMenuBuilder, ActionRowBuilder } = require("discord.js");
 

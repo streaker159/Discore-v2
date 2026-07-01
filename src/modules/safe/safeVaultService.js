@@ -14,6 +14,22 @@ function getDateKey() {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
 }
 
+function getNextResetTimestamp() {
+  const now = new Date();
+  // Next UTC midnight
+  const next = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 1,
+      0,
+      0,
+      0,
+    ),
+  );
+  return Math.floor(next.getTime() / 1000);
+}
+
 function generateCode() {
   return String(Math.floor(Math.random() * 10000)).padStart(4, "0");
 }
@@ -66,6 +82,12 @@ async function getPendingPrizeRoundAny() {
   return prisma.safeVaultRound.findFirst({
     where: { status: "PENDING_PRIZE" },
     orderBy: { crackedAt: "desc" },
+  });
+}
+
+async function getGlobalAttemptCount(roundId) {
+  return prisma.safeVaultAttempt.count({
+    where: { roundId },
   });
 }
 
@@ -530,12 +552,14 @@ module.exports = {
   BOT_OWNER_ID,
   MAX_ATTEMPTS_PER_DAY,
   getDateKey,
+  getNextResetTimestamp,
   generateCode,
   getDailyLimits,
   incrementDailyAttempt,
   getCurrentRound,
   getPendingPrizeRound,
   getPendingPrizeRoundAny,
+  getGlobalAttemptCount,
   generateNewRound,
   ensureActiveSafe,
   submitGuess,
