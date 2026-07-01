@@ -49,7 +49,8 @@ async function getSupportInvite(client) {
   try {
     const me = guild.members.me;
     const channel =
-      guild.systemChannel && guild.systemChannel.permissionsFor(me)?.has("CreateInstantInvite")
+      guild.systemChannel &&
+      guild.systemChannel.permissionsFor(me)?.has("CreateInstantInvite")
         ? guild.systemChannel
         : guild.channels.cache.find(
             (c) =>
