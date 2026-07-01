@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const prisma = require("../../lib/prisma");
 const logger = require("../../lib/logger");
 
@@ -31,7 +32,7 @@ function getNextResetTimestamp() {
 }
 
 function generateCode() {
-  return String(Math.floor(Math.random() * 10000)).padStart(4, "0");
+  return String(crypto.randomInt(0, 10000)).padStart(4, "0");
 }
 
 // ── Daily limits ──────────────────────────────────────────
