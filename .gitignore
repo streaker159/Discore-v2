@@ -5,3 +5,7 @@ coverage
 .DS_Store
 prisma/dev.db
 *.log
+# Not tracked: the host container regenerates this on every npm install with
+# its own npm version, which caused it to permanently drift from git and
+# block `git pull` on restart. Each environment manages its own lockfile.
+package-lock.json
