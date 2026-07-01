@@ -11,6 +11,14 @@ module.exports = {
   customId: "safe:enter",
 
   async execute(interaction) {
+    // Refresh the vault message activity timer (interaction counts as activity)
+    const {
+      refreshVaultActivity,
+    } = require("../../../modules/safe/safeVaultService");
+    if (interaction.message?.id) {
+      refreshVaultActivity(interaction.message.id);
+    }
+
     // Check daily attempts before showing modal
     const {
       getDailyLimits,
@@ -21,13 +29,24 @@ module.exports = {
     const userId = interaction.user.id;
 
     try {
+      const {
+        getNextResetTimestamp,
+      } = require("../../../modules/safe/safeVaultService");
+
       const limit = await getDailyLimits(userId);
       if (limit.attemptsUsed >= MAX_ATTEMPTS_PER_DAY) {
+        const nextReset = getNextResetTimestamp();
         const {
           buildNoAttemptsLeftEmbed,
         } = require("../../../modules/safe/safeVaultEmbeds");
         return interaction.reply({
-          embeds: [buildNoAttemptsLeftEmbed()],
+          embeds: [
+            buildNoAttemptsLeftEmbed(
+              limit.attemptsUsed,
+              MAX_ATTEMPTS_PER_DAY,
+              nextReset,
+            ),
+          ],
           flags: 64,
         });
       }

@@ -551,6 +551,86 @@ async function finalizeAfterPrizeSelection(client, round) {
   };
 }
 
+// ── Vault message auto-delete tracker ────────────────────
+
+const VAULT_MESSAGE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Map<messageId, { channelId, lastActivity, timeout }>
+ */
+const vaultMessageTracker = new Map();
+
+function trackVaultMessage(messageId, channelId, client) {
+  // Clear any existing tracker for this message
+  const existing = vaultMessageTracker.get(messageId);
+  if (existing?.timeout) {
+    clearTimeout(existing.timeout);
+  }
+
+  const record = {
+    channelId,
+    lastActivity: Date.now(),
+    client,
+  };
+
+  // Set deletion timeout
+  record.timeout = setTimeout(async () => {
+    await deleteVaultMessage(messageId);
+  }, VAULT_MESSAGE_TTL);
+
+  vaultMessageTracker.set(messageId, record);
+  logger.debug("Vault message tracked for auto-delete", {
+    messageId,
+    channelId,
+  });
+}
+
+function refreshVaultActivity(messageId) {
+  const record = vaultMessageTracker.get(messageId);
+  if (!record) return;
+
+  // Reset the timeout
+  if (record.timeout) {
+    clearTimeout(record.timeout);
+  }
+
+  record.lastActivity = Date.now();
+  record.timeout = setTimeout(async () => {
+    await deleteVaultMessage(messageId);
+  }, VAULT_MESSAGE_TTL);
+
+  logger.debug("Vault message activity refreshed", { messageId });
+}
+
+async function deleteVaultMessage(messageId) {
+  const record = vaultMessageTracker.get(messageId);
+  if (!record) return;
+
+  if (record.timeout) {
+    clearTimeout(record.timeout);
+  }
+
+  try {
+    const channel = await record.client.channels
+      .fetch(record.channelId)
+      .catch(() => null);
+    if (channel) {
+      const message = await channel.messages.fetch(messageId).catch(() => null);
+      if (message && message.deletable) {
+        await message.delete().catch(() => {});
+        logger.debug("Vault message auto-deleted", { messageId });
+      }
+    }
+  } catch (err) {
+    logger.warn("Failed to auto-delete vault message", {
+      messageId,
+      error: err.message,
+    });
+  } finally {
+    vaultMessageTracker.delete(messageId);
+  }
+}
+
 module.exports = {
   ADMIN_CHANNEL_ID,
   BOT_OWNER_ID,
@@ -569,4 +649,7 @@ module.exports = {
   submitGuess,
   selectPrize,
   finalizeAfterPrizeSelection,
+  trackVaultMessage,
+  refreshVaultActivity,
+  deleteVaultMessage,
 };

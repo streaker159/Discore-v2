@@ -67,22 +67,20 @@ module.exports = {
       // 4. Get global attempt count for this round
       const globalAttemptCount = await getGlobalAttemptCount(round.id);
 
-      // 5. Check if user has attempts left
-      if (attemptsUsed >= MAX_ATTEMPTS_PER_DAY) {
+      // 5. Build the main vault embed (always shown publicly)
+      const { embed, attachment } = buildActiveEmbed(globalAttemptCount);
+
+      // Add a notice if user is out of attempts
+      const attemptsLeft = Math.max(0, MAX_ATTEMPTS_PER_DAY - attemptsUsed);
+      let footerExtra = "";
+      if (attemptsLeft <= 0) {
         const nextReset = getNextResetTimestamp();
-        const embed = buildNoAttemptsLeftEmbed(
-          attemptsUsed,
-          MAX_ATTEMPTS_PER_DAY,
-          nextReset,
-        );
-        return interaction.reply({
-          embeds: [embed],
-          flags: [MessageFlags.Ephemeral],
-        });
+        footerExtra = ` · You have 0 attempts left (reset ${nextReset ? `<t:${nextReset}:R>` : "tomorrow"})`;
       }
 
-      // 6. Show active embed with global attempt count (no personal attempts)
-      const { embed, attachment } = buildActiveEmbed(globalAttemptCount);
+      if (footerExtra && embed.data?.footer?.text) {
+        embed.setFooter({ text: embed.data.footer.text + footerExtra });
+      }
 
       const button = new ButtonBuilder()
         .setCustomId("safe:enter")
@@ -100,7 +98,15 @@ module.exports = {
         payload.files = [attachment];
       }
 
-      return interaction.reply(payload);
+      const reply = await interaction.reply({ ...payload, fetchReply: true });
+
+      // 6. Track this vault message for auto-deletion after 5 minutes of inactivity
+      const {
+        trackVaultMessage,
+      } = require("../../../modules/safe/safeVaultService");
+      trackVaultMessage(reply.id, interaction.channelId, interaction.client);
+
+      return;
     } catch (error) {
       logger.error("safecrack command failed", { error: error.message });
       return interaction
