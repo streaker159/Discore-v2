@@ -4,7 +4,8 @@ const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
 const path = require("path");
 const fs = require("fs");
 
-const OFFICIAL_INVITE = "https://discord.gg/ddG42cF25u";
+const OFFICIAL_INVITE =
+  process.env.SAFE_OFFICIAL_INVITE || "https://discord.gg/ddG42cF25u";
 
 const PRIZES = [
   { label: "🎮 Free Month of Discord Nitro", value: "discord_nitro_month" },

@@ -495,4 +495,99 @@ module.exports = [
       return interaction.editReply({ embeds: [embed] });
     },
   },
+
+  // ── Contact Developer ────────────────────────────────────────────────────
+  {
+    customIdPrefix: "premium:contact_dev",
+    async execute(interaction) {
+      const modal = new ModalBuilder()
+        .setCustomId("premium_contact_dev_modal:")
+        .setTitle("Contact Developer");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("message")
+            .setLabel("Your message to the developer")
+            .setPlaceholder("Describe your question, issue, or feedback...")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMaxLength(1000),
+        ),
+      );
+      return interaction.showModal(modal);
+    },
+  },
+
+  // ── Contact Developer modal submit ────────────────────────────────────────
+  {
+    customIdPrefix: "premium_contact_dev_modal:",
+    async execute(interaction) {
+      const message = interaction.fields.getTextInputValue("message");
+      const reportChannelId = process.env.DEV_REPORT_CHANNEL_ID;
+
+      if (!reportChannelId) {
+        return interaction.reply({
+          content:
+            "⚠️ The developer contact system is not configured yet. Please try again later.",
+          flags: 64,
+        });
+      }
+
+      await interaction.deferUpdate().catch(() => {});
+
+      try {
+        const channel = await interaction.client.channels
+          .fetch(reportChannelId)
+          .catch(() => null);
+
+        if (!channel) {
+          return interaction.followUp({
+            content:
+              "⚠️ Could not deliver your message. Please try again later.",
+            flags: 64,
+          });
+        }
+
+        const { EmbedBuilder } = require("discord.js");
+        const embed = new EmbedBuilder()
+          .setColor(0x1a7a9e)
+          .setTitle("📬 Developer Contact")
+          .setDescription(message)
+          .addFields(
+            {
+              name: "From",
+              value: `<@${interaction.user.id}> (${interaction.user.tag})`,
+              inline: true,
+            },
+            {
+              name: "Server",
+              value: `${interaction.guild.name} (${interaction.guildId})`,
+              inline: true,
+            },
+            {
+              name: "Channel",
+              value: `<#${interaction.channelId}>`,
+              inline: true,
+            },
+          )
+          .setTimestamp();
+
+        await channel.send({ embeds: [embed] });
+
+        return interaction.followUp({
+          content: "✅ Your message has been sent to the developer. Thank you!",
+          flags: 64,
+        });
+      } catch (err) {
+        const logger = require("../../../lib/logger");
+        logger.error("Failed to deliver developer contact message", {
+          error: err.message,
+        });
+        return interaction.followUp({
+          content: "❌ Failed to send your message: " + err.message,
+          flags: 64,
+        });
+      }
+    },
+  },
 ];

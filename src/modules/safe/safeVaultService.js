@@ -4,8 +4,11 @@ const crypto = require("crypto");
 const prisma = require("../../lib/prisma");
 const logger = require("../../lib/logger");
 
-const ADMIN_CHANNEL_ID = "1521629955010859290";
-const BOT_OWNER_ID = "462858253252952065";
+const ADMIN_CHANNEL_ID =
+  process.env.SAFE_ADMIN_CHANNEL_ID || "1521629955010859290";
+const BOT_OWNER_IDS = process.env.BOT_OWNER_IDS || "462858253252952065";
+// Use first owner from comma-separated list
+const BOT_OWNER_ID = BOT_OWNER_IDS.split(",")[0].trim();
 const MAX_ATTEMPTS_PER_DAY = 5;
 
 // ── Helpers ───────────────────────────────────────────────
