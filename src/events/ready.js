@@ -239,13 +239,22 @@ module.exports = {
             `CREATE INDEX IF NOT EXISTS "SafeVaultDailyLimit_dateKey_idx" ON "SafeVaultDailyLimit" ("dateKey")`,
           );
         } catch (e) {}
+        // SafeVault FK — idempotent via DO block (ADD CONSTRAINT lacks IF NOT EXISTS)
         try {
           await prisma.$executeRawUnsafe(
-            `ALTER TABLE "SafeVaultAttempt" ADD CONSTRAINT "SafeVaultAttempt_roundId_fkey" FOREIGN KEY ("roundId") REFERENCES "SafeVaultRound"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+            `DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'SafeVaultAttempt_roundId_fkey'
+              ) THEN
+                ALTER TABLE "SafeVaultAttempt" ADD CONSTRAINT "SafeVaultAttempt_roundId_fkey" FOREIGN KEY ("roundId") REFERENCES "SafeVaultRound"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+              END IF;
+            END;
+            $$`,
           );
         } catch (e) {
           logger.info("Migration: SafeVault FK", {
-            error: e.message?.slice(0, 60),
+            error: e.message?.slice(0, 80),
           });
         }
 
