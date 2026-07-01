@@ -258,6 +258,23 @@ module.exports = {
           });
         }
 
+        // Scoreboard archive upgrade — friendlyArchiveId + restoredFromArchiveId
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "Scoreboard" ADD COLUMN IF NOT EXISTS "friendlyArchiveId" TEXT`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `ALTER TABLE "Scoreboard" ADD COLUMN IF NOT EXISTS "restoredFromArchiveId" TEXT`,
+          );
+        } catch (e) {}
+        try {
+          await prisma.$executeRawUnsafe(
+            `CREATE UNIQUE INDEX IF NOT EXISTS "Scoreboard_friendlyArchiveId_key" ON "Scoreboard" ("friendlyArchiveId")`,
+          );
+        } catch (e) {}
+
         logger.info("Startup migration check complete");
 
         // 1b. Schedule hourly analytics job (runs at minute 1 past every hour)

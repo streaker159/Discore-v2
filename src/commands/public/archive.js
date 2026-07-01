@@ -7,112 +7,251 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
   MessageFlags,
 } = require("discord.js");
 const prisma = require("../../lib/prisma");
 const {
-  getScoreboard,
-  getScoreboardById,
-  getArchivedScoreboards,
   archiveScoreboard,
   restoreScoreboard,
   deleteScoreboard,
+  getScoreboard,
   buildInteractiveShowEmbed,
   buildShowComponents,
-  pushLiveEmbed,
 } = require("../../modules/scoreboards/service");
+const {
+  searchArchives,
+  findArchiveById,
+  buildArchiveListEmbed,
+  buildArchiveListButtons,
+  buildArchiveViewEmbed,
+  buildArchiveViewButtons,
+  backfillAllArchives,
+} = require("../../modules/scoreboards/archiveService");
 const { requireFeature } = require("../../lib/premiumGate");
 const { getGuildSettings } = require("../../lib/embedBuilder");
 
-const MANAGEMENT_ACTIONS = [
-  "archive_live_scoreboard",
-  "restore_archived_scoreboard",
-  "delete_archived_scoreboard",
-];
+const MANAGEMENT_SUBS = ["restore", "add-result", "edit", "delete"];
 
 module.exports = {
   scope: "PUBLIC",
   data: new SlashCommandBuilder()
     .setName("archive")
-    .setDescription("Manage archived scoreboards. (Premium feature)")
-    .addStringOption((o) =>
-      o
-        .setName("action")
-        .setDescription("Choose what to do with the archive system")
-        .setRequired(true)
-        .addChoices(
-          {
-            name: "📋 Show archived scoreboards",
-            value: "show_archived_scoreboards",
-          },
-          {
-            name: "📦 Archive a live scoreboard",
-            value: "archive_live_scoreboard",
-          },
-          {
-            name: "♻️ Restore an archived scoreboard",
-            value: "restore_archived_scoreboard",
-          },
-          {
-            name: "🗑️ Delete an archived scoreboard",
-            value: "delete_archived_scoreboard",
-          },
+    .setDescription(
+      "Browse, search, and manage archived scoreboards. (Premium)",
+    )
+
+    // ── list ────────────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("list")
+        .setDescription("List archived scoreboards with pagination.")
+        .addStringOption((o) =>
+          o
+            .setName("month")
+            .setDescription("Filter by month (YYYY-MM)")
+            .setRequired(false),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("query")
+            .setDescription("Search by name, ID, or champion")
+            .setRequired(false),
         ),
     )
-    .addStringOption((o) =>
-      o
-        .setName("name")
-        .setDescription("Scoreboard name")
-        .setRequired(false)
-        .setAutocomplete(true),
+
+    // ── search ──────────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("search")
+        .setDescription("Search archived scoreboards.")
+        .addStringOption((o) =>
+          o
+            .setName("query")
+            .setDescription("Search by name, ID, or text")
+            .setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("month")
+            .setDescription("Filter by month (YYYY-MM)")
+            .setRequired(false),
+        ),
+    )
+
+    // ── view ────────────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("view")
+        .setDescription("View an archived scoreboard by its archive ID.")
+        .addStringOption((o) =>
+          o
+            .setName("archive_id")
+            .setDescription("Archive ID (e.g. A-202606-001)")
+            .setRequired(true)
+            .setAutocomplete(true),
+        ),
+    )
+
+    // ── restore ─────────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("restore")
+        .setDescription("Restore an archive as a new live scoreboard.")
+        .addStringOption((o) =>
+          o
+            .setName("archive_id")
+            .setDescription("Archive ID to restore")
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("new_name")
+            .setDescription("Optional new name for the restored board")
+            .setRequired(false),
+        ),
+    )
+
+    // ── add-result ──────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("add-result")
+        .setDescription("Add a win, loss, or points to an archived scoreboard.")
+        .addStringOption((o) =>
+          o
+            .setName("archive_id")
+            .setDescription("Archive ID")
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("target")
+            .setDescription("User, role, or name to add the result to")
+            .setRequired(true)
+            .setAutocomplete(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("result")
+            .setDescription("Type of result to add")
+            .setRequired(true)
+            .addChoices(
+              { name: "🏆 Win", value: "win" },
+              { name: "💔 Loss", value: "loss" },
+              { name: "💯 Points", value: "points" },
+            ),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("amount")
+            .setDescription("Number of wins/losses/points (default: 1)")
+            .setRequired(false),
+        ),
     ),
 
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused().toLowerCase();
-    const action = interaction.options.getString("action");
+    const guildId = interaction.guildId;
 
-    const isArchived = action === "archive_live_scoreboard" ? false : true;
-
-    const boards = await prisma.scoreboard.findMany({
-      where: { guildId: interaction.guildId, isArchived },
-      include: { entries: true },
-      orderBy: { name: "asc" },
-    });
-
-    const choices = boards
-      .filter((b) => b.name.toLowerCase().includes(focused))
-      .slice(0, 25)
-      .map((b) => {
-        const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-        const typeLabel =
-          b.type === "ROLE"
-            ? "Roles"
-            : b.type === "CUSTOM"
-              ? "Custom"
-              : "Users";
-        const extra =
-          isArchived && b.archivedAt
-            ? ` · Archived ${new Date(b.archivedAt).toLocaleDateString()}`
-            : "";
-        return {
-          name: `${b.name}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries${extra})`,
-          value: b.name,
-        };
+    // archive_id autocomplete
+    if (interaction.options.getFocused(true)?.name === "archive_id") {
+      const boards = await prisma.scoreboard.findMany({
+        where: { guildId, isArchived: true },
+        select: {
+          id: true,
+          friendlyArchiveId: true,
+          name: true,
+          publicId: true,
+        },
+        orderBy: { archivedAt: "desc" },
       });
-    await interaction.respond(choices).catch(() => {});
+
+      const choices = boards
+        .filter((b) => {
+          const aid = (b.friendlyArchiveId || "").toLowerCase();
+          const name = (b.name || "").toLowerCase();
+          const pid = (b.publicId || "").toLowerCase();
+          return (
+            aid.includes(focused) ||
+            name.includes(focused) ||
+            pid.includes(focused)
+          );
+        })
+        .slice(0, 25)
+        .map((b) => ({
+          name: `${b.friendlyArchiveId || b.publicId || b.id.slice(0, 8)} · ${b.name}`,
+          value: b.friendlyArchiveId || b.id,
+        }));
+
+      return interaction.respond(choices).catch(() => {});
+    }
+
+    // target autocomplete for add-result
+    if (interaction.options.getFocused(true)?.name === "target") {
+      const archiveId = interaction.options.getString("archive_id");
+      if (!archiveId) return interaction.respond([]).catch(() => {});
+
+      const board = await findArchiveById(guildId, archiveId);
+      if (!board) return interaction.respond([]).catch(() => {});
+
+      const guild = interaction.guild;
+      let choices = [];
+
+      if (board.type === "ROLE") {
+        choices = guild.roles.cache
+          .filter((r) => r.name !== "@everyone" && !r.managed)
+          .filter(
+            (r) =>
+              r.name.toLowerCase().includes(focused) || r.id.includes(focused),
+          )
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .first(25)
+          .map((r) => ({
+            name: `${r.name} (${r.members?.size ?? 0} members)`,
+            value: r.id,
+          }));
+      } else if (board.type === "USER") {
+        choices = guild.members.cache
+          .filter((m) => {
+            const n = (m.displayName || m.user?.username || "").toLowerCase();
+            return n.includes(focused) || m.id.includes(focused);
+          })
+          .sort((a, b) =>
+            (a.displayName || "").localeCompare(b.displayName || ""),
+          )
+          .first(25)
+          .map((m) => ({
+            name: `${m.displayName || m.user?.username} (${m.id})`,
+            value: m.id,
+          }));
+      } else {
+        // CUSTOM — match existing entries
+        choices = board.entries
+          .filter((e) => (e.targetName || "").toLowerCase().includes(focused))
+          .slice(0, 25)
+          .map((e) => ({
+            name: e.targetName || e.targetId,
+            value: e.targetName || e.targetId,
+          }));
+      }
+
+      return interaction.respond(choices).catch(() => {});
+    }
+
+    return interaction.respond([]).catch(() => {});
   },
 
   async execute(interaction) {
-    // Premium gate first
+    // Premium gate
     if (!(await requireFeature(interaction, "scoreboards.archive"))) return;
 
-    const action = interaction.options.getString("action", true);
+    const sub = interaction.options.getSubcommand();
+    const guildId = interaction.guildId;
 
-    // Permission check for management actions
-    if (MANAGEMENT_ACTIONS.includes(action)) {
-      const settings = await getGuildSettings(interaction.guildId);
+    // Permission check for management
+    if (MANAGEMENT_SUBS.includes(sub)) {
+      const settings = await getGuildSettings(guildId);
       const hasManagerRole = settings?.scoreboardManagerRoleId
         ? interaction.member?.roles?.cache?.has(
             settings.scoreboardManagerRoleId,
@@ -124,257 +263,150 @@ module.exports = {
       if (!hasPermission) {
         return interaction.reply({
           content:
-            "You need the **Scoreboard Manager** role (or Manage Server permission) to use this.",
+            "You need the **Scoreboard Manager** role (or Manage Server permission) to manage archives.",
           ephemeral: true,
         });
       }
     }
 
-    // ── show_archived_scoreboards ─────────────────────────────────────────
-    if (action === "show_archived_scoreboards") {
-      const archived = await getArchivedScoreboards(interaction.guildId);
-      if (!archived.length)
-        return interaction.reply({
-          content: "📭 No archived scoreboards found.",
-          ephemeral: true,
-        });
+    // Backfill archives on first access
+    await backfillAllArchives(guildId).catch(() => {});
 
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId("archive:show_select:")
-        .setPlaceholder("Select an archived scoreboard to view...")
-        .addOptions(
-          archived.slice(0, 25).map((b) => {
-            const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-            const d = b.archivedAt
-              ? new Date(b.archivedAt).toLocaleDateString()
-              : "";
-            return new StringSelectMenuOptionBuilder()
-              .setLabel(b.name.substring(0, 25))
-              .setDescription(
-                `${modeLabel} · ${b.entries.length} entries · Archived ${d}`,
-              )
-              .setValue(b.id);
-          }),
-        );
+    try {
+      switch (sub) {
+        case "list":
+        case "search": {
+          const month = interaction.options.getString("month");
+          const query = interaction.options.getString("query");
+          const filters = { month, query, page: 1 };
 
-      const row = new ActionRowBuilder().addComponents(selectMenu);
-      return interaction.reply({
-        content: `🗃️ **Archived Scoreboards (${archived.length})**\nSelect one to view:`,
-        components: [row],
-        ephemeral: true,
-      });
-    }
+          const result = await searchArchives(guildId, filters);
+          const embed = buildArchiveListEmbed(
+            interaction.guild,
+            result,
+            filters,
+          );
+          const components = buildArchiveListButtons(result, filters);
 
-    // ── archive_live_scoreboard ───────────────────────────────────────────
-    if (action === "archive_live_scoreboard") {
-      const name = interaction.options.getString("name");
-      if (!name) {
-        // Show dropdown of live boards
-        const live = await prisma.scoreboard.findMany({
-          where: { guildId: interaction.guildId, isArchived: false },
-          include: { entries: true },
-          orderBy: { name: "asc" },
-        });
-        if (!live.length)
           return interaction.reply({
-            content: "📭 No live scoreboards available to archive.",
+            embeds: [embed],
+            components: components.length > 0 ? components : [],
+          });
+        }
+
+        case "view": {
+          const archiveId = interaction.options.getString("archive_id", true);
+          const board = await findArchiveById(guildId, archiveId);
+          if (!board)
+            return interaction.reply({
+              content: `📭 Archive not found: \`${archiveId}\`. Use \`/archive list\` to browse.`,
+              ephemeral: true,
+            });
+
+          const embed = buildArchiveViewEmbed(board, interaction.guild);
+          const components = buildArchiveViewButtons(board);
+
+          // Also show interactive scoreboard if needed
+          return interaction.reply({
+            embeds: [embed],
+            components,
+          });
+        }
+
+        case "restore": {
+          const archiveId = interaction.options.getString("archive_id", true);
+          const newName = interaction.options.getString("new_name");
+
+          const {
+            restoreArchiveAsNew,
+          } = require("../../modules/scoreboards/archiveService");
+
+          try {
+            const board = await findArchiveById(guildId, archiveId);
+            if (!board)
+              return interaction.reply({
+                content: `📭 Archive not found: \`${archiveId}\`.`,
+                ephemeral: true,
+              });
+
+            const restored = await restoreArchiveAsNew(
+              board.id,
+              guildId,
+              newName,
+              interaction.user.id,
+            );
+
+            return interaction.reply({
+              content: `♻️ **Archive ${board.friendlyArchiveId || archiveId}** restored as live scoreboard **${restored.name}**!\nUse \`/scoreboard repair\` to attach a live channel.`,
+            });
+          } catch (err) {
+            return interaction.reply({
+              content: `❌ ${err.message}`,
+              ephemeral: true,
+            });
+          }
+        }
+
+        case "add-result": {
+          const archiveId = interaction.options.getString("archive_id", true);
+          const target = interaction.options.getString("target", true);
+          const resultType = interaction.options.getString("result", true);
+          const amount = interaction.options.getInteger("amount") || 1;
+
+          const {
+            addResultToArchive,
+          } = require("../../modules/scoreboards/archiveService");
+
+          try {
+            const board = await findArchiveById(guildId, archiveId);
+            if (!board)
+              return interaction.reply({
+                content: `📭 Archive not found: \`${archiveId}\`.`,
+                ephemeral: true,
+              });
+
+            await addResultToArchive(
+              guildId,
+              board.id,
+              target,
+              board.type,
+              resultType,
+              amount,
+              interaction.user.id,
+            );
+
+            const resultLabel =
+              resultType === "win"
+                ? `🏆 +${amount} win(s)`
+                : resultType === "loss"
+                  ? `💔 +${amount} loss(es)`
+                  : `💯 +${amount} point(s)`;
+
+            return interaction.reply({
+              content: `${resultLabel} added to archive **${board.friendlyArchiveId || archiveId}** — **${board.name}**`,
+            });
+          } catch (err) {
+            return interaction.reply({
+              content: `❌ ${err.message}`,
+              ephemeral: true,
+            });
+          }
+        }
+
+        default:
+          return interaction.reply({
+            content: "Unknown archive subcommand.",
             ephemeral: true,
           });
-
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId("archive:archive_live_select:")
-          .setPlaceholder("Select a live scoreboard to archive...")
-          .addOptions(
-            live.slice(0, 25).map((b) => {
-              const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-              return new StringSelectMenuOptionBuilder()
-                .setLabel(b.name.substring(0, 25))
-                .setDescription(`${modeLabel} · ${b.entries.length} entries`)
-                .setValue(b.id);
-            }),
-          );
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        return interaction.reply({
-          content: `📋 **Live Scoreboards (${live.length})**\nSelect one to archive:`,
-          components: [row],
-          ephemeral: true,
-        });
       }
-
-      // Direct archive with name from autocomplete — show button confirmation
-      const board = await getScoreboard(interaction.guildId, name);
-      if (!board)
-        return interaction.reply({
-          content: "Scoreboard not found.",
+    } catch (error) {
+      console.error("[Archive Command Error]", error);
+      return interaction
+        .reply({
+          content: `⚠️ Archive command failed: ${error.message}`,
           ephemeral: true,
-        });
-
-      const confirmEmbed = new EmbedBuilder()
-        .setColor(0xe67e22)
-        .setTitle("📦 Archive this scoreboard?")
-        .setDescription(
-          `You are about to archive **${board.name}** (${board.entries.length} entries).\n` +
-            `Choose whether to delete or keep the live embeds.\n` +
-            `You can restore this later with \`/archive action:♻️ Restore\`.`,
-        )
-        .setFooter({
-          text: board.publicId ? `ID: ${board.publicId}` : "Powered by Discore",
-        });
-
-      return interaction.reply({
-        embeds: [confirmEmbed],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`archive:archive_delete_embeds_yes:${board.id}:`)
-              .setLabel("Archive & Delete Embeds")
-              .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-              .setCustomId(`archive:archive_delete_embeds_no:${board.id}:`)
-              .setLabel("Archive & Keep Embeds")
-              .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-              .setCustomId(`archive:archive_cancel:${board.id}`)
-              .setLabel("Cancel")
-              .setStyle(ButtonStyle.Secondary),
-          ),
-        ],
-        ephemeral: true,
-      });
-    }
-
-    // ── restore_archived_scoreboard ───────────────────────────────────────
-    if (action === "restore_archived_scoreboard") {
-      const name = interaction.options.getString("name");
-      if (!name) {
-        const archived = await getArchivedScoreboards(interaction.guildId);
-        if (!archived.length)
-          return interaction.reply({
-            content: "📭 No archived scoreboards available to restore.",
-            ephemeral: true,
-          });
-
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId("archive:restore_select:")
-          .setPlaceholder("Select an archived scoreboard to restore...")
-          .addOptions(
-            archived.slice(0, 25).map((b) => {
-              const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-              const d = b.archivedAt
-                ? new Date(b.archivedAt).toLocaleDateString()
-                : "";
-              return new StringSelectMenuOptionBuilder()
-                .setLabel(b.name.substring(0, 25))
-                .setDescription(
-                  `${modeLabel} · ${b.entries.length} entries · Archived ${d}`,
-                )
-                .setValue(b.id);
-            }),
-          );
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        return interaction.reply({
-          content: `📋 **Archived Scoreboards (${archived.length})**\nSelect one to restore:`,
-          components: [row],
-          ephemeral: true,
-        });
-      }
-
-      try {
-        const board = await restoreScoreboard({
-          guildId: interaction.guildId,
-          name,
-        });
-        return interaction.reply({
-          content: `♻️ **${board.name}** restored. Use \`/scoreboard repair\` to reattach the live embed if needed.`,
-          ephemeral: true,
-        });
-      } catch (err) {
-        return interaction.reply({
-          content: `❌ ${err.message}`,
-          ephemeral: true,
-        });
-      }
-    }
-
-    // ── delete_archived_scoreboard ────────────────────────────────────────
-    if (action === "delete_archived_scoreboard") {
-      const name = interaction.options.getString("name");
-      if (!name) {
-        const archived = await getArchivedScoreboards(interaction.guildId);
-        if (!archived.length)
-          return interaction.reply({
-            content: "📭 No archived scoreboards available to delete.",
-            ephemeral: true,
-          });
-
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId("archive:delete_select:")
-          .setPlaceholder("Select an archived scoreboard to delete...")
-          .addOptions(
-            archived.slice(0, 25).map((b) => {
-              const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-              const d = b.archivedAt
-                ? new Date(b.archivedAt).toLocaleDateString()
-                : "";
-              return new StringSelectMenuOptionBuilder()
-                .setLabel(b.name.substring(0, 25))
-                .setDescription(
-                  `${modeLabel} · ${b.entries.length} entries · Archived ${d}`,
-                )
-                .setValue(b.id);
-            }),
-          );
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        return interaction.reply({
-          content: `🗑️ **Archived Scoreboards (${archived.length})**\nSelect one to delete permanently:`,
-          components: [row],
-          ephemeral: true,
-        });
-      }
-
-      // Confirm deletion
-      const board = await prisma.scoreboard.findFirst({
-        where: {
-          guildId: interaction.guildId,
-          name: { equals: name, mode: "insensitive" },
-          isArchived: true,
-        },
-      });
-      if (!board)
-        return interaction.reply({
-          content: "⚠️ That scoreboard is not archived or no longer exists.",
-          ephemeral: true,
-        });
-
-      const confirmEmbed = new EmbedBuilder()
-        .setColor(0xff0000)
-        .setTitle("⚠️ Permanently delete?")
-        .setDescription(
-          `Delete archived scoreboard **${board.name}**?\n` +
-            `(${board.entries.length} entries)\n\n` +
-            `⚠️ This cannot be undone.`,
-        )
-        .setFooter({ text: board.publicId ? `ID: ${board.publicId}` : "" });
-
-      return interaction.reply({
-        embeds: [confirmEmbed],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`archive:delete_confirm:${board.id}`)
-              .setLabel("Delete Forever")
-              .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-              .setCustomId(`archive:delete_cancel:${board.id}`)
-              .setLabel("Cancel")
-              .setStyle(ButtonStyle.Secondary),
-          ),
-        ],
-        ephemeral: true,
-      });
+        })
+        .catch(() => {});
     }
   },
 };

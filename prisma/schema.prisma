@@ -165,6 +165,7 @@ enum CodeType {
 model Scoreboard {
   id            String    @id @default(cuid())
   publicId      String?   @unique              // short human-readable ID
+  friendlyArchiveId String? @unique            // A-YYYYMM-NNN format for archives
   guildId       String
   guild         Guild     @relation(fields: [guildId], references: [id])
   name          String
@@ -184,6 +185,7 @@ model Scoreboard {
   archivedAt    DateTime?
   archivedBy    String?                        // Discord user ID
   archiveNote   String?
+  restoredFromArchiveId String?                // links restored board to source archive
   hasCategories Boolean   @default(false)      // whether this board supports category views
   brandingImageUrl String?                     // per-scoreboard image set via /server branding
   createdAt     DateTime  @default(now())
@@ -195,6 +197,7 @@ model Scoreboard {
   mergeHistories ScoreboardMergeHistory[]
 
   @@index([guildId])
+  @@index([friendlyArchiveId])
 
   scoreTypes       ScoreboardScoreType[]
   entryTypeStats   ScoreboardEntryTypeStats[]
