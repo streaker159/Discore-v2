@@ -285,6 +285,11 @@ module.exports = {
           o
             .setName("discore_admin_role")
             .setDescription("Discore advanced admin role"),
+        )
+        .addRoleOption((o) =>
+          o
+            .setName("appeal_ping_role")
+            .setDescription("Role to mention when a new appeal is submitted"),
         ),
     )
 
@@ -615,10 +620,12 @@ module.exports = {
           "scoreboard_manager_role",
         );
         const adminRole = getRoleId(interaction, "discore_admin_role");
+        const appealPingRole = getRoleId(interaction, "appeal_ping_role");
 
         if (managerRole) data.discoreManagerRoleId = managerRole;
         if (scoreboardMgrRole) data.scoreboardManagerRoleId = scoreboardMgrRole;
         if (adminRole) data.disAdminRoleId = adminRole;
+        if (appealPingRole) data.discoreAppealRoleId = appealPingRole;
 
         if (!Object.keys(data).length) {
           const {
