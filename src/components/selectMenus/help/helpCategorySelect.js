@@ -490,6 +490,17 @@ function buildHelpSelectMenu(currentCategory) {
   );
 }
 
+function buildSupportButtonRow() {
+  const { ButtonBuilder, ButtonStyle } = require("discord.js");
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("help:support")
+      .setLabel("Need help? Have a suggestion or bug to report?")
+      .setEmoji("🆘")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
 const { ActionRowBuilder } = require("discord.js");
 
 // ─── Component handler ───────────────────────────────────────────────────────
@@ -503,7 +514,7 @@ module.exports = {
 
     await interaction.update({
       embeds: [embed],
-      components: [selectRow],
+      components: [selectRow, buildSupportButtonRow()],
     });
   },
 };

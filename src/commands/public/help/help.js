@@ -5,6 +5,8 @@ const {
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   MessageFlags,
 } = require("discord.js");
 const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
@@ -112,6 +114,16 @@ function buildHelpSelectMenu(currentCategory = "overview") {
   );
 }
 
+function buildSupportButtonRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("help:support")
+      .setLabel("Need help? Have a suggestion or bug to report?")
+      .setEmoji("🆘")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
 // ─── Main command ─────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -126,7 +138,7 @@ module.exports = {
 
     await interaction.reply({
       embeds: [embed],
-      components: [selectRow],
+      components: [selectRow, buildSupportButtonRow()],
       flags: [MessageFlags.Ephemeral],
     });
   },
