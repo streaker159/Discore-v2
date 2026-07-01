@@ -201,37 +201,39 @@ async function canUseAi(guildId, userId, estimatedCost) {
 }
 
 async function consumeAiCredits(guildId, userId, cost, commandName) {
-  const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
-  if (!premium) return { consumed: false };
+  // Atomic, race-condition-safe consumption. The CTE locks the row with
+  // FOR UPDATE and the outer UPDATE's WHERE re-checks availability against
+  // that locked snapshot, so two concurrent requests for the same guild are
+  // fully serialized by Postgres — no double-spend past the credit limit.
+  // (Previously this was a separate read-then-write, which was exploitable.)
+  const rows = await prisma.$queryRaw`
+    WITH old AS (
+      SELECT "guildId", "monthlyAiAllowance", "monthlyAiUsed", "extraAiCredits"
+      FROM "GuildPremium"
+      WHERE "guildId" = ${guildId}
+      FOR UPDATE
+    )
+    UPDATE "GuildPremium" gp
+    SET
+      "monthlyAiUsed" = old."monthlyAiUsed"
+        + LEAST(${cost}::int, GREATEST(old."monthlyAiAllowance" - old."monthlyAiUsed", 0)),
+      "extraAiCredits" = old."extraAiCredits"
+        - GREATEST(${cost}::int - GREATEST(old."monthlyAiAllowance" - old."monthlyAiUsed", 0), 0),
+      "updatedAt" = NOW()
+    FROM old
+    WHERE gp."guildId" = old."guildId"
+      AND (GREATEST(old."monthlyAiAllowance" - old."monthlyAiUsed", 0) + old."extraAiCredits") >= ${cost}::int
+    RETURNING
+      LEAST(${cost}::int, GREATEST(old."monthlyAiAllowance" - old."monthlyAiUsed", 0)) AS "usedMonthly",
+      GREATEST(${cost}::int - GREATEST(old."monthlyAiAllowance" - old."monthlyAiUsed", 0), 0) AS "usedExtra"
+  `;
 
-  let remainingCost = cost;
-  let usedMonthly = 0;
-  let usedExtra = 0;
-
-  // Spend monthly allowance first
-  const monthlyRemaining = Math.max(
-    0,
-    (premium.monthlyAiAllowance || 0) - (premium.monthlyAiUsed || 0),
-  );
-  if (monthlyRemaining > 0) {
-    usedMonthly = Math.min(remainingCost, monthlyRemaining);
-    remainingCost -= usedMonthly;
+  if (!rows || rows.length === 0) {
+    return { consumed: false };
   }
 
-  // Spend extra credits
-  if (remainingCost > 0) {
-    usedExtra = Math.min(remainingCost, premium.extraAiCredits || 0);
-    remainingCost -= usedExtra;
-  }
-
-  // Apply consumption
-  const updates = {};
-  if (usedMonthly > 0) updates.monthlyAiUsed = { increment: usedMonthly };
-  if (usedExtra > 0) updates.extraAiCredits = { decrement: usedExtra };
-
-  if (Object.keys(updates).length) {
-    await prisma.guildPremium.update({ where: { guildId }, data: updates });
-  }
+  const usedMonthly = Number(rows[0].usedMonthly) || 0;
+  const usedExtra = Number(rows[0].usedExtra) || 0;
 
   // Log monthly usage aggregate
   const monthKey = new Date().toISOString().slice(0, 7);
@@ -269,7 +271,7 @@ async function consumeAiCredits(guildId, userId, cost, commandName) {
     consumed: true,
     usedMonthly,
     usedExtra,
-    remainingUnpaid: remainingCost,
+    remainingUnpaid: 0,
   };
 }
 

@@ -9,121 +9,105 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ── GUILDS ──────────────────────────────────────────────
-
 model Guild {
-  id                String    @id              // Discord guild ID
-  defaultGame       String?
-  timezone          String    @default("UTC")
-  allianceName      String?
-  allianceCode      String?   @unique         // 1-6 chars A-Z0-9 for AvA matching
-  allianceLogo      String?
-  themeColor        String    @default("#1a7a9e")
-  scoreboardChan    String?
-  logChannelId      String?                   // Replaces adminLogChan
-  adminLogChan      String?                   // DEPRECATED - use logChannelId
-  premiumNoticeChan String?
-  battleSignupChan        String?
-
-  // Moderation / Appeal Channels
-  moderationLogChannelId String?
-  appealChannelId        String?
-  appealCategoryId       String?
-  eventChannelId         String?
-  suggestionChannelId    String?
-  supportChannelId       String?
-  adminReportsChannelId  String?
-
-  language                String    @default("en")
-  customFooter            String?
-  scoreboardManagerRoleId String?
-  disAdminRoleId          String?
-  publicSuggestionVoters  Boolean   @default(false)
-  
-  
-  // Required Roles
-  discoreManagerRoleId    String?
-  discoreAppealRoleId     String?
-  discoreMutedRoleId      String?
-  
-  // Onboarding
-  onboardingSentAt       DateTime?
-  onboardingCompletedAt  DateTime?
-  onboardingSkippedAt    DateTime?
-  onboardingChannelId    String?
-
-  // Discore Official
-  announcementChannelId  String?
-  aiWelcomeChannelId     String?
-
-  // Maintenance
-  maintainRolesAndChannels Boolean  @default(true)
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  premium           GuildPremium?
-  scoreboards       Scoreboard[]
-  events            Event[]
-  battleSignups     BattleSignup[]
-  suggestions       Suggestion[]
-  auditLogs         AuditLog[]
-  moderationCases   ModerationCase[]
-  appeals           Appeal[]
-  autoModRules      AutoModRule[]
-  autoModCases      AutoModCase[]
-  userActivities    UserActivity[]
+  id                       String           @id
+  defaultGame              String?
+  timezone                 String           @default("UTC")
+  allianceName             String?
+  allianceLogo             String?
+  themeColor               String           @default("#1a7a9e")
+  scoreboardChan           String?
+  adminLogChan             String?
+  premiumNoticeChan        String?
+  battleSignupChan         String?
+  language                 String           @default("en")
+  customFooter             String?
+  scoreboardManagerRoleId  String?
+  disAdminRoleId           String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  allianceCode             String?          @unique
+  avaAlertRoleId           String?
+  avaCategoryId            String?
+  avaChatChannelId         String?
+  avaRequestChannelId      String?
+  discoreAppealRoleId      String?
+  discoreAvaRoleId         String?
+  discoreManagerRoleId     String?
+  discoreMutedRoleId       String?
+  logChannelId             String?
+  maintainRolesAndChannels Boolean          @default(true)
+  moderationLogChannelId   String?
+  appealChannelId          String?
+  appealCategoryId         String?
+  eventChannelId           String?
+  suggestionChannelId      String?
+  supportChannelId         String?
+  adminReportsChannelId    String?
+  publicSuggestionVoters   Boolean          @default(false)
+  onboardingSentAt         DateTime?        @db.Timestamptz(6)
+  onboardingCompletedAt    DateTime?        @db.Timestamptz(6)
+  onboardingSkippedAt      DateTime?        @db.Timestamptz(6)
+  onboardingChannelId      String?
+  announcementChannelId    String?
+  aiWelcomeChannelId       String?
+  appeals                  Appeal[]
+  auditLogs                AuditLog[]
+  autoModCases             AutoModCase[]
+  autoModRules             AutoModRule[]
+  battleSignups            BattleSignup[]
+  events                   Event[]
+  premium                  GuildPremium?
+  moderationCases          ModerationCase[]
+  scoreboards              Scoreboard[]
+  suggestions              Suggestion[]
+  userActivities           UserActivity[]
 
   @@index([id])
   @@index([allianceCode])
 }
 
-// ── PREMIUM ──────────────────────────────────────────────
-
 model GuildPremium {
-  id            String    @id @default(cuid())
-  guildId       String    @unique
-  guild         Guild     @relation(fields: [guildId], references: [id])
-  tier          Tier      @default(FREE)
-  method        PremiumMethod
-  stripeSubId   String?
-  code          String?
-  expiresAt     DateTime?
-  grantedBy     String?   // Discord user ID of bot owner who granted
-  entitlementId String?   // Discord entitlement ID
-  // Purchase tracking
-  purchasedAt       DateTime?  // When premium was first purchased
-  lastRenewalAt     DateTime?  // When premium was last renewed
-  renewalCount      Int        @default(0)
-  graceNotifiedAt   DateTime?  // When grace period warning was sent
-  // AI credit tracking
-  monthlyAiAllowance    Int       @default(0)
-  monthlyAiUsed         Int       @default(0)
-  monthlyAiPeriodStart  DateTime?
-  monthlyAiPeriodEnd    DateTime?
-  extraAiCredits        Int       @default(0)
-  // AI limits
-  serverDailyAiLimit    Int       @default(0)
-  perUserDailyAiLimit   Int       @default(0)
-  cooldownSeconds       Int       @default(0)
-  aiEnabled             Boolean   @default(true)
-  aiTranslationEnabled  Boolean   @default(false)
-  aiWelcomeEnabled      Boolean   @default(false)
-  aiWelcomeInstructions String?   @db.Text
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String        @id @default(cuid())
+  guildId               String        @unique
+  tier                  Tier          @default(FREE)
+  method                PremiumMethod
+  stripeSubId           String?
+  code                  String?
+  expiresAt             DateTime?
+  grantedBy             String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  entitlementId         String?
+  monthlyAiAllowance    Int           @default(0)
+  monthlyAiUsed         Int           @default(0)
+  monthlyAiPeriodStart  DateTime?     @db.Timestamptz(6)
+  monthlyAiPeriodEnd    DateTime?     @db.Timestamptz(6)
+  extraAiCredits        Int           @default(0)
+  serverDailyAiLimit    Int           @default(0)
+  perUserDailyAiLimit   Int           @default(0)
+  cooldownSeconds       Int           @default(0)
+  aiEnabled             Boolean       @default(true)
+  purchasedAt           DateTime?     @db.Timestamptz(6)
+  lastRenewalAt         DateTime?     @db.Timestamptz(6)
+  renewalCount          Int           @default(0)
+  graceNotifiedAt       DateTime?     @db.Timestamptz(6)
+  aiTranslationEnabled  Boolean       @default(false)
+  aiWelcomeEnabled      Boolean       @default(false)
+  aiWelcomeInstructions String?
+  guild                 Guild         @relation(fields: [guildId], references: [id])
 
   @@index([guildId])
   @@index([expiresAt])
 }
 
 model ProcessedEntitlement {
-  id              String    @id @default(cuid())
-  guildId         String
-  skuId           String
-  entitlementId   String    @unique
-  creditsGranted  Int       @default(0)
-  processedAt     DateTime  @default(now())
+  id             String   @id @default(cuid())
+  guildId        String
+  skuId          String
+  entitlementId  String   @unique
+  creditsGranted Int      @default(0)
+  processedAt    DateTime @default(now()) @db.Timestamptz(6)
 }
 
 model PremiumCode {
@@ -133,12 +117,1064 @@ model PremiumCode {
   tier        Tier
   maxUses     Int       @default(1)
   uses        Int       @default(0)
-  discountPct Int?      // for discount codes
-  trialDays   Int?      // for trial codes
+  discountPct Int?
+  trialDays   Int?
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
 
   @@index([code])
+}
+
+model Scoreboard {
+  id                    String                   @id @default(cuid())
+  guildId               String
+  name                  String
+  metric                String                   @default("WIN_LOSS")
+  type                  BoardType                @default(USER)
+  channelId             String?
+  messageId             String?
+  theme                 String                   @default("default")
+  liveTitle             String?
+  description           String?
+  season                Int?
+  lastLeaderId          String?
+  isArchived            Boolean                  @default(false)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  publicId              String?                  @unique
+  repairStatus          String                   @default("OK")
+  roleImageUrl          String?
+  lastUpdatedAt         DateTime?
+  archivedAt            DateTime?
+  archivedBy            String?
+  archiveNote           String?
+  hasCategories         Boolean                  @default(false)
+  brandingImageUrl      String?
+  friendlyArchiveId     String?                  @unique
+  restoredFromArchiveId String?
+  guild                 Guild                    @relation(fields: [guildId], references: [id])
+  actions               ScoreboardAction[]
+  entries               ScoreboardEntry[]
+  mergeHistories        ScoreboardMergeHistory[]
+  userRoleScores        UserRoleScore[]
+
+  @@index([guildId])
+}
+
+model ScoreboardScoreType {
+  id             String   @id @default(cuid())
+  guildId        String
+  scoreboardId   String
+  name           String
+  normalizedName String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([scoreboardId, normalizedName])
+}
+
+model ScoreboardEntryTypeStats {
+  id                String   @id @default(cuid())
+  guildId           String
+  scoreboardId      String
+  scoreboardEntryId String
+  scoreTypeId       String
+  wins              Int      @default(0)
+  losses            Int      @default(0)
+  points            Int      @default(0)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([scoreboardEntryId, scoreTypeId], map: "ScoreboardEntryTypeStats_entryId_typeId_key")
+}
+
+model ScoreboardEntry {
+  id                   String     @id @default(cuid())
+  scoreboardId         String
+  targetId             String
+  targetType           BoardType
+  wins                 Int        @default(0)
+  losses               Int        @default(0)
+  points               Int        @default(0)
+  winStreak            Int        @default(0)
+  lossStreak           Int        @default(0)
+  updatedAt            DateTime   @updatedAt
+  liveChannelId        String?
+  liveMessageId        String?
+  sourceScoreboardId   String?
+  sourceScoreboardName String?
+  targetName           String?
+  scoreboard           Scoreboard @relation(fields: [scoreboardId], references: [id])
+
+  @@unique([scoreboardId, targetId])
+  @@index([scoreboardId])
+  @@index([sourceScoreboardId])
+}
+
+model ScoreboardAction {
+  id           String     @id @default(cuid())
+  scoreboardId String
+  targetId     String
+  action       String
+  delta        Int
+  reason       String?
+  adminId      String
+  createdAt    DateTime   @default(now())
+  scoreboard   Scoreboard @relation(fields: [scoreboardId], references: [id])
+
+  @@index([scoreboardId])
+}
+
+model ScoreboardMergeHistory {
+  id                   String     @id @default(cuid())
+  guildId              String
+  targetScoreboardId   String
+  sourceScoreboardId   String
+  sourceScoreboardName String
+  mergeOption          String
+  mergedBy             String
+  entriesMerged        Int        @default(0)
+  sourceAction         String
+  mergedAt             DateTime   @default(now())
+  targetScoreboard     Scoreboard @relation(fields: [targetScoreboardId], references: [id])
+
+  @@index([guildId])
+  @@index([targetScoreboardId])
+  @@index([sourceScoreboardId])
+}
+
+model Game {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String
+  isActive  Boolean    @default(true)
+  buildings Building[]
+  research  Research[]
+  resources Resource[]
+  units     Unit[]
+
+  @@index([slug])
+}
+
+model Unit {
+  id          String    @id @default(cuid())
+  gameId      String
+  name        String
+  aliases     String[]
+  doctrine    String?
+  category    String?
+  description String?
+  stats       Json?
+  iconUrl     String?
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  isDraft     Boolean   @default(false)
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  game        Game      @relation(fields: [gameId], references: [id])
+
+  @@index([gameId])
+}
+
+model Building {
+  id          String    @id @default(cuid())
+  gameId      String
+  name        String
+  aliases     String[]
+  description String?
+  stats       Json?
+  iconUrl     String?
+  isActive    Boolean   @default(true)
+  isDraft     Boolean   @default(false)
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  game        Game      @relation(fields: [gameId], references: [id])
+
+  @@index([gameId])
+}
+
+model Resource {
+  id          String   @id @default(cuid())
+  gameId      String
+  name        String
+  aliases     String[]
+  description String?
+  iconUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  game        Game     @relation(fields: [gameId], references: [id])
+
+  @@index([gameId])
+}
+
+model Research {
+  id          String    @id @default(cuid())
+  gameId      String
+  name        String
+  aliases     String[]
+  description String?
+  stats       Json?
+  iconUrl     String?
+  isActive    Boolean   @default(true)
+  isDraft     Boolean   @default(false)
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  game        Game      @relation(fields: [gameId], references: [id])
+
+  @@index([gameId])
+}
+
+model BattleSignup {
+  id           String              @id @default(cuid())
+  guildId      String
+  channelId    String
+  messageId    String?
+  threadId     String?
+  captainId    String
+  game         String
+  title        String?
+  description  String?
+  mode         String?
+  scheduledAt  DateTime
+  teamSize     Int
+  tagOnCreate  String?
+  tagOnStart   String?
+  status       SignupStatus        @default(OPEN)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  publicId     String?
+  cleanupAfter DateTime?
+  guild        Guild               @relation(fields: [guildId], references: [id])
+  participants SignupParticipant[]
+
+  @@index([guildId])
+}
+
+model SignupParticipant {
+  id       String            @id @default(cuid())
+  signupId String
+  userId   String
+  status   ParticipantStatus
+  joinedAt DateTime          @default(now())
+  signup   BattleSignup      @relation(fields: [signupId], references: [id])
+
+  @@unique([signupId, userId])
+}
+
+model Event {
+  id                    String                 @id @default(cuid())
+  guildId               String
+  title                 String
+  description           String?
+  location              String?
+  imageUrl              String?
+  thumbnailUrl          String?
+  channelId             String
+  messageId             String?
+  scheduledAt           DateTime
+  createdBy             String
+  tagOnCreate           Boolean                @default(false)
+  tagOnStart            Boolean                @default(false)
+  status                EventStatus            @default(UPCOMING)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  publicId              String?                @unique
+  eventType             String                 @default("EVENT")
+  cleanupAfter          DateTime?
+  game                  String?
+  customTypeName        String?
+  timezoneUsed          String?
+  reminderBeforeMinutes Int?
+  teamSize              Int?
+  color                 String?
+  tagRoleIds            String[]               @default([])
+  eventNumber           Int?                   @unique
+  guild                 Guild                  @relation(fields: [guildId], references: [id])
+  notificationLogs      EventNotificationLog[]
+  reminders             EventReminder[]
+  rsvps                 EventRsvp[]
+
+  @@index([guildId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@index([cleanupAfter])
+}
+
+model EventRsvp {
+  id        String     @id @default(cuid())
+  eventId   String
+  userId    String
+  status    RsvpStatus
+  updatedAt DateTime   @updatedAt
+  event     Event      @relation(fields: [eventId], references: [id])
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+}
+
+/// *
+///  * Tracks each notification type that has been sent for an event.
+///  * Unique constraint on (eventId, notificationType) prevents double-sends
+///  * even if the bot restarts or the job fires twice.
+model EventNotificationLog {
+  id               String   @id @default(cuid())
+  eventId          String
+  guildId          String
+  notificationType String
+  channelId        String?
+  messageId        String?
+  roleId           String?
+  sentAt           DateTime @default(now())
+  event            Event    @relation(fields: [eventId], references: [id])
+
+  @@unique([eventId, notificationType])
+  @@index([eventId])
+}
+
+/// *
+///  * Per-user personal reminders set via the "Remind Me" button.
+model EventReminder {
+  id        String    @id @default(cuid())
+  eventId   String
+  userId    String
+  remindAt  DateTime
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  event     Event     @relation(fields: [eventId], references: [id])
+
+  @@unique([eventId, userId])
+  @@index([remindAt])
+  @@index([eventId])
+}
+
+model Suggestion {
+  id         String           @id @default(cuid())
+  guildId    String
+  authorId   String
+  content    String
+  imageUrl   String?
+  status     SuggestionStatus @default(OPEN)
+  channelId  String
+  messageId  String?
+  expiresAt  DateTime?
+  createdAt  DateTime         @default(now())
+  publicId   String?          @unique
+  title      String           @default("")
+  updatedAt  DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  approvedBy String?
+  approvedAt DateTime?        @db.Timestamptz(6)
+  deniedBy   String?
+  deniedAt   DateTime?        @db.Timestamptz(6)
+  adminNote  String?
+  showVoters Boolean          @default(false)
+  category   String           @default("GENERAL")
+  guild      Guild            @relation(fields: [guildId], references: [id])
+  votes      SuggestionVote[]
+
+  @@index([guildId])
+}
+
+model SuggestionVote {
+  id           String     @id @default(cuid())
+  suggestionId String
+  userId       String
+  type         VoteType
+  suggestion   Suggestion @relation(fields: [suggestionId], references: [id])
+
+  @@unique([suggestionId, userId])
+}
+
+model PlayerProfile {
+  id                      String             @id @default(cuid())
+  discordId               String             @unique
+  gameUsername            String?
+  game                    String?            @default("supremacy-ww3")
+  currentAlliance         String?
+  currentAllianceTag      String?
+  currentAllianceJoinedAt DateTime?
+  inGameRank              String?
+  level                   Int?
+  xpCurrent               Int?
+  xpMax                   Int?
+  kdRatio                 Float?
+  unitsKilled             Int?
+  unitsLost               Int?
+  provincesTaken          Int?
+  provincesLost           Int?
+  gamesJoined             Int?
+  soloVictories           Int?
+  coalitionVictories      Int?
+  overallScore            Int?
+  overallRank             Int?
+  economicRank            Int?
+  militaryRank            Int?
+  memberSince             String?
+  lastOnline              String?
+  playedOnPC              Int?
+  playedOnMobile          Int?
+  role                    String?
+  playstyle               String?
+  discoreElo              Int                @default(1000)
+  avaWins                 Int                @default(0)
+  avaLosses               Int                @default(0)
+  winRate                 Float?
+  performanceScore        Int?
+  combatStyle             String?
+  isPublic                Boolean            @default(true)
+  profileImageUrl         String?
+  screenshotUrls          String[]
+  lastUpdateAt            DateTime?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  allianceHistory         AllianceHistory[]
+  updateLogs              ProfileUpdateLog[]
+
+  @@index([discordId])
+}
+
+model AllianceHistory {
+  id           String        @id @default(cuid())
+  playerId     String
+  allianceName String
+  allianceTag  String?
+  game         String
+  joinedAt     DateTime
+  leftAt       DateTime?
+  player       PlayerProfile @relation(fields: [playerId], references: [id])
+
+  @@index([playerId])
+}
+
+model ProfileUpdateLog {
+  id        String        @id @default(cuid())
+  playerId  String
+  updatedAt DateTime      @default(now())
+  player    PlayerProfile @relation(fields: [playerId], references: [id])
+
+  @@index([playerId])
+}
+
+model AllianceProfile {
+  id                                                String                @id @default(cuid())
+  name                                              String
+  tag                                               String
+  game                                              String
+  logoUrl                                           String?
+  bannerUrl                                         String?
+  description                                       String?
+  discordInvite                                     String?
+  country                                           String?
+  tags                                              String[]
+  ownerId                                           String?
+  managerRoleId                                     String?
+  officialId                                        String?
+  officialRank                                      Int?
+  officialElo                                       Int?
+  officialWins                                      Int?
+  officialLosses                                    Int?
+  officialMembers                                   Int?
+  officialMaxMembers                                Int?
+  founded                                           String?
+  discoreRank                                       Int?
+  discoreElo                                        Int                   @default(1000)
+  discoreWins                                       Int                   @default(0)
+  discoreLosses                                     Int                   @default(0)
+  winRate                                           Float?
+  seasonRecord                                      String?
+  isPublic                                          Boolean               @default(true)
+  screenshotUrls                                    String[]
+  lastUpdateAt                                      DateTime?
+  createdAt                                         DateTime              @default(now())
+  updatedAt                                         DateTime              @updatedAt
+  recentMatches                                     AllianceRecentMatch[]
+  updateLogs                                        AllianceUpdateLog[]
+  AvaMatch_AvaMatch_awayAllianceIdToAllianceProfile AvaMatch[]            @relation("AvaMatch_awayAllianceIdToAllianceProfile")
+  AvaMatch_AvaMatch_homeAllianceIdToAllianceProfile AvaMatch[]            @relation("AvaMatch_homeAllianceIdToAllianceProfile")
+
+  @@unique([tag, game])
+  @@index([game])
+}
+
+model AllianceRecentMatch {
+  id           String          @id @default(cuid())
+  allianceId   String
+  opponentName String
+  opponentTag  String?
+  opponentLogo String?
+  result       MatchResult
+  occurredAt   DateTime        @default(now())
+  alliance     AllianceProfile @relation(fields: [allianceId], references: [id])
+
+  @@index([allianceId])
+}
+
+model AllianceUpdateLog {
+  id         String          @id @default(cuid())
+  allianceId String
+  updatedBy  String
+  updatedAt  DateTime        @default(now())
+  alliance   AllianceProfile @relation(fields: [allianceId], references: [id])
+
+  @@index([allianceId])
+}
+
+model LeaderboardChannel {
+  id        String          @id @default(cuid())
+  guildId   String
+  type      LeaderboardType
+  channelId String
+  messageId String?
+  enabled   Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([guildId, type])
+  @@index([guildId])
+}
+
+model LeaderboardSettings {
+  id             String    @id @default(cuid())
+  guildId        String    @unique
+  scheduleHour   Int       @default(9)
+  scheduleMinute Int       @default(0)
+  frequencyHours Int       @default(24)
+  lastPostedAt   DateTime?
+  enabled        Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model AiCredits {
+  id        String   @id @default(cuid())
+  guildId   String   @unique
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model AiUsageLog {
+  id          String   @id @default(cuid())
+  guildId     String
+  userId      String
+  requestType String
+  cost        Int
+  createdAt   DateTime @default(now())
+
+  @@index([guildId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  guildId   String
+  action    String
+  actorId   String
+  targetId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id])
+
+  @@index([guildId])
+}
+
+model MatchWatcher {
+  id         String   @id @default(cuid())
+  guildId    String
+  channelId  String
+  createdBy  String
+  game       String
+  mode       String?
+  maxPlayers Int?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([guildId])
+  @@index([game, isActive])
+}
+
+model BattleReminder {
+  id        String   @id @default(cuid())
+  signupId  String
+  userId    String
+  remindAt  DateTime
+  sent      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([signupId, userId])
+  @@index([remindAt, sent])
+}
+
+model UserActivity {
+  id                  String    @id @default(cuid())
+  guildId             String
+  userId              String
+  lastMessageAt       DateTime?
+  lastReactionAt      DateTime?
+  lastInteractionAt   DateTime?
+  lastActiveAt        DateTime?
+  activeDayStreak     Int       @default(0)
+  lastActiveDate      DateTime?
+  mostActiveChannelId String?
+  mostUsedReaction    String?
+  updatedAt           DateTime  @updatedAt
+  guild               Guild     @relation(fields: [guildId], references: [id])
+
+  @@unique([guildId, userId])
+  @@index([guildId, userId])
+  @@index([lastActiveAt])
+}
+
+model ModerationCase {
+  id              String            @id @default(cuid())
+  publicId        String            @unique
+  guildId         String
+  userId          String
+  moderatorId     String
+  actionType      ModActionType
+  reason          String
+  durationSeconds Int?
+  expiresAt       DateTime?
+  status          CaseStatus        @default(ACTIVE)
+  appealStatus    AppealStatus?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  revokedAt       DateTime?
+  revokedBy       String?
+  staffNote       String?
+  appeals         Appeal[]
+  guild           Guild             @relation(fields: [guildId], references: [id])
+  roleSnapshot    UserRoleSnapshot?
+
+  @@index([guildId])
+  @@index([userId])
+  @@index([publicId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([appealStatus])
+}
+
+model Appeal {
+  id         String         @id @default(cuid())
+  publicId   String         @unique
+  caseId     String
+  guildId    String
+  userId     String
+  appealText String
+  status     AppealStatus   @default(OPEN)
+  channelId  String?
+  createdAt  DateTime       @default(now())
+  closedAt   DateTime?
+  closedBy   String?
+  outcome    String?
+  staffNotes String?
+  case       ModerationCase @relation(fields: [caseId], references: [id])
+  guild      Guild          @relation(fields: [guildId], references: [id])
+
+  @@index([caseId])
+  @@index([guildId])
+  @@index([publicId])
+  @@index([status])
+}
+
+model UserRoleSnapshot {
+  id           String         @id @default(cuid())
+  guildId      String
+  userId       String
+  caseId       String         @unique
+  roleIds      String[]
+  createdAt    DateTime       @default(now())
+  cleanupAfter DateTime?
+  case         ModerationCase @relation(fields: [caseId], references: [id])
+
+  @@index([caseId])
+  @@index([cleanupAfter])
+}
+
+model AutoModRule {
+  id        String        @id @default(cuid())
+  guildId   String
+  phrase    String
+  matchType MatchType     @default(CONTAINS)
+  action    AutoModAction @default(REVIEW)
+  enabled   Boolean       @default(true)
+  createdBy String
+  createdAt DateTime      @default(now())
+  cases     AutoModCase[]
+  guild     Guild         @relation(fields: [guildId], references: [id])
+
+  @@index([guildId])
+  @@index([enabled])
+}
+
+model AutoModCase {
+  id              String        @id @default(cuid())
+  publicId        String        @unique
+  guildId         String
+  userId          String
+  channelId       String
+  messageId       String?
+  ruleId          String
+  messageExcerpt  String
+  actionTaken     AutoModAction
+  status          ReviewStatus  @default(PENDING)
+  reviewMessageId String?
+  cleanupAfter    DateTime?
+  createdAt       DateTime      @default(now())
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  guild           Guild         @relation(fields: [guildId], references: [id])
+  rule            AutoModRule   @relation(fields: [ruleId], references: [id])
+
+  @@index([guildId])
+  @@index([status])
+  @@index([cleanupAfter])
+}
+
+model AiUsage {
+  id           String   @id @default(cuid())
+  guildId      String
+  userId       String
+  month        String
+  creditsUsed  Int      @default(0)
+  requestCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([guildId, month])
+  @@index([guildId, month])
+}
+
+model UserRoleScore {
+  id           String     @id @default(cuid())
+  guildId      String
+  userId       String
+  roleId       String
+  scoreboardId String
+  wins         Int        @default(0)
+  losses       Int        @default(0)
+  points       Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  scoreboard   Scoreboard @relation(fields: [scoreboardId], references: [id])
+
+  @@unique([scoreboardId, roleId, userId])
+  @@index([guildId, userId])
+  @@index([roleId])
+}
+
+model GameDataSource {
+  id         String     @id @default(cuid())
+  game       String
+  gameKey    String     @unique
+  sourceName String
+  apiUrl     String
+  targetPage String
+  sourceType SourceType @default(MEDIAWIKI_API)
+  enabled    Boolean    @default(true)
+  lastSyncAt DateTime?
+  lastError  String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model GameUnit {
+  id                 String            @id @default(cuid())
+  game               String
+  gameKey            String
+  name               String
+  slug               String
+  category           String?
+  description        String?
+  sourceUrl          String?
+  sourceName         String?
+  sourcePage         String?
+  sourceLastSyncedAt DateTime?
+  verified           Boolean           @default(false)
+  manuallyEdited     Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  features           GameUnitFeature[]
+  variants           GameUnitVariant[]
+
+  @@unique([gameKey, slug])
+  @@index([game, category])
+  @@index([name])
+}
+
+model GameUnitVariant {
+  id                    String                @id @default(cuid())
+  unitId                String
+  doctrine              String?
+  generation            Int?
+  tier                  Int?
+  level                 Int?
+  description           String?
+  hitPoints             Float?
+  speed                 Float?
+  range                 Float?
+  sightRange            Float?
+  radarRange            Float?
+  stealthDetectionRange Float?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  costs                 GameUnitCost[]
+  terrainStats          GameUnitTerrainStat[]
+  upkeep                GameUnitUpkeep[]
+  unit                  GameUnit              @relation(fields: [unitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([unitId])
+}
+
+model GameUnitFeature {
+  id          String   @id @default(cuid())
+  unitId      String
+  variantId   String?
+  name        String
+  value       String
+  description String?
+  unit        GameUnit @relation(fields: [unitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([unitId])
+}
+
+model GameUnitCost {
+  id            String          @id @default(cuid())
+  variantId     String
+  supplies      Int?
+  components    Int?
+  manpower      Int?
+  electronics   Int?
+  fuel          Int?
+  cash          Int?
+  rareMaterials Int?
+  timeSeconds   Int?
+  rawTimeText   String?
+  variant       GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([variantId])
+}
+
+model GameUnitUpkeep {
+  id            String          @id @default(cuid())
+  variantId     String
+  supplies      Int?
+  components    Int?
+  manpower      Int?
+  electronics   Int?
+  fuel          Int?
+  cash          Int?
+  rareMaterials Int?
+  variant       GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([variantId])
+}
+
+model GameUnitTerrainStat {
+  id              String          @id @default(cuid())
+  variantId       String
+  terrain         String
+  hitPoints       Float?
+  speed           Float?
+  attackModifier  Float?
+  defenseModifier Float?
+  sightRange      Float?
+  variant         GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([variantId])
+}
+
+model GameUnitImportDraft {
+  id         String       @id @default(cuid())
+  game       String
+  gameKey    String
+  sourceUrl  String?
+  sourceName String?
+  sourcePage String?
+  rawExtract String?
+  parsedJson Json?
+  confidence String       @default("LOW")
+  warnings   String[]     @default([])
+  status     ImportStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([gameKey, status])
+  @@index([status])
+}
+
+model ModerationCaseTranscript {
+  id                String    @id @default(cuid())
+  guildId           String
+  caseId            String?
+  appealId          String?
+  caseNumber        String?
+  appealNumber      String?
+  ticketChannelId   String?
+  ticketChannelName String?
+  userId            String?
+  handledById       String?
+  outcome           String?
+  openedAt          DateTime? @db.Timestamptz(6)
+  closedAt          DateTime? @db.Timestamptz(6)
+  messageCount      Int       @default(0)
+  transcriptJson    String?
+  transcriptText    String?
+  createdAt         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([caseId])
+  @@index([appealNumber])
+  @@index([guildId])
+  @@index([createdAt])
+}
+
+model BotCommandUsage {
+  id          String   @id @default(cuid())
+  guildId     String?
+  userId      String
+  commandName String
+  subcommand  String?
+  success     Boolean  @default(true)
+  durationMs  Int?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@index([guildId])
+  @@index([commandName])
+}
+
+model BotAiUsage {
+  id          String   @id @default(cuid())
+  guildId     String?
+  userId      String?
+  success     Boolean  @default(true)
+  creditsUsed Int      @default(0)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  requestType String?
+
+  @@index([createdAt])
+  @@index([guildId])
+}
+
+model BotGuildInstallEvent {
+  id          String   @id @default(cuid())
+  guildId     String
+  guildName   String
+  memberCount Int      @default(0)
+  ownerId     String?
+  eventType   String
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([guildId])
+  @@index([eventType, createdAt])
+}
+
+model BotHourlyStatusReport {
+  id          String   @id @default(cuid())
+  channelId   String
+  reportHour  String
+  sentAt      DateTime @default(now()) @db.Timestamptz(6)
+  status      String   @default("success")
+  payloadJson String?
+}
+
+model SafeVaultRound {
+  id                   String             @id @default(cuid())
+  code                 String
+  status               String             @default("ACTIVE")
+  generatedAt          DateTime           @default(now()) @db.Timestamptz(6)
+  expiresAt            DateTime?          @db.Timestamptz(6)
+  crackedAt            DateTime?          @db.Timestamptz(6)
+  crackedByUserId      String?
+  crackedByUserTag     String?
+  crackedByDisplayName String?
+  crackedInGuildId     String?
+  crackedInGuildName   String?
+  selectedPrize        String?
+  prizeStatus          String?
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(6)
+  attempts             SafeVaultAttempt[]
+
+  @@index([status])
+  @@index([generatedAt])
+  @@index([crackedByUserId])
+}
+
+model SafeVaultAttempt {
+  id          String         @id @default(cuid())
+  roundId     String
+  userId      String
+  userTag     String?
+  displayName String?
+  guildId     String
+  guildName   String?
+  guessedCode String
+  correct     Boolean        @default(false)
+  createdAt   DateTime       @default(now()) @db.Timestamptz(6)
+  round       SafeVaultRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@index([roundId])
+  @@index([userId])
+  @@index([guildId])
+  @@index([createdAt])
+}
+
+model SafeVaultDailyLimit {
+  id           String   @id @default(cuid())
+  userId       String
+  dateKey      String
+  attemptsUsed Int      @default(0)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([userId, dateKey])
+  @@index([dateKey])
+}
+
+model AvaMatch {
+  id                                                       String          @id
+  homeAllianceId                                           String
+  awayAllianceId                                           String
+  game                                                     String
+  status                                                   AvaStatus       @default(PENDING)
+  winnerId                                                 String?
+  evidenceUrl                                              String?
+  submittedBy                                              String?
+  confirmedBy                                              String?
+  scheduledAt                                              DateTime?
+  createdAt                                                DateTime        @default(now())
+  updatedAt                                                DateTime
+  AllianceProfile_AvaMatch_awayAllianceIdToAllianceProfile AllianceProfile @relation("AvaMatch_awayAllianceIdToAllianceProfile", fields: [awayAllianceId], references: [id])
+  AllianceProfile_AvaMatch_homeAllianceIdToAllianceProfile AllianceProfile @relation("AvaMatch_homeAllianceIdToAllianceProfile", fields: [homeAllianceId], references: [id])
+
+  @@index([homeAllianceId, awayAllianceId])
+}
+
+model TrackedRole {
+  guildId   String
+  roleId    String
+  purpose   String   @default("SCOREBOARD")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  @@id([guildId, roleId])
+}
+
+model TrackedRoleMember {
+  guildId   String
+  roleId    String
+  userId    String
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  @@id([guildId, roleId, userId])
+  @@index([guildId, roleId], map: "TrackedRoleMember_guild_role_idx")
+  @@index([guildId, userId], map: "TrackedRoleMember_guild_user_idx")
 }
 
 enum Tier {
@@ -160,273 +1196,10 @@ enum CodeType {
   TRIAL
 }
 
-// ── SCOREBOARDS ──────────────────────────────────────────
-
-model Scoreboard {
-  id            String    @id @default(cuid())
-  publicId      String?   @unique              // short human-readable ID
-  friendlyArchiveId String? @unique            // A-YYYYMM-NNN format for archives
-  guildId       String
-  guild         Guild     @relation(fields: [guildId], references: [id])
-  name          String
-  metric        String    @default("WIN_LOSS")  // WIN_LOSS | POINTS
-  type          BoardType @default(USER)
-  channelId     String?                        // nullable — not required for non-live boards
-  messageId     String?                        // for live editing
-  theme         String    @default("default")  // hex color like #FF5733 or preset name
-  liveTitle     String?
-  description   String?
-  season        Int?
-  lastLeaderId  String?                        // targetId of current #1 for leader-change detection
-  roleImageUrl  String?                        // team/role avatar URL
-  repairStatus  String    @default("OK")       // OK | NEEDS_REPAIR | REPAIRING
-  lastUpdatedAt DateTime?                      // when last score was changed
-  isArchived    Boolean   @default(false)
-  archivedAt    DateTime?
-  archivedBy    String?                        // Discord user ID
-  archiveNote   String?
-  restoredFromArchiveId String?                // links restored board to source archive
-  hasCategories Boolean   @default(false)      // whether this board supports category views
-  brandingImageUrl String?                     // per-scoreboard image set via /server branding
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  entries       ScoreboardEntry[]
-  actions       ScoreboardAction[]
-  userRoleScores UserRoleScore[]
-  mergeHistories ScoreboardMergeHistory[]
-
-  @@index([guildId])
-  @@index([friendlyArchiveId])
-
-  scoreTypes       ScoreboardScoreType[]
-  entryTypeStats   ScoreboardEntryTypeStats[]
-}
-
-model ScoreboardScoreType {
-  id              String    @id @default(cuid())
-  guildId         String
-  scoreboardId    String
-  scoreboard      Scoreboard @relation(fields: [scoreboardId], references: [id])
-  name            String
-  normalizedName  String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  entryStats      ScoreboardEntryTypeStats[]
-
-  @@unique([scoreboardId, normalizedName])
-  @@index([scoreboardId])
-}
-
-model ScoreboardEntryTypeStats {
-  id                String    @id @default(cuid())
-  guildId           String
-  scoreboardId      String
-  scoreboard        Scoreboard @relation(fields: [scoreboardId], references: [id])
-  scoreboardEntryId String
-  scoreTypeId       String
-  scoreType         ScoreboardScoreType @relation(fields: [scoreTypeId], references: [id])
-  wins              Int       @default(0)
-  losses            Int       @default(0)
-  points            Int       @default(0)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@unique([scoreboardEntryId, scoreTypeId])
-  @@index([scoreboardEntryId])
-  @@index([scoreTypeId])
-}
-
-model ScoreboardEntry {
-  id                   String    @id @default(cuid())
-  scoreboardId         String
-  scoreboard           Scoreboard @relation(fields: [scoreboardId], references: [id])
-  targetId             String    // Discord user ID, role ID, or custom key
-  targetType           BoardType
-  targetName           String?   // display name for CUSTOM targets, or fallback for USER/ROLE
-  wins                 Int       @default(0)
-  losses               Int       @default(0)
-  points               Int       @default(0)
-  winStreak            Int       @default(0)
-  lossStreak           Int       @default(0)
-  liveChannelId        String?   // channel to post per-entry live score embed
-  liveMessageId        String?   // message to edit for per-entry live score embed
-  sourceScoreboardId   String?   // original source board ID when merged into a totals board
-  sourceScoreboardName String?   // original source board name when merged into a totals board
-  updatedAt            DateTime  @updatedAt
-
-  @@unique([scoreboardId, targetId])
-  @@index([scoreboardId])
-  @@index([sourceScoreboardId])
-}
-
-model ScoreboardAction {
-  id            String    @id @default(cuid())
-  scoreboardId  String
-  scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
-  targetId      String
-  action        String    // "WIN", "LOSS", "POINT", "RESET", "MERGE", "CREATE", "EDIT", "DELETE_ENTRY"
-  delta         Int
-  reason        String?
-  adminId       String
-  createdAt     DateTime  @default(now())
-
-  @@index([scoreboardId])
-}
-
-model ScoreboardMergeHistory {
-  id                   String    @id @default(cuid())
-  guildId              String
-  targetScoreboardId   String
-  targetScoreboard     Scoreboard @relation(fields: [targetScoreboardId], references: [id])
-  sourceScoreboardId   String
-  sourceScoreboardName String
-  mergeOption          String    // DELETE | CLEAR_KEEP_LIVE | KEEP_LIVE_KEEP_SCORES | ARCHIVE
-  mergedBy             String    // Discord user ID
-  entriesMerged        Int       @default(0)
-  sourceAction         String    // DELETED | CLEARED_KEEP_LIVE | KEPT_LIVE | ARCHIVED
-  mergedAt             DateTime  @default(now())
-
-  @@index([guildId])
-  @@index([targetScoreboardId])
-  @@index([sourceScoreboardId])
-}
-
 enum BoardType {
   USER
   ROLE
   CUSTOM
-}
-
-// ── GAME DATA ─────────────────────────────────────────────
-
-model Game {
-  id          String  @id @default(cuid())
-  slug        String  @unique  // "supremacy-ww3", "call-of-war"
-  name        String
-  isActive    Boolean @default(true)
-
-  units       Unit[]
-  buildings   Building[]
-  resources   Resource[]
-  research    Research[]
-
-  @@index([slug])
-}
-
-model Unit {
-  id          String  @id @default(cuid())
-  gameId      String
-  game        Game    @relation(fields: [gameId], references: [id])
-  name        String
-  aliases     String[]
-  doctrine    String?
-  category    String?
-  description String?
-  stats       Json?
-  iconUrl     String?
-  imageUrl    String?
-  isActive    Boolean @default(true)
-  isDraft     Boolean @default(false)
-  approvedBy  String?
-  approvedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([gameId])
-}
-
-model Building {
-  id          String  @id @default(cuid())
-  gameId      String
-  game        Game    @relation(fields: [gameId], references: [id])
-  name        String
-  aliases     String[]
-  description String?
-  stats       Json?
-  iconUrl     String?
-  isActive    Boolean @default(true)
-  isDraft     Boolean @default(false)
-  approvedBy  String?
-  approvedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([gameId])
-}
-
-model Resource {
-  id          String  @id @default(cuid())
-  gameId      String
-  game        Game    @relation(fields: [gameId], references: [id])
-  name        String
-  aliases     String[]
-  description String?
-  iconUrl     String?
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-
-  @@index([gameId])
-}
-
-model Research {
-  id          String  @id @default(cuid())
-  gameId      String
-  game        Game    @relation(fields: [gameId], references: [id])
-  name        String
-  aliases     String[]
-  description String?
-  stats       Json?
-  iconUrl     String?
-  isActive    Boolean @default(true)
-  isDraft     Boolean @default(false)
-  approvedBy  String?
-  approvedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([gameId])
-}
-
-// ── BATTLE SIGNUP ─────────────────────────────────────────
-
-model BattleSignup {
-  id            String    @id @default(cuid())
-  publicId      String?
-  guildId       String
-  guild         Guild     @relation(fields: [guildId], references: [id])
-  channelId     String
-  messageId     String?
-  threadId      String?
-  captainId     String
-  game          String
-  title         String?
-  description   String?
-  mode          String?
-  scheduledAt   DateTime
-  teamSize      Int
-  tagOnCreate   String?   // role ID to ping when signup is created
-  tagOnStart    String?   // role ID to ping when battle starts
-  status        SignupStatus @default(OPEN)
-  cleanupAfter  DateTime?                      // set when completed/cancelled
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  participants  SignupParticipant[]
-
-  @@index([guildId])
-}
-
-model SignupParticipant {
-  id          String    @id @default(cuid())
-  signupId    String
-  signup      BattleSignup @relation(fields: [signupId], references: [id])
-  userId      String
-  status      ParticipantStatus
-  joinedAt    DateTime  @default(now())
-
-  @@unique([signupId, userId])
 }
 
 enum SignupStatus {
@@ -443,96 +1216,6 @@ enum ParticipantStatus {
   DECLINED
 }
 
-// ── EVENTS ───────────────────────────────────────────────
-
-model Event {
-  id                    String      @id @default(cuid())
-  publicId              String?     @unique
-  guildId               String
-  guild                 Guild       @relation(fields: [guildId], references: [id])
-  title                 String
-  description           String?
-  location              String?
-  game                  String?     // game name (optional)
-  customTypeName        String?     // label used when eventType = CUSTOM
-  imageUrl              String?     // banner — full-width at bottom of embed
-  thumbnailUrl          String?     // small thumbnail — top-right of embed
-  eventType             String      @default("EVENT")  // EVENT|BATTLE|TEAM|COMMUNITY|TRAINING|GAME_START|CUSTOM
-  teamSize              Int?        // for battle/signup events: slots per side
-  color                 String?     // custom hex color overrides default (e.g. "#e74c3c")
-  channelId             String
-  messageId             String?
-  scheduledAt           DateTime
-  timezoneUsed          String?     // detected or explicit timezone
-  reminderBeforeMinutes Int?        // minutes before start for global channel reminder
-  createdBy             String
-  tagRoleIds            String[]    @default([])  // role IDs to ping (up to 5)
-  tagOnCreate           Boolean     @default(false)   // ping on creation
-  tagOnStart            Boolean     @default(false)   // ping when event goes LIVE
-  eventNumber           Int?        @unique          // sequential display ID
-  status                EventStatus @default(UPCOMING)
-  cleanupAfter          DateTime?   // cleanup job deletes DB row after this date
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
-
-  rsvps                 EventRsvp[]
-  notificationLogs      EventNotificationLog[]
-  reminders             EventReminder[]
-
-  @@index([guildId])
-  @@index([scheduledAt])
-  @@index([status])
-  @@index([cleanupAfter])
-}
-
-model EventRsvp {
-  id        String     @id @default(cuid())
-  eventId   String
-  event     Event      @relation(fields: [eventId], references: [id])
-  userId    String
-  status    RsvpStatus
-  updatedAt DateTime   @updatedAt
-  @@unique([eventId, userId])
-  @@index([eventId])
-}
-
-/**
- * Tracks each notification type that has been sent for an event.
- * Unique constraint on (eventId, notificationType) prevents double-sends
- * even if the bot restarts or the job fires twice.
- */
-model EventNotificationLog {
-  id               String   @id @default(cuid())
-  eventId          String
-  event            Event    @relation(fields: [eventId], references: [id])
-  guildId          String
-  notificationType String   // CREATE | REMINDER | START
-  channelId        String?
-  messageId        String?
-  roleId           String?
-  sentAt           DateTime @default(now())
-
-  @@unique([eventId, notificationType])
-  @@index([eventId])
-}
-
-/**
- * Per-user personal reminders set via the "Remind Me" button.
- */
-model EventReminder {
-  id        String    @id @default(cuid())
-  eventId   String
-  event     Event     @relation(fields: [eventId], references: [id])
-  userId    String
-  remindAt  DateTime
-  sentAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@unique([eventId, userId])
-  @@index([remindAt])
-  @@index([eventId])
-}
-
 enum EventStatus {
   UPCOMING
   LIVE
@@ -547,52 +1230,14 @@ enum RsvpStatus {
   NOT_GOING
 }
 
-// ── SUGGESTIONS ───────────────────────────────────────────
-
-model Suggestion {
-  id          String    @id @default(cuid())
-  publicId    String?   @unique
-  guildId     String
-  guild       Guild     @relation(fields: [guildId], references: [id])
-  authorId    String
-  title       String    @default("")
-  content     String
-  imageUrl    String?
-  status      SuggestionStatus @default(PENDING)
-  category    String    @default("GENERAL")
-  showVoters  Boolean   @default(false)
-  channelId   String
-  messageId   String?
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  approvedBy  String?
-  approvedAt  DateTime?
-  deniedBy    String?
-  deniedAt    DateTime?
-  adminNote   String?
-
-  votes       SuggestionVote[]
-
-  @@index([guildId])
-  @@index([publicId])
-}
-
-model SuggestionVote {
-  id            String    @id @default(cuid())
-  suggestionId  String
-  suggestion    Suggestion @relation(fields: [suggestionId], references: [id])
-  userId        String
-  type          VoteType
-  @@unique([suggestionId, userId])
-}
-
 enum SuggestionStatus {
-  PENDING
+  OPEN
   APPROVED
+  REJECTED
+  EXPIRED
+  PENDING
   DENIED
   DELETED
-  EXPIRED
 }
 
 enum VoteType {
@@ -600,179 +1245,10 @@ enum VoteType {
   DOWN
 }
 
-// ── PLAYERS & ALLIANCES ───────────────────────────────────
-
-model PlayerProfile {
-  id                      String    @id @default(cuid())
-  discordId               String    @unique
-  gameUsername            String?
-  game                    String?   @default("supremacy-ww3")
-  // Alliance
-  currentAlliance         String?
-  currentAllianceTag      String?
-  currentAllianceJoinedAt DateTime?
-  // In-game stats
-  inGameRank              String?   // "Staff Sergeant", "Commander"
-  level                   Int?
-  xpCurrent               Int?
-  xpMax                   Int?
-  kdRatio                 Float?
-  unitsKilled             Int?
-  unitsLost               Int?
-  provincesTaken          Int?
-  provincesLost           Int?
-  gamesJoined             Int?
-  soloVictories           Int?
-  coalitionVictories      Int?
-  overallScore            Int?
-  overallRank             Int?
-  economicRank            Int?
-  militaryRank            Int?
-  memberSince             String?
-  lastOnline              String?
-  playedOnPC              Int?      // percentage 0-100
-  playedOnMobile          Int?      // percentage 0-100
-  // Discore verified stats
-  role                    String?   // "Shot Caller", "Strategist" etc.
-  playstyle               String?
-  discoreElo              Int       @default(1000)
-  winRate                 Float?
-  performanceScore        Int?      // 0-100
-  combatStyle             String?   // short description
-  // Profile settings
-  isPublic                Boolean   @default(true)
-  profileImageUrl         String?
-  screenshotUrls          String[]
-  lastUpdateAt            DateTime?
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-
-  allianceHistory         AllianceHistory[]
-  updateLogs              ProfileUpdateLog[]
-
-  @@index([discordId])
-}
-
-model AllianceHistory {
-  id            String    @id @default(cuid())
-  playerId      String
-  player        PlayerProfile @relation(fields: [playerId], references: [id])
-  allianceName  String
-  allianceTag   String?
-  game          String
-  joinedAt      DateTime
-  leftAt        DateTime?
-
-  @@index([playerId])
-}
-
-model ProfileUpdateLog {
-  id          String    @id @default(cuid())
-  playerId    String
-  player      PlayerProfile @relation(fields: [playerId], references: [id])
-  updatedAt   DateTime  @default(now())
-
-  @@index([playerId])
-}
-
-model AllianceProfile {
-  id                  String    @id @default(cuid())
-  name                String
-  tag                 String
-  game                String
-  logoUrl             String?
-  bannerUrl           String?
-  description         String?
-  discordInvite       String?
-  country             String?
-  tags                String[]  // ["COMPETITIVE", "ACTIVE", "TEAMWORK"]
-  ownerId             String?   // Discord user ID who registered
-  managerRoleId       String?   // Discord role that can manage
-  // Official in-game stats
-  officialId          String?
-  officialRank        Int?
-  officialElo         Int?
-  officialWins        Int?
-  officialLosses      Int?
-  officialMembers     Int?
-  officialMaxMembers  Int?
-  founded             String?   // date string e.g. "5/31/24"
-  // Discore verified stats
-  discoreRank         Int?
-  discoreElo          Int       @default(1000)
-  discoreWins         Int       @default(0)
-  discoreLosses       Int       @default(0)
-  winRate             Float?
-  seasonRecord        String?   // "89W – 31L"
-  // Profile settings
-  isPublic            Boolean   @default(true)
-  screenshotUrls      String[]
-  lastUpdateAt        DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-
-  recentMatches       AllianceRecentMatch[]
-  updateLogs          AllianceUpdateLog[]
-
-  @@unique([tag, game])
-  @@index([game])
-}
-
-model AllianceRecentMatch {
-  id            String      @id @default(cuid())
-  allianceId    String
-  alliance      AllianceProfile @relation(fields: [allianceId], references: [id])
-  opponentName  String
-  opponentTag   String?
-  opponentLogo  String?
-  result        MatchResult
-  occurredAt    DateTime    @default(now())
-
-  @@index([allianceId])
-}
-
-model AllianceUpdateLog {
-  id          String    @id @default(cuid())
-  allianceId  String
-  alliance    AllianceProfile @relation(fields: [allianceId], references: [id])
-  updatedBy   String    // Discord user ID
-  updatedAt   DateTime  @default(now())
-
-  @@index([allianceId])
-}
-
 enum MatchResult {
   VICTORY
   DEFEAT
   DRAW
-}
-
-// ── LEADERBOARD CONFIG ────────────────────────────────────
-
-model LeaderboardChannel {
-  id          String          @id @default(cuid())
-  guildId     String
-  type        LeaderboardType
-  channelId   String
-  messageId   String?
-  enabled     Boolean         @default(true)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  @@unique([guildId, type])
-  @@index([guildId])
-}
-
-model LeaderboardSettings {
-  id              String    @id @default(cuid())
-  guildId         String    @unique
-  scheduleHour    Int       @default(9)    // 0-23 UTC
-  scheduleMinute  Int       @default(0)
-  frequencyHours  Int       @default(24)
-  lastPostedAt    DateTime?
-  enabled         Boolean   @default(false)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
 }
 
 enum LeaderboardType {
@@ -795,171 +1271,13 @@ enum AvaStatus {
   CANCELED
 }
 
-// ── AI CREDITS ────────────────────────────────────────────
-
-model AiCredits {
-  id          String  @id @default(cuid())
-  guildId     String  @unique
-  balance     Int     @default(0)
-  updatedAt   DateTime @updatedAt
-}
-
-model AiUsageLog {
-  id          String  @id @default(cuid())
-  guildId     String
-  userId      String
-  requestType String
-  cost        Int
-  createdAt   DateTime @default(now())
-
-  @@index([guildId])
-  @@index([guildId, createdAt])
-}
-
-// ── AUDIT LOG ─────────────────────────────────────────────
-
-model AuditLog {
-  id        String    @id @default(cuid())
-  guildId   String
-  guild     Guild     @relation(fields: [guildId], references: [id])
-  action    String
-  actorId   String
-  targetId  String?
-  meta      Json?
-  createdAt DateTime  @default(now())
-
-  @@index([guildId])
-}
-
-// ── GAME FINDER WATCHERS ──────────────────────────────────
-
-model MatchWatcher {
-  id          String    @id @default(cuid())
-  guildId     String
-  channelId   String
-  createdBy   String
-  game        String
-  mode        String?
-  maxPlayers  Int?
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-
-  @@index([guildId])
-  @@index([game, isActive])
-}
-
-// ── BATTLE REMINDERS ─────────────────────────────────────
-
-model BattleReminder {
-  id          String    @id @default(cuid())
-  signupId    String
-  userId      String
-  remindAt    DateTime
-  sent        Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-
-  @@unique([signupId, userId])
-  @@index([remindAt, sent])
-}
-
-// ── USER ACTIVITY TRACKING ────────────────────────────────
-
-model UserActivity {
-  id                    String    @id @default(cuid())
-  guildId               String
-  guild                 Guild     @relation(fields: [guildId], references: [id])
-  userId                String
-  lastMessageAt         DateTime?
-  lastReactionAt        DateTime?
-  lastInteractionAt     DateTime?
-  lastActiveAt          DateTime?
-  activeDayStreak       Int       @default(0)
-  lastActiveDate        DateTime?
-  mostActiveChannelId   String?
-  mostUsedReaction      String?
-  updatedAt             DateTime  @updatedAt
-
-  @@unique([guildId, userId])
-  @@index([guildId, userId])
-  @@index([lastActiveAt])
-}
-
-// ── MODERATION SYSTEM ─────────────────────────────────────
-
-model ModerationCase {
-  id              String         @id @default(cuid())
-  publicId        String         @unique  // MOD-001, MOD-002, MOD-003
-  guildId         String
-  guild           Guild          @relation(fields: [guildId], references: [id])
-  userId          String
-  moderatorId     String
-  actionType      ModActionType
-  reason          String         @db.Text
-  durationSeconds Int?
-  expiresAt       DateTime?
-  status          CaseStatus     @default(ACTIVE)
-  appealStatus    AppealStatus?  // Track appeal state
-  staffNote       String?        @db.Text  // Internal staff notes
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  revokedAt       DateTime?
-  revokedBy       String?
-
-  appeals         Appeal[]
-  roleSnapshot    UserRoleSnapshot?
-
-  @@index([guildId])
-  @@index([userId])
-  @@index([publicId])
-  @@index([status])
-  @@index([expiresAt])
-  @@index([appealStatus])
-}
-
-model Appeal {
-  id          String         @id @default(cuid())
-  publicId    String         @unique  // APP-001, APP-002, APP-003
-  caseId      String
-  case        ModerationCase @relation(fields: [caseId], references: [id])
-  guildId     String
-  guild       Guild          @relation(fields: [guildId], references: [id])
-  userId      String
-  appealText  String         @db.Text
-  status      AppealStatus   @default(OPEN)
-  channelId   String?
-  staffNotes  String?        @db.Text  // Internal staff notes
-  createdAt   DateTime       @default(now())
-  closedAt    DateTime?
-  closedBy    String?
-  outcome     String?        @db.Text
-
-  @@index([caseId])
-  @@index([guildId])
-  @@index([publicId])
-  @@index([status])
-}
-
-model UserRoleSnapshot {
-  id           String         @id @default(cuid())
-  guildId      String
-  userId       String
-  caseId       String         @unique
-  case         ModerationCase @relation(fields: [caseId], references: [id])
-  roleIds      String[]
-  createdAt    DateTime       @default(now())
-  cleanupAfter DateTime?
-
-  @@index([caseId])
-  @@index([cleanupAfter])
-}
-
 enum ModActionType {
   WARN
   MUTE
   TIMEOUT
   BAN
-  TEMP_BAN
   PROBATION
+  TEMP_BAN
 }
 
 enum CaseStatus {
@@ -971,56 +1289,13 @@ enum CaseStatus {
 }
 
 enum AppealStatus {
-  NONE
-  OPEN
   PENDING
   ACCEPTED
   REJECTED
+  NONE
+  OPEN
   REDUCED
   CLOSED
-}
-
-// ── AUTOMOD SYSTEM ────────────────────────────────────────
-
-model AutoModRule {
-  id         String         @id @default(cuid())
-  guildId    String
-  guild      Guild          @relation(fields: [guildId], references: [id])
-  phrase     String
-  matchType  MatchType      @default(CONTAINS)
-  action     AutoModAction  @default(REVIEW)
-  enabled    Boolean        @default(true)
-  createdBy  String
-  createdAt  DateTime       @default(now())
-
-  cases      AutoModCase[]
-
-  @@index([guildId])
-  @@index([enabled])
-}
-
-model AutoModCase {
-  id              String         @id @default(cuid())
-  publicId        String         @unique  // AMC-xxxxx
-  guildId         String
-  guild           Guild          @relation(fields: [guildId], references: [id])
-  userId          String
-  channelId       String
-  messageId       String?
-  ruleId          String
-  rule            AutoModRule    @relation(fields: [ruleId], references: [id])
-  messageExcerpt  String         @db.Text
-  actionTaken     AutoModAction
-  status          ReviewStatus   @default(PENDING)
-  reviewMessageId String?
-  cleanupAfter    DateTime?
-  createdAt       DateTime       @default(now())
-  reviewedAt      DateTime?
-  reviewedBy      String?
-
-  @@index([guildId])
-  @@index([status])
-  @@index([cleanupAfter])
 }
 
 enum MatchType {
@@ -1043,44 +1318,6 @@ enum ReviewStatus {
   DENIED
 }
 
-// ── AI USAGE TRACKING ─────────────────────────────────────
-
-model AiUsage {
-  id           String   @id @default(cuid())
-  guildId      String
-  userId       String
-  month        String   // YYYY-MM
-  creditsUsed  Int      @default(0)
-  requestCount Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([guildId, month])
-  @@index([guildId, month])
-}
-
-// ── USER ROLE SCORES ─────────────────────────────────────
-
-model UserRoleScore {
-  id            String    @id @default(cuid())
-  guildId       String
-  userId        String
-  roleId        String
-  scoreboardId  String
-  scoreboard    Scoreboard @relation(fields: [scoreboardId], references: [id])
-  wins          Int       @default(0)
-  losses        Int       @default(0)
-  points        Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  @@unique([scoreboardId, roleId, userId])
-  @@index([guildId, userId])
-  @@index([roleId])
-}
-
-// ── GAME UNIT DATA ────────────────────────────────────────────
-
 enum ImportStatus {
   PENDING
   APPROVED
@@ -1091,306 +1328,4 @@ enum SourceType {
   MEDIAWIKI_API
   HTML_FALLBACK
   MANUAL
-}
-
-model GameDataSource {
-  id          String      @id @default(cuid())
-  game        String
-  gameKey     String
-  sourceName  String
-  apiUrl      String
-  targetPage  String
-  sourceType  SourceType  @default(MEDIAWIKI_API)
-  enabled     Boolean     @default(true)
-  lastSyncAt  DateTime?
-  lastError   String?     @db.Text
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@unique([gameKey])
-  @@index([game])
-}
-
-model GameUnit {
-  id                  String   @id @default(cuid())
-  game                String
-  gameKey             String
-  name                String
-  slug                String
-  category            String?
-  description         String?  @db.Text
-  sourceUrl           String?
-  sourceName          String?
-  sourcePage          String?
-  sourceLastSyncedAt  DateTime?
-  verified            Boolean  @default(false)
-  manuallyEdited      Boolean  @default(false)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  variants   GameUnitVariant[]
-  features   GameUnitFeature[]
-
-  @@unique([gameKey, slug])
-  @@index([game, category])
-  @@index([name])
-}
-
-model GameUnitVariant {
-  id                      String   @id @default(cuid())
-  unitId                  String
-  unit                    GameUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  doctrine                String?
-  generation              Int?
-  tier                    Int?
-  level                   Int?
-  description             String?  @db.Text
-  hitPoints               Float?
-  speed                   Float?
-  range                   Float?
-  sightRange              Float?
-  radarRange              Float?
-  stealthDetectionRange   Float?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-
-  costs        GameUnitCost[]
-  upkeep       GameUnitUpkeep[]
-  terrainStats GameUnitTerrainStat[]
-
-  @@index([unitId])
-}
-
-model GameUnitFeature {
-  id          String   @id @default(cuid())
-  unitId      String
-  unit        GameUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  variantId   String?
-  name        String
-  value       String
-  description String?  @db.Text
-
-  @@index([unitId])
-}
-
-model GameUnitCost {
-  id            String   @id @default(cuid())
-  variantId     String
-  variant       GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  supplies      Int?
-  components    Int?
-  manpower      Int?
-  electronics   Int?
-  fuel          Int?
-  cash          Int?
-  rareMaterials Int?
-  timeSeconds   Int?
-  rawTimeText   String?
-
-  @@index([variantId])
-}
-
-model GameUnitUpkeep {
-  id            String   @id @default(cuid())
-  variantId     String
-  variant       GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  supplies      Int?
-  components    Int?
-  manpower      Int?
-  electronics   Int?
-  fuel          Int?
-  cash          Int?
-  rareMaterials Int?
-
-  @@index([variantId])
-}
-
-model GameUnitTerrainStat {
-  id              String   @id @default(cuid())
-  variantId       String
-  variant         GameUnitVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  terrain         String
-  hitPoints       Float?
-  speed           Float?
-  attackModifier  Float?
-  defenseModifier Float?
-  sightRange      Float?
-
-  @@index([variantId])
-}
-
-model GameUnitImportDraft {
-  id           String       @id @default(cuid())
-  game         String
-  gameKey      String
-  sourceUrl    String?
-  sourceName   String?
-  sourcePage   String?
-  rawExtract   String?      @db.Text
-  parsedJson   Json?
-  confidence   String       @default("LOW")
-  warnings     String[]     @default([])
-  status       ImportStatus @default(PENDING)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  @@index([gameKey, status])
-  @@index([status])
-}
-
-// ── MODERATION TRANSCRIPTS ────────────────────────────────
-
-model ModerationCaseTranscript {
-  id                String    @id @default(cuid())
-  guildId           String
-  caseId            String?
-  appealId          String?
-  caseNumber        String?
-  appealNumber      String?
-  ticketChannelId   String?
-  ticketChannelName String?
-  userId            String?
-  handledById       String?
-  outcome           String?
-  openedAt          DateTime?
-  closedAt          DateTime?
-  messageCount      Int       @default(0)
-  transcriptJson    String?   @db.Text
-  transcriptText    String?   @db.Text
-  createdAt         DateTime  @default(now())
-
-  @@index([caseId])
-  @@index([appealNumber])
-  @@index([guildId])
-}
-
-// ── BOT ANALYTICS ─────────────────────────────────────────
-
-model BotCommandUsage {
-  id          String    @id @default(cuid())
-  guildId     String?
-  userId      String
-  commandName String
-  subcommand  String?
-  success     Boolean   @default(true)
-  durationMs  Int?
-  createdAt   DateTime  @default(now())
-
-  @@index([createdAt])
-  @@index([guildId])
-  @@index([commandName])
-}
-
-model BotAiUsage {
-  id           String    @id @default(cuid())
-  guildId      String?
-  userId       String?
-  requestType  String?
-  success      Boolean   @default(true)
-  creditsUsed  Int       @default(0)
-  createdAt    DateTime  @default(now())
-
-  @@index([createdAt])
-  @@index([guildId])
-  @@index([requestType])
-}
-
-model BotGuildInstallEvent {
-  id          String    @id @default(cuid())
-  guildId     String
-  guildName   String
-  memberCount Int       @default(0)
-  ownerId     String?
-  eventType   String    // JOIN | LEAVE
-  createdAt   DateTime  @default(now())
-
-  @@index([guildId])
-  @@index([eventType, createdAt])
-}
-
-model BotHourlyStatusReport {
-  id          String    @id @default(cuid())
-  channelId   String
-  reportHour  String    // YYYY-MM-DD HH:00
-  sentAt      DateTime  @default(now())
-  status      String    @default("success") // success | failed
-  payloadJson String?   @db.Text
-}
-
-// ── SAFE VAULT (Discore Vault Global Safecrack Game) ──────
-
-model SafeVaultRound {
-  id          String   @id @default(cuid())
-
-  code        String
-
-  status      String   @default("ACTIVE")
-  // ACTIVE
-  // PENDING_PRIZE
-  // CRACKED
-  // EXPIRED
-
-  generatedAt DateTime @default(now())
-  expiresAt   DateTime?
-
-  crackedAt          DateTime?
-  crackedByUserId    String?
-  crackedByUserTag   String?
-  crackedByDisplayName String?
-  crackedInGuildId   String?
-  crackedInGuildName String?
-
-  selectedPrize String?
-  prizeStatus   String?
-  // AWAITING_SELECTION
-  // PENDING_CLAIM
-  // CLAIMED
-  // CANCELLED
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  attempts  SafeVaultAttempt[]
-
-  @@index([status])
-  @@index([generatedAt])
-  @@index([crackedByUserId])
-}
-
-model SafeVaultAttempt {
-  id          String   @id @default(cuid())
-
-  roundId     String
-  round       SafeVaultRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
-
-  userId      String
-  userTag     String?
-  displayName String?
-
-  guildId     String
-  guildName   String?
-
-  guessedCode String
-  correct     Boolean  @default(false)
-
-  createdAt   DateTime @default(now())
-
-  @@index([roundId])
-  @@index([userId])
-  @@index([guildId])
-  @@index([createdAt])
-}
-
-model SafeVaultDailyLimit {
-  id          String   @id @default(cuid())
-
-  userId      String
-  dateKey     String
-  attemptsUsed Int    @default(0)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([userId, dateKey])
-  @@index([dateKey])
 }
