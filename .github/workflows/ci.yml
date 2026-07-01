@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  checks:
+    name: Syntax + schema validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check (all command/component/module files)
+        run: node scripts/checkSyntax.js
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Dry-run schema diff (catches drift/typos without touching any DB)
+        run: npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > /dev/null
+
+  # Deploys pending migrations to the live Supabase database.
+  # Requires repo secrets DATABASE_URL and DIRECT_URL to be set
+  # (Settings -> Secrets and variables -> Actions) before enabling.
+  # Runs only on manual trigger for now — flip to `push: branches: [main]`
+  # once you're ready to fully automate it.
+  migrate:
+    name: Deploy DB migrations (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
