@@ -6,7 +6,7 @@
  * @param {string} durationStr
  * @returns {{seconds: number, error: string|null}}
  */
-function parseDuration(durationStr) {
+function parseDuration(durationStr, maxSeconds = null) {
   if (!durationStr) {
     return { seconds: null, error: null };
   }
@@ -14,8 +14,8 @@ function parseDuration(durationStr) {
   // Clean up input
   const cleaned = durationStr.toLowerCase().trim();
 
-  // Try short format first: 30m, 2h, 7d, 1w
-  const shortMatch = cleaned.match(/^(\d+)\s*([mhdw])$/);
+  // Try short format first: 30m, 2h, 7d, 1w, 1mo
+  const shortMatch = cleaned.match(/^(\d+)\s*([mhdw]|mo)$/);
   if (shortMatch) {
     const value = parseInt(shortMatch[1]);
     const unit = shortMatch[2];
@@ -25,16 +25,16 @@ function parseDuration(durationStr) {
       h: 3600, // hours
       d: 86400, // days
       w: 604800, // weeks
+      mo: 2592000, // months (30 days)
     };
 
     const seconds = value * multipliers[unit];
 
-    // Discord timeout max is 28 days
-    const maxTimeout = 28 * 86400;
-    if (seconds > maxTimeout) {
+    if (maxSeconds && seconds > maxSeconds) {
+      const { formatDuration } = require("./durationParser");
       return {
         seconds: null,
-        error: "Duration cannot exceed 28 days",
+        error: `Duration cannot exceed ${formatDuration(maxSeconds)}`,
       };
     }
 
@@ -43,7 +43,7 @@ function parseDuration(durationStr) {
 
   // Try natural language format: "5 minutes", "1 hour", "2 days", etc.
   const naturalMatch = cleaned.match(
-    /^(\d+)\s*(min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks)$/,
+    /^(\d+)\s*(min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months)$/,
   );
   if (naturalMatch) {
     const value = parseInt(naturalMatch[1]);
@@ -59,14 +59,15 @@ function parseDuration(durationStr) {
       seconds = value * 86400;
     } else if (["week", "weeks"].includes(unit)) {
       seconds = value * 604800;
+    } else if (["month", "months"].includes(unit)) {
+      seconds = value * 2592000;
     }
 
-    // Discord timeout max is 28 days
-    const maxTimeout = 28 * 86400;
-    if (seconds > maxTimeout) {
+    if (maxSeconds && seconds > maxSeconds) {
+      const { formatDuration } = require("./durationParser");
       return {
         seconds: null,
-        error: "Duration cannot exceed 28 days",
+        error: `Duration cannot exceed ${formatDuration(maxSeconds)}`,
       };
     }
 
@@ -75,7 +76,8 @@ function parseDuration(durationStr) {
 
   return {
     seconds: null,
-    error: "Invalid duration. Examples: 30m, 2h, 5 minutes, 1 hour, 7 days",
+    error:
+      "Invalid duration. Examples: 30m, 2h, 5 minutes, 1 hour, 7 days, 1 month",
   };
 }
 

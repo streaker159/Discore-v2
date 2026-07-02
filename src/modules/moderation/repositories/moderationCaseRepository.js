@@ -198,10 +198,10 @@ async function updateCaseAppealStatus(caseId, appealStatus) {
 }
 
 /**
- * Revoke a case — permanently deletes it from the database.
+ * Revoke a case — marks it as REVOKED (soft-delete).
  *
- * Revoked cases are gone from everywhere: database, profiles, audit logs.
- * This calls hardDeleteCase internally.
+ * Revoked cases remain in the database for audit purposes
+ * but are hidden from public /mod cases listings.
  */
 async function revokeCase(publicId, revokedBy, reason = null) {
   const moderationCase = await prisma.moderationCase.findUnique({
@@ -216,29 +216,30 @@ async function revokeCase(publicId, revokedBy, reason = null) {
     throw new Error("Case not found");
   }
 
-  // Log the revocation reason as staff note before deletion (for audit)
-  if (reason) {
-    const staffNote = `${moderationCase.staffNote ? `${moderationCase.staffNote}\n\n` : ""}Revoked by ${revokedBy}: ${reason}`;
-    await prisma.moderationCase
-      .update({
-        where: { publicId },
-        data: { staffNote },
-      })
-      .catch(() => {});
-  }
+  // Append revocation note to staffNote for audit trail
+  const when = new Date().toISOString();
+  const revokeNote = reason
+    ? `[${when}] REVOKED by ${revokedBy}: ${reason}`
+    : `[${when}] REVOKED by ${revokedBy}`;
 
-  // Hard delete: removes case, appeals, role snapshots permanently
-  await prisma.appeal.deleteMany({
-    where: { caseId: moderationCase.id },
+  const staffNote = moderationCase.staffNote
+    ? `${moderationCase.staffNote}\n${revokeNote}`
+    : revokeNote;
+
+  // Soft-delete: mark as REVOKED, keep all data
+  return prisma.moderationCase.update({
+    where: { publicId },
+    data: {
+      status: "REVOKED",
+      revokedAt: new Date(),
+      revokedBy,
+      staffNote,
+    },
+    include: {
+      appeals: true,
+      roleSnapshot: true,
+    },
   });
-
-  await prisma.userRoleSnapshot
-    .delete({ where: { caseId: moderationCase.id } })
-    .catch(() => {});
-
-  await prisma.moderationCase.delete({ where: { publicId } });
-
-  return moderationCase;
 }
 
 /**

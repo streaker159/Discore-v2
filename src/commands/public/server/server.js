@@ -367,77 +367,88 @@ module.exports = {
         ),
     )
 
-    .addSubcommand((s) =>
-      s
+    .addSubcommand((s) => {
+      // Allow text, announcement, forum, media, category, and threads
+      const CHANNEL_TYPES_ALL = [
+        ChannelType.GuildText,
+        ChannelType.GuildAnnouncement,
+        ChannelType.GuildCategory,
+        ChannelType.GuildForum,
+        ChannelType.GuildMedia,
+        ChannelType.PublicThread,
+        ChannelType.PrivateThread,
+      ];
+
+      return s
         .setName("channels")
         .setDescription("Set all important Discore channels.")
         .addChannelOption((o) =>
           o
             .setName("admin_log")
             .setDescription("Server/admin log channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("moderation_log")
             .setDescription("Moderation log channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("appeals")
             .setDescription("Appeals review/notification channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("appeals_category")
             .setDescription("Category where appeal tickets are created")
-            .addChannelTypes(ChannelType.GuildCategory),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("scoreboard")
             .setDescription("Default scoreboard channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("events")
             .setDescription("Default events channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("suggestions")
             .setDescription("Suggestions channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("premium_notice")
             .setDescription("Premium notice channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("admin_reports")
             .setDescription("Admin reports/bot status channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("discore_announcements")
             .setDescription("Official Discore update announcements channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
         )
         .addChannelOption((o) =>
           o
             .setName("ai_welcome")
             .setDescription("AI Welcome channel for new member greetings")
-            .addChannelTypes(ChannelType.GuildText),
-        ),
-    ),
+            .addChannelTypes(...CHANNEL_TYPES_ALL),
+        );
+    }),
 
   async execute(interaction) {
     if (!interaction.guild) {

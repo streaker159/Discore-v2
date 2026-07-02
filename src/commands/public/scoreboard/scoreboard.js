@@ -415,7 +415,15 @@ module.exports = {
           o
             .setName("channel")
             .setDescription("Live scoreboard channel")
-            .addChannelTypes(ChannelType.GuildText),
+            .addChannelTypes(
+              ChannelType.GuildText,
+              ChannelType.GuildAnnouncement,
+              ChannelType.GuildCategory,
+              ChannelType.GuildForum,
+              ChannelType.GuildMedia,
+              ChannelType.PublicThread,
+              ChannelType.PrivateThread,
+            ),
         )
         .addBooleanOption((o) =>
           o

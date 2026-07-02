@@ -25,4 +25,6 @@ module.exports = {
   "alliance.globalRanking": "FREE",
   // Suggestions
   "suggestions.create": "FREE",
+  // Moderation exports (full case history + transcripts)
+  "moderation.export": "PREMIUM",
 };

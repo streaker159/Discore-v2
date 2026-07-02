@@ -205,33 +205,41 @@ async function executeModAction(options) {
     actionType,
     reason,
     durationSeconds,
+    deleteMessageSeconds,
+    probationChannelId,
+    probationSlowmodeSeconds,
+    probationRoleId,
   } = options;
 
   if (!guild) {
     throw new Error("Guild is required");
   }
 
-  if (!moderator) {
-    throw new Error("Moderator is required");
-  }
-
-  if (!targetUser) {
-    throw new Error("Target user is required");
-  }
-
   if (!actionType) {
     throw new Error("Action type is required");
+  }
+
+  // UNBAN does not need a moderator permission check in the same way,
+  // but we still validate the caller has permission at the command level.
+  if (actionType !== "UNBAN") {
+    if (!moderator) {
+      throw new Error("Moderator is required");
+    }
+
+    if (!targetUser) {
+      throw new Error("Target user is required");
+    }
   }
 
   const dbGuild = await prisma.guild.findUnique({
     where: { id: guild.id },
   });
 
-  if (!hasModPermissions(moderator, dbGuild)) {
+  if (actionType !== "UNBAN" && !hasModPermissions(moderator, dbGuild)) {
     throw new Error("You don't have permission to perform moderation actions");
   }
 
-  if (targetMember) {
+  if (targetMember && actionType !== "UNBAN") {
     const check = canModerate(moderator, targetMember, guild);
     if (!check.canModerate) {
       throw new Error(check.reason);
@@ -242,8 +250,8 @@ async function executeModAction(options) {
 
   const moderationCase = await caseService.createCase({
     guildId: guild.id,
-    userId: targetUser.id,
-    moderatorId: moderator.id,
+    userId: targetUser?.id || options.targetUserId,
+    moderatorId: moderator?.id || options.moderatorId,
     actionType,
     reason,
     durationSeconds,
@@ -266,7 +274,7 @@ async function executeModAction(options) {
    * For bans, DM before the ban.
    * After a ban, Discord DMs are less reliable depending mutual server state/privacy.
    */
-  if (["BAN", "TEMP_BAN"].includes(actionType)) {
+  if (["BAN", "TEMP_BAN"].includes(actionType) && targetUser) {
     dmSent = await sendModerationDm({
       guild,
       moderator,
@@ -289,6 +297,12 @@ async function executeModAction(options) {
       durationSeconds,
       moderationCase.publicId,
       dbGuild,
+      {
+        deleteMessageSeconds,
+        probationChannelId,
+        probationSlowmodeSeconds,
+        probationRoleId,
+      },
     );
   } catch (error) {
     actionSuccess = false;
@@ -299,7 +313,7 @@ async function executeModAction(options) {
   /**
    * For non-ban actions, DM after the action attempt.
    */
-  if (!["BAN", "TEMP_BAN"].includes(actionType)) {
+  if (!["BAN", "TEMP_BAN"].includes(actionType) && targetUser) {
     dmSent = await sendModerationDm({
       guild,
       moderator,
@@ -315,8 +329,14 @@ async function executeModAction(options) {
   await sendModerationLog({
     guild,
     dbGuild,
-    moderator,
-    targetUser,
+    moderator: moderator || {
+      id: options.moderatorId || "SYSTEM",
+      nickname: "Discore",
+    },
+    targetUser: targetUser || {
+      id: options.targetUserId || "unknown",
+      tag: "Unknown User",
+    },
     moderationCase,
     actionType,
     reason,
@@ -346,6 +366,7 @@ async function applyModAction(
   durationSeconds,
   caseId,
   dbGuild,
+  extra = {},
 ) {
   const safeReason = reason || "No reason provided";
   const fullReason = `${safeReason} [${caseId}]`;
@@ -354,8 +375,31 @@ async function applyModAction(
     case "WARN":
       return true;
 
-    case "PROBATION":
+    case "PROBATION": {
+      // Apply probation role if configured
+      const probRoleId = extra.probationRoleId;
+      if (targetMember && probRoleId) {
+        const role = guild.roles.cache.get(probRoleId);
+        if (role) {
+          await targetMember.roles.add(role, fullReason);
+        }
+      }
+
+      // Apply channel slowmode if configured
+      const slowChanId = extra.probationChannelId;
+      const slowSeconds = extra.probationSlowmodeSeconds;
+      if (slowChanId && slowSeconds && slowSeconds > 0) {
+        const channel = guild.channels.cache.get(slowChanId);
+        if (channel && channel.isTextBased() && !channel.isThread()) {
+          await channel.setRateLimitPerUser(
+            Math.min(slowSeconds, 21600), // Discord max is 6 hours
+            `Probation slowmode [${caseId}]`,
+          );
+        }
+      }
+
       return true;
+    }
 
     case "MUTE": {
       if (!targetMember) {
@@ -371,6 +415,7 @@ async function applyModAction(
         }
       }
 
+      // Fallback: use Discord native timeout (clamped to 28 days)
       const timeoutMs = clampTimeoutMs(durationSeconds);
 
       if (timeoutMs) {
@@ -388,10 +433,11 @@ async function applyModAction(
         throw new Error("User is not in the server");
       }
 
+      // Timeout is capped at 28 days by Discord
       const timeoutMs = clampTimeoutMs(durationSeconds);
 
       if (!timeoutMs) {
-        throw new Error("Timeout requires a valid duration");
+        throw new Error("Timeout requires a valid duration (max 28 days)");
       }
 
       await targetMember.timeout(timeoutMs, fullReason);
@@ -400,13 +446,29 @@ async function applyModAction(
 
     case "BAN":
     case "TEMP_BAN": {
-      const deleteMessageSeconds = 0;
+      const deleteSeconds = extra.deleteMessageSeconds || 0;
 
       await guild.members.ban(targetUser.id, {
         reason: fullReason,
-        deleteMessageSeconds,
+        deleteMessageSeconds: Math.min(deleteSeconds, 604800), // Max 7 days
       });
 
+      return true;
+    }
+
+    case "UNBAN": {
+      // targetUser may not exist (banned users), so we use guild.members.unban by ID
+      const userId = targetUser?.id || extra.targetUserId;
+      if (!userId) throw new Error("User ID is required for unban");
+
+      await guild.members.unban(userId, fullReason).catch((err) => {
+        // If user is not banned, this is still a "success" for record-keeping
+        if (err.code === 10026) {
+          // Unknown Ban — already unbanned
+          return;
+        }
+        throw err;
+      });
       return true;
     }
 

@@ -76,6 +76,43 @@ async function removeTemporaryBan(guild, moderationCase) {
   }
 }
 
+async function removeProbationSlowmode(guild, moderationCase) {
+  try {
+    // Try to restore the slowmode to 0 (off) on the channel
+    // We look at the case's staffNote for a slowmode record
+    const note = moderationCase.staffNote || "";
+    const match = note.match(/Slowmode channel: (\d+)/);
+    if (match) {
+      const channelId = match[1];
+      const channel = guild.channels.cache.get(channelId);
+      if (channel && channel.isTextBased() && !channel.isThread()) {
+        await channel.setRateLimitPerUser(0, "Probation expired");
+      }
+    }
+  } catch {
+    // Channel may be deleted or permissions changed
+  }
+}
+
+async function removeProbationRole(guild, moderationCase, dbGuild) {
+  try {
+    // Look for probation role in staffNote
+    const note = moderationCase.staffNote || "";
+    const match = note.match(/Probation role: (\d+)/);
+    if (match) {
+      const roleId = match[1];
+      const member = await guild.members
+        .fetch(moderationCase.userId)
+        .catch(() => null);
+      if (member && member.roles.cache.has(roleId)) {
+        await member.roles.remove(roleId, "Probation expired");
+      }
+    }
+  } catch {
+    // User not in server or role missing
+  }
+}
+
 async function removeActivePunishment(client, moderationCase) {
   const guild = client.guilds.cache.get(moderationCase.guildId);
 
@@ -100,7 +137,8 @@ async function removeActivePunishment(client, moderationCase) {
       break;
 
     case "PROBATION":
-      // Probation only needs the database case expiry.
+      await removeProbationRole(guild, moderationCase, dbGuild);
+      await removeProbationSlowmode(guild, moderationCase);
       break;
 
     case "WARN":
@@ -147,7 +185,6 @@ async function processExpiredCases(client) {
         await prisma.userRoleSnapshot.deleteMany({
           where: { caseId: moderationCase.id },
         });
-
 
         console.log(
           `[Moderation Expiry] Expired case ${moderationCase.publicId} (${moderationCase.actionType})`,
