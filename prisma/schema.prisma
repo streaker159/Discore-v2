@@ -1151,6 +1151,65 @@ model TrackedRoleMember {
   @@index([guildId, userId], map: "TrackedRoleMember_guild_user_idx")
 }
 
+model GuildXpConfig {
+  id                          String    @id @default(cuid())
+  guildId                     String    @unique
+  enabled                     Boolean   @default(true)
+  levelUpChannelId            String?
+  weeklyLeaderboardChannelId  String?
+  messageXpEnabled            Boolean   @default(true)
+  reactionXpEnabled           Boolean   @default(true)
+  minMessageXp                Int       @default(15)
+  maxMessageXp                Int       @default(40)
+  messageCooldownSeconds      Int       @default(60)
+  minReactionXp               Int       @default(5)
+  maxReactionXp               Int       @default(10)
+  reactionCooldownSeconds     Int       @default(300)
+  announceLevelUps            Boolean   @default(true)
+  weeklyTop10Enabled          Boolean   @default(false)
+  profileColor                String?
+  lastWeeklyLeaderboardPostAt DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  @@index([guildId])
+}
+
+model UserXp {
+  id                String    @id @default(cuid())
+  guildId           String
+  userId            String
+  totalXp           Int       @default(0)
+  level             Int       @default(1)
+  messagesCounted   Int       @default(0)
+  reactionsCounted  Int       @default(0)
+  lastMessageXpAt   DateTime?
+  lastReactionXpAt  DateTime?
+  userTag           String?
+  displayName       String?
+  avatarUrl         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([guildId, userId])
+  @@index([guildId, totalXp])
+  @@index([guildId, level])
+  @@index([guildId, userId])
+}
+
+model UserXpEvent {
+  id        String    @id @default(cuid())
+  guildId   String
+  userId    String
+  source    String
+  amount    Int
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([guildId, userId])
+  @@index([guildId, createdAt])
+  @@index([guildId, source])
+}
+
 enum Tier {
   FREE
   PRO

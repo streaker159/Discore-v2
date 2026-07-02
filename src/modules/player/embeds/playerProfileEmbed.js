@@ -2,12 +2,14 @@
 
 const { EmbedBuilder } = require("discord.js");
 const { formatDiscordTime } = require("../../../lib/embedBuilder");
+const { formatXp, getXpForNextLevel } = require("../../xp/xpFormula");
+const { buildProgressBar } = require("../../xp/xpEmbeds");
 
 /**
  * Create player profile embed
  */
 async function createPlayerProfileEmbed(member, profileStats) {
-  const { scoreboardStats, activity } = profileStats;
+  const { scoreboardStats, activity, xpStats } = profileStats;
 
   const embed = new EmbedBuilder()
     .setTitle(`📊 Player Profile`)
@@ -54,6 +56,52 @@ async function createPlayerProfileEmbed(member, profileStats) {
     embed.addFields({
       name: `Roles (${member.roles.cache.size - 1})`,
       value: roles.length > 1024 ? roles.substring(0, 1021) + "..." : roles,
+    });
+  }
+
+  // ── Discore XP Section ──────────────────────────────────────────────
+  if (xpStats) {
+    const nextLevelXp =
+      xpStats.progress?.nextLevelXp || getXpForNextLevel(xpStats.level);
+    const progressPercent = xpStats.progress?.progressPercent || 0;
+    const progressBar = buildProgressBar(progressPercent);
+
+    const xpLines = [
+      `**Level:** ${xpStats.level}`,
+      `**XP:** ${formatXp(xpStats.totalXp)}`,
+      progressBar,
+      `${formatXp(xpStats.progress?.progressXp || 0)} / ${formatXp(nextLevelXp)} (${progressPercent}%)`,
+    ];
+
+    if (xpStats.rank > 0) {
+      xpLines.splice(1, 0, `**Rank:** #${xpStats.rank}`);
+    }
+
+    if (
+      xpStats.dailyXp !== undefined ||
+      xpStats.weeklyXp !== undefined ||
+      xpStats.monthlyXp !== undefined
+    ) {
+      const periodParts = [];
+      if (xpStats.dailyXp !== undefined)
+        periodParts.push(`Today: ${formatXp(xpStats.dailyXp)} XP`);
+      if (xpStats.weeklyXp !== undefined)
+        periodParts.push(`This Week: ${formatXp(xpStats.weeklyXp)} XP`);
+      if (xpStats.monthlyXp !== undefined)
+        periodParts.push(`This Month: ${formatXp(xpStats.monthlyXp)} XP`);
+      if (periodParts.length) xpLines.push(periodParts.join("\n"));
+    }
+
+    if (xpStats.messagesCounted > 0 || xpStats.reactionsCounted > 0) {
+      xpLines.push(
+        `Messages: ${xpStats.messagesCounted || 0} • Reactions: ${xpStats.reactionsCounted || 0}`,
+      );
+    }
+
+    embed.addFields({
+      name: "📊 Level & XP",
+      value: xpLines.join("\n"),
+      inline: false,
     });
   }
 

@@ -2,11 +2,31 @@
 
 const prisma = require("../../../lib/prisma");
 const { getUserActivity } = require("./userActivityService");
+const {
+  getUserXpStats,
+  getUserXpRank,
+  getUserPeriodXp,
+} = require("../../xp/xpService");
 
 /**
  * Get player profile stats for a guild member
  */
 async function getPlayerProfileStats(guildId, userId, member = null) {
+  // Get XP stats (non-blocking, wrap in try to never break profile)
+  let xpStats = null;
+  try {
+    const [xp, xpRank, dailyXp, weeklyXp, monthlyXp] = await Promise.all([
+      getUserXpStats(guildId, userId),
+      getUserXpRank(guildId, userId),
+      getUserPeriodXp(guildId, userId, "daily"),
+      getUserPeriodXp(guildId, userId, "weekly"),
+      getUserPeriodXp(guildId, userId, "monthly"),
+    ]);
+    xpStats = { ...xp, rank: xpRank, dailyXp, weeklyXp, monthlyXp };
+  } catch {
+    // XP may not be set up yet - safe to ignore
+  }
+
   // Get scoreboard stats
   const scoreboardEntries = await prisma.scoreboardEntry.findMany({
     where: {
@@ -118,6 +138,7 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
       previousRoleScores,
     },
     activity,
+    xpStats,
   };
 }
 

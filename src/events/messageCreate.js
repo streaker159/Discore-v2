@@ -6,6 +6,7 @@ const {
   trackMessage,
 } = require("../modules/player/services/userActivityService");
 const { handleDiscoreMention } = require("../modules/ai/service");
+const { handleMessageXp } = require("../modules/xp/xpService");
 const {
   isConversationContinuation,
   addTurn,
@@ -38,6 +39,9 @@ module.exports = {
     } catch {
       // Non-critical
     }
+
+    // ── Discore XP: Award message XP (no async wait needed, fire-and-forget safe) ──
+    handleMessageXp(message, client).catch(() => {});
 
     const guildId = message.guild.id;
 

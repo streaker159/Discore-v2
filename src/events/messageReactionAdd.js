@@ -9,6 +9,7 @@ const {
   canSendCreditError,
 } = require("../modules/ai/translation");
 const { EmbedBuilder } = require("discord.js");
+const { handleReactionXp } = require("../modules/xp/xpService");
 
 module.exports = {
   name: "messageReactionAdd",
@@ -22,6 +23,9 @@ module.exports = {
     try {
       await trackReaction(guildId, user.id, emojiName);
     } catch {}
+
+    // ── Discore XP: Award reaction XP ──
+    handleReactionXp(reaction, user, client).catch(() => {});
 
     const flagInfo = getLanguageForFlag(emojiName);
     if (!flagInfo) return;

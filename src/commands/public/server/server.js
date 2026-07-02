@@ -115,6 +115,11 @@ function buildChannelFields(guild) {
       value: channelMention(guild.aiWelcomeChannelId),
       inline: true,
     },
+    {
+      name: "XP Level-Up Channel",
+      value: "Use `/xp setup` to configure",
+      inline: true,
+    },
   ];
 }
 
@@ -368,7 +373,6 @@ module.exports = {
     )
 
     .addSubcommand((s) => {
-      // Allow text, announcement, forum, media, category, and threads
       const CHANNEL_TYPES_ALL = [
         ChannelType.GuildText,
         ChannelType.GuildAnnouncement,
@@ -533,6 +537,26 @@ module.exports = {
             ? `❌ ${brokenBoards} scoreboard(s) need repair — run \`/scoreboard repair\``
             : "✅ All scoreboards healthy",
         ];
+
+        // Fetch XP config for info display
+        let xpConfig = null;
+        try {
+          const {
+            getXpConfig,
+          } = require("../../../modules/xp/xpConfigService");
+          xpConfig = await getXpConfig(interaction.guildId);
+        } catch {}
+
+        if (xpConfig) {
+          statusLines.push(
+            xpConfig.levelUpChannelId
+              ? `✅ XP Level-Up: ${channelMention(xpConfig.levelUpChannelId)}`
+              : "⚠️ XP Level-Up channel not set",
+            xpConfig.weeklyLeaderboardChannelId
+              ? `✅ XP Weekly LB: ${channelMention(xpConfig.weeklyLeaderboardChannelId)}`
+              : "ℹ️ XP Weekly Leaderboard channel not set",
+          );
+        }
 
         const title = dbGuild.allianceName
           ? `🏠 ${dbGuild.allianceName}`

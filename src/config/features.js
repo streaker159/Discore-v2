@@ -27,4 +27,9 @@ module.exports = {
   "suggestions.create": "FREE",
   // Moderation exports (full case history + transcripts)
   "moderation.export": "PREMIUM",
+  // Discore XP system
+  "xp.message": "FREE",
+  "xp.reaction": "PREMIUM",
+  "xp.weeklyLeaderboard": "PREMIUM",
+  "xp.profileCosmetics": "PREMIUM",
 };
