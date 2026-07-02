@@ -32,7 +32,10 @@ async function loadImage(url) {
     const response = await fetch(url);
     if (!response.ok) return null;
     const buffer = await response.arrayBuffer();
-    return new canvasModule.Image(Buffer.from(buffer));
+    // Use the canvas module's own loader — it waits for the image to fully
+    // decode before resolving. Constructing `new Image(buffer)` directly does
+    // NOT decode synchronously, so drawImage() would silently draw nothing.
+    return await canvasModule.loadImage(Buffer.from(buffer));
   } catch {
     return null;
   }

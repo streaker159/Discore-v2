@@ -17,7 +17,6 @@ const {
   getUserXpRank,
   getUserPeriodXp,
 } = require("../../../modules/xp/xpService");
-const { formatDiscordTime } = require("../../../lib/embedBuilder");
 
 const AUTO_DELETE_MS = 10 * 60 * 1000;
 
@@ -26,6 +25,36 @@ function scheduleAutoDelete(message) {
   setTimeout(() => {
     message.delete().catch(() => {});
   }, AUTO_DELETE_MS);
+}
+
+// ── Plain-text date helpers for the canvas profile card ──────────────────
+// The card is a rendered PNG, so Discord markdown timestamps (e.g. "<t:123:F>"
+// from formatDiscordTime()) can't be used here — they only render inside
+// actual Discord message text/embeds, not on a drawn image. Draw plain text
+// instead.
+function formatCardDate(date) {
+  if (!date) return null;
+  return new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatCardRelative(date) {
+  if (!date) return null;
+  const diffSec = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth}mo ago`;
+  const diffYear = Math.floor(diffMonth / 12);
+  return `${diffYear}y ago`;
 }
 
 module.exports = {
@@ -92,17 +121,22 @@ module.exports = {
 
         // Activity strings for the card
         const lastActive = activity.lastActiveAt
-          ? formatDiscordTime(activity.lastActiveAt).relative
+          ? formatCardRelative(activity.lastActiveAt)
           : null;
         const activeStreak = activity.activeDayStreak || 0;
+        // Canvas can't render Discord's "<#id>" channel mention markdown —
+        // resolve the actual channel name for the card instead.
         const mostActiveChannel = activity.mostActiveChannelId
-          ? `<#${activity.mostActiveChannelId}>`
+          ? `#${
+              interaction.guild.channels.cache.get(activity.mostActiveChannelId)
+                ?.name || "unknown"
+            }`
           : null;
 
         const joinedServer = member.joinedAt
-          ? formatDiscordTime(member.joinedAt).full
+          ? formatCardDate(member.joinedAt)
           : null;
-        const accountCreated = formatDiscordTime(targetUser.createdAt).full;
+        const accountCreated = formatCardDate(targetUser.createdAt);
 
         // ── Generate profile card ──────────────────────────────────────
         let profileCardBuffer = null;

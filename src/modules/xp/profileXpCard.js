@@ -29,7 +29,10 @@ async function loadImage(url) {
     const resp = await fetch(url);
     if (!resp.ok) return null;
     const buf = await resp.arrayBuffer();
-    return new canvasModule.Image(Buffer.from(buf));
+    // Use the canvas module's own loader — it waits for the image to fully
+    // decode before resolving. Constructing `new Image(buffer)` directly does
+    // NOT decode synchronously, so drawImage() would silently draw nothing.
+    return await canvasModule.loadImage(Buffer.from(buf));
   } catch {
     return null;
   }
@@ -51,11 +54,11 @@ async function loadImage(url) {
  * @param {number} [opts.dailyXp]
  * @param {number} [opts.weeklyXp]
  * @param {number} [opts.monthlyXp]
- * @param {string} [opts.joinedServer] — Discord timestamp string like "<t:1234:R>"
- * @param {string} [opts.accountCreated] — same
- * @param {string} [opts.lastActive] — relative time string
+ * @param {string} [opts.joinedServer] — plain formatted date string
+ * @param {string} [opts.accountCreated] — plain formatted date string
+ * @param {string} [opts.lastActive] — plain relative time string
  * @param {number} [opts.activeStreak] — days
- * @param {string} [opts.mostActiveChannel] — channel mention string
+ * @param {string} [opts.mostActiveChannel] — plain "#channel-name" string
  * @returns {Promise<Buffer|null>}
  */
 async function createProfileXpCard(opts) {
