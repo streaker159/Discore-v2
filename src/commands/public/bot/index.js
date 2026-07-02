@@ -403,6 +403,39 @@ async function handleStatus(interaction) {
         .join("\n")
     : "No server activity tracked yet";
 
+  // Top 5 AI servers
+  const topAiServers = await prisma.botAiUsage
+    .groupBy({
+      by: ["guildId"],
+      where: { createdAt: { gte: dayAgo } },
+      _count: { id: true },
+      _sum: { creditsUsed: true },
+      orderBy: { _sum: { creditsUsed: "desc" } },
+      take: 5,
+    })
+    .catch(() => []);
+  const topAiSrvStr = topAiServers.length
+    ? topAiServers
+        .map((r, i) => {
+          const g = client.guilds.cache.get(r.guildId);
+          return `${i + 1}. ${g?.name || r.guildId} — ${r._sum.creditsUsed || 0} credits · ${r._count.id} req`;
+        })
+        .join("\n")
+    : "No AI data yet";
+
+  // AI Image Gen stats
+  const imgGen24 = await prisma.botAiUsage
+    .count({
+      where: {
+        createdAt: { gte: dayAgo },
+        requestType: "IMAGE_GENERATION",
+      },
+    })
+    .catch(() => 0);
+  const imgGenEnabled = await prisma.guildPremium
+    .count({ where: { aiImageGenEnabled: true } })
+    .catch(() => 0);
+
   // alert checks
   const alerts = [];
   if (!process.env.DISCORD_PREMIUM_SKU_ID)
@@ -518,8 +551,18 @@ async function handleStatus(interaction) {
       },
       // ── Top Activity ──────────────────────────────────────────────────
       {
+        name: "🎨 AI Image Gen",
+        value: `24h: ${imgGen24} · Servers enabled: ${imgGenEnabled}`,
+        inline: true,
+      },
+      {
         name: "🔥 Top Activity 24h",
         value: topSrvStr || "Not enough data yet",
+        inline: false,
+      },
+      {
+        name: "🤖 Top AI Servers 24h",
+        value: topAiSrvStr,
         inline: false,
       },
       // ── Alerts ────────────────────────────────────────────────────────
@@ -532,5 +575,16 @@ async function handleStatus(interaction) {
     .setTimestamp()
     .setFooter({ text: "Discore Official · Bot Analytics" });
 
-  return interaction.editReply({ embeds: [embed] });
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("analytics:server_lookup:")
+      .setLabel("🔍 Server Lookup")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("analytics:export_all:")
+      .setLabel("📊 Export All Servers")
+      .setStyle(ButtonStyle.Success),
+  );
+
+  return interaction.editReply({ embeds: [embed], components: [buttons] });
 }

@@ -1,6 +1,11 @@
 "use strict";
 
-const { EmbedBuilder } = require("discord.js");
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const prisma = require("../lib/prisma");
 const logger = require("../lib/logger");
 
@@ -210,6 +215,61 @@ async function runReport(client) {
       );
     const alertsStr = alerts.length ? alerts.join("\n") : "✅ All clear";
 
+    // ── AI Image Gen Stats ──────────────────────────────────────────────
+    const imgGen24 = await prisma.botAiUsage
+      .count({
+        where: {
+          createdAt: { gte: dayAgo },
+          requestType: "IMAGE_GENERATION",
+        },
+      })
+      .catch(() => 0);
+    const imgGenAll = await prisma.botAiUsage
+      .count({ where: { requestType: "IMAGE_GENERATION" } })
+      .catch(() => 0);
+    const imgGenEnabled = await prisma.guildPremium
+      .count({ where: { aiImageGenEnabled: true } })
+      .catch(() => 0);
+
+    // ── Top 5 Servers by AI Usage ──────────────────────────────────────
+    const topAiServers = await prisma.botAiUsage
+      .groupBy({
+        by: ["guildId"],
+        where: { createdAt: { gte: dayAgo } },
+        _count: { id: true },
+        _sum: { creditsUsed: true },
+        orderBy: { _sum: { creditsUsed: "desc" } },
+        take: 5,
+      })
+      .catch(() => []);
+    const topAiServersStr = topAiServers.length
+      ? topAiServers
+          .map((r, i) => {
+            const g = client.guilds.cache.get(r.guildId);
+            return `${i + 1}. ${g?.name || r.guildId} — ${r._sum.creditsUsed || 0} credits · ${r._count.id} requests`;
+          })
+          .join("\n")
+      : "No AI usage yet";
+
+    // Expand top servers to 5
+    const topSrv5Rows = await prisma.botCommandUsage
+      .groupBy({
+        by: ["guildId"],
+        where: { createdAt: { gte: dayAgo } },
+        _count: { guildId: true },
+        orderBy: { _count: { guildId: "desc" } },
+        take: 5,
+      })
+      .catch(() => []);
+    const topSrv5Str = topSrv5Rows.length
+      ? topSrv5Rows
+          .map((r, i) => {
+            const g = client.guilds.cache.get(r.guildId);
+            return `${i + 1}. ${g?.name || r.guildId} — ${r._count.guildId} cmds`;
+          })
+          .join("\n")
+      : "No data yet";
+
     const embed = new EmbedBuilder()
       .setTitle("📊 Hourly Discore Operations Report")
       .setColor(0x5865f2)
@@ -235,6 +295,11 @@ async function runReport(client) {
           inline: true,
         },
         {
+          name: "🎨 AI Image Gen",
+          value: `24h: ${imgGen24} · All time: ${imgGenAll} · Servers enabled: ${imgGenEnabled}`,
+          inline: true,
+        },
+        {
           name: "🏆 Scoreboards",
           value: `Live: ${liveBoards} · Active: ${activeBoards} · Total: ${totalBoards} · Archived: ${archivedBoards} · Entries: ${totalEntries} · Types: ${totalScoreTypes} · ${boardsByServer.length} servers`,
           inline: false,
@@ -250,13 +315,29 @@ async function runReport(client) {
           inline: true,
         },
         { name: "🔥 Top Commands 24h", value: topCmdsStr, inline: true },
-        { name: "📢 Top Servers 24h", value: topSrvStr, inline: true },
+        { name: "📢 Top Servers 24h", value: topSrv5Str, inline: true },
+        { name: "🤖 Top AI Servers 24h", value: topAiServersStr, inline: true },
         { name: "⚠️ Alerts", value: alertsStr, inline: false },
       )
       .setTimestamp()
       .setFooter({ text: "Discore Official · Hourly Report" });
 
-    await channel.send({ embeds: [embed] });
+    // Buttons — disappear after 1 hour
+    const buttons = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("analytics:server_lookup:")
+        .setLabel("🔍 Server Lookup")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("analytics:export_all:")
+        .setLabel("📊 Export All Servers")
+        .setStyle(ButtonStyle.Success),
+    );
+
+    await channel.send({
+      embeds: [embed],
+      components: [buttons],
+    });
 
     await prisma.botHourlyStatusReport.create({
       data: { channelId: OFFICIAL_CHANNEL, reportHour, status: "success" },
