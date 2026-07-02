@@ -18,6 +18,7 @@ const {
   generateImage,
 } = require("../modules/ai/providers/imageProvider");
 const { canUseAi, consumeAiCredits } = require("../modules/premium/service");
+const { getAiAdminSettings } = require("../modules/premium/service");
 
 const IMAGE_GEN_COST = 5; // Credits per image generation
 
@@ -163,11 +164,43 @@ module.exports = {
         return;
       }
 
+      // Check if image generation is enabled for this server
+      const aiSettings = await getAiAdminSettings(guildId);
+      if (!aiSettings.aiImageGenEnabled) {
+        await message.reply({
+          content:
+            "🎨 AI image generation is not enabled on this server. An admin can enable it in `/premium` → **AI Feature Toggles**.",
+        });
+        return;
+      }
+
       // Safety filter
       const safetyCheck = filterPrompt(imagePrompt);
       if (!safetyCheck.safe) {
         await message.reply({ content: `⚠️ ${safetyCheck.reason}` });
         return;
+      }
+
+      // Check per-user daily image gen limit
+      if (aiSettings.perUserDailyImageGenLimit > 0) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const userImageGenToday = await prisma.botAiUsage.aggregate({
+          where: {
+            guildId,
+            userId,
+            requestType: "IMAGE_GENERATION",
+            createdAt: { gte: todayStart },
+          },
+          _count: true,
+        });
+        const generatedToday = userImageGenToday._count || 0;
+        if (generatedToday >= aiSettings.perUserDailyImageGenLimit) {
+          await message.reply({
+            content: `⚠️ You've reached your daily image generation limit (${aiSettings.perUserDailyImageGenLimit}). Try again tomorrow!`,
+          });
+          return;
+        }
       }
 
       // Check credits

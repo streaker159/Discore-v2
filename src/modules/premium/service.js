@@ -402,10 +402,12 @@ async function updateAiSettings(
   {
     serverDailyLimit,
     perUserDailyLimit,
+    perUserDailyImageGenLimit,
     cooldownSeconds,
     aiEnabled,
     aiTranslationEnabled,
     aiWelcomeEnabled,
+    aiImageGenEnabled,
     aiWelcomeInstructions,
   },
 ) {
@@ -414,6 +416,8 @@ async function updateAiSettings(
     data.serverDailyAiLimit = parseInt(serverDailyLimit) || 0;
   if (perUserDailyLimit !== undefined)
     data.perUserDailyAiLimit = parseInt(perUserDailyLimit) || 0;
+  if (perUserDailyImageGenLimit !== undefined)
+    data.perUserDailyImageGenLimit = parseInt(perUserDailyImageGenLimit) || 0;
   if (cooldownSeconds !== undefined)
     data.cooldownSeconds = parseInt(cooldownSeconds) || 0;
   if (aiEnabled !== undefined) data.aiEnabled = aiEnabled;
@@ -423,6 +427,9 @@ async function updateAiSettings(
   if (aiWelcomeEnabled !== undefined)
     data.aiWelcomeEnabled =
       aiWelcomeEnabled === true || aiWelcomeEnabled === "true";
+  if (aiImageGenEnabled !== undefined)
+    data.aiImageGenEnabled =
+      aiImageGenEnabled === true || aiImageGenEnabled === "true";
   if (aiWelcomeInstructions !== undefined) {
     // Strip @everyone/@here and limit length
     const cleaned = String(aiWelcomeInstructions || "")
@@ -449,10 +456,12 @@ async function getAiAdminSettings(guildId) {
   return {
     serverDailyLimit: premium?.serverDailyAiLimit || 0,
     perUserDailyLimit: premium?.perUserDailyAiLimit || 0,
+    perUserDailyImageGenLimit: premium?.perUserDailyImageGenLimit || 0,
     cooldownSeconds: premium?.cooldownSeconds || 0,
     aiEnabled: premium?.aiEnabled !== false,
     aiTranslationEnabled: premium?.aiTranslationEnabled === true,
     aiWelcomeEnabled: premium?.aiWelcomeEnabled === true,
+    aiImageGenEnabled: premium?.aiImageGenEnabled === true,
     aiWelcomeChannelId: guild?.aiWelcomeChannelId || null,
     aiWelcomeInstructions: premium?.aiWelcomeInstructions || null,
   };

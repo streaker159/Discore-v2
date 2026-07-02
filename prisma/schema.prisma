@@ -90,6 +90,8 @@ model GuildPremium {
   aiTranslationEnabled  Boolean       @default(false)
   aiWelcomeEnabled      Boolean       @default(false)
   aiWelcomeInstructions String?
+  aiImageGenEnabled     Boolean       @default(false)
+  perUserDailyImageGenLimit Int       @default(0)
   guild                 Guild         @relation(fields: [guildId], references: [id])
 
   @@index([guildId])

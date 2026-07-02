@@ -178,12 +178,19 @@ module.exports = [
 
       // ── AI Feature Status ──────────────────────────────────────────
       const aiStatusLines = [
+        `AI Chat: ${aiSettings.aiEnabled ? "✅ Enabled" : "❌ Disabled"}`,
         `AI Translation: ${aiSettings.aiTranslationEnabled ? "✅ Enabled" : "❌ Disabled"}`,
         `AI Welcome: ${aiSettings.aiWelcomeEnabled ? "✅ Enabled" : "❌ Disabled"}`,
+        `AI Image Gen: ${aiSettings.aiImageGenEnabled ? "✅ Enabled" : "❌ Disabled"}`,
       ];
       if (aiSettings.aiWelcomeEnabled && !aiSettings.aiWelcomeChannelId) {
         aiStatusLines.push(
           "⚠️ AI Welcome has no channel set. Use `/server channel` to configure.",
+        );
+      }
+      if (aiSettings.aiImageGenEnabled) {
+        aiStatusLines.push(
+          `Per-user daily image limit: ${aiSettings.perUserDailyImageGenLimit || "Unlimited"}`,
         );
       }
       fields.push({
@@ -286,19 +293,19 @@ module.exports = [
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
+            .setCustomId("perUserDailyImageGenLimit")
+            .setLabel("Per-user daily image gen limit (0 = unlimited)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.perUserDailyImageGenLimit)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
             .setCustomId("cooldownSeconds")
             .setLabel("Cooldown in seconds (0 = none)")
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
             .setValue(String(settings.cooldownSeconds)),
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("aiEnabled")
-            .setLabel("AI enabled? (true/false)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false)
-            .setValue(String(settings.aiEnabled)),
         ),
       );
       return interaction.showModal(modal);
@@ -323,6 +330,14 @@ module.exports = [
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
+            .setCustomId("aiEnabled")
+            .setLabel("AI enabled? (true/false — master switch)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.aiEnabled)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
             .setCustomId("aiTranslationEnabled")
             .setLabel("AI translation enabled? (true/false)")
             .setStyle(TextInputStyle.Short)
@@ -336,6 +351,14 @@ module.exports = [
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
             .setValue(String(settings.aiWelcomeEnabled ?? false)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("aiImageGenEnabled")
+            .setLabel("AI image generation enabled? (true/false)")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setValue(String(settings.aiImageGenEnabled ?? false)),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
@@ -371,9 +394,11 @@ module.exports = [
             interaction.fields.getTextInputValue("serverDailyLimit"),
           perUserDailyLimit:
             interaction.fields.getTextInputValue("perUserDailyLimit"),
+          perUserDailyImageGenLimit: interaction.fields.getTextInputValue(
+            "perUserDailyImageGenLimit",
+          ),
           cooldownSeconds:
             interaction.fields.getTextInputValue("cooldownSeconds"),
-          aiEnabled: interaction.fields.getTextInputValue("aiEnabled"),
         });
         return interaction.followUp({
           content: "✅ AI usage limits updated.",
@@ -401,11 +426,14 @@ module.exports = [
       await interaction.deferUpdate().catch(() => {});
       try {
         await updateAiSettings(interaction.guildId, {
+          aiEnabled: interaction.fields.getTextInputValue("aiEnabled"),
           aiTranslationEnabled: interaction.fields.getTextInputValue(
             "aiTranslationEnabled",
           ),
           aiWelcomeEnabled:
             interaction.fields.getTextInputValue("aiWelcomeEnabled"),
+          aiImageGenEnabled:
+            interaction.fields.getTextInputValue("aiImageGenEnabled"),
           aiWelcomeInstructions: interaction.fields.getTextInputValue(
             "aiWelcomeInstructions",
           ),

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "aiImageGenEnabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "GuildPremium" ADD COLUMN IF NOT EXISTS "perUserDailyImageGenLimit" INTEGER NOT NULL DEFAULT 0;
