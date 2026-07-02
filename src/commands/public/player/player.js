@@ -5,15 +5,10 @@ const {
 } = require("discord.js");
 const {
   getPlayerProfileStats,
-  getModerationStats,
 } = require("../../../modules/player/services/playerProfileService");
 const {
   createPlayerProfileEmbed,
 } = require("../../../modules/player/embeds/playerProfileEmbed");
-const {
-  hasModPermissions,
-} = require("../../../modules/moderation/utils/permissions");
-const prisma = require("../../../lib/prisma");
 
 module.exports = {
   scope: "PUBLIC",
@@ -61,27 +56,8 @@ module.exports = {
           member,
         );
 
-        // Check if viewer is admin
-        const dbGuild = await prisma.guild.findUnique({
-          where: { id: interaction.guildId },
-        });
-
-        const isAdmin = hasModPermissions(interaction.member, dbGuild);
-
-        // Get moderation stats if admin
-        if (isAdmin) {
-          profileStats.moderationStats = await getModerationStats(
-            interaction.guildId,
-            targetUser.id,
-          );
-        }
-
         // Create embed
-        const embed = await createPlayerProfileEmbed(
-          member,
-          profileStats,
-          isAdmin,
-        );
+        const embed = await createPlayerProfileEmbed(member, profileStats);
 
         return interaction.editReply({ embeds: [embed] });
       } catch (error) {

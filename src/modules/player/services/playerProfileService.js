@@ -2,7 +2,6 @@
 
 const prisma = require("../../../lib/prisma");
 const { getUserActivity } = require("./userActivityService");
-const caseRepo = require("../../moderation/repositories/moderationCaseRepository");
 
 /**
  * Get player profile stats for a guild member
@@ -110,9 +109,6 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
   // Get activity
   const activity = await getUserActivity(guildId, userId);
 
-  // Get active probation
-  const activeProbation = await caseRepo.getActiveProbation(guildId, userId);
-
   return {
     scoreboardStats: {
       active: activeStats,
@@ -122,18 +118,9 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
       previousRoleScores,
     },
     activity,
-    activeProbation,
   };
-}
-
-/**
- * Get moderation stats for a user (admin only)
- */
-async function getModerationStats(guildId, userId) {
-  return caseRepo.getUserModerationStats(guildId, userId);
 }
 
 module.exports = {
   getPlayerProfileStats,
-  getModerationStats,
 };

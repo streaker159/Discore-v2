@@ -6,8 +6,8 @@ const { formatDiscordTime } = require("../../../lib/embedBuilder");
 /**
  * Create player profile embed
  */
-async function createPlayerProfileEmbed(member, profileStats, isAdmin = false) {
-  const { scoreboardStats, activity, activeProbation } = profileStats;
+async function createPlayerProfileEmbed(member, profileStats) {
+  const { scoreboardStats, activity } = profileStats;
 
   const embed = new EmbedBuilder()
     .setTitle(`📊 Player Profile`)
@@ -164,43 +164,6 @@ async function createPlayerProfileEmbed(member, profileStats, isAdmin = false) {
       embed.addFields({
         name: "📈 Activity",
         value: activityValues.join("\n"),
-        inline: false,
-      });
-    }
-  }
-
-  // Probation (public)
-  if (activeProbation && activeProbation.expiresAt) {
-    embed.addFields({
-      name: "🟡 On Probation",
-      value: `Until ${formatDiscordTime(activeProbation.expiresAt).full}\n*Reason:* ${activeProbation.reason}`,
-      inline: false,
-    });
-  }
-
-  // Admin-only moderation summary
-  if (isAdmin && profileStats.moderationStats) {
-    const modStats = profileStats.moderationStats;
-    const modSummary = [
-      `**Total Cases:** ${modStats.total}`,
-      `**Warnings:** ${modStats.warns}`,
-      `**Mutes:** ${modStats.mutes}`,
-      `**Timeouts:** ${modStats.timeouts}`,
-      `**Bans:** ${modStats.bans}`,
-      `**Probations:** ${modStats.probations}`,
-      `**Active:** ${modStats.active}`,
-    ].join("\n");
-
-    embed.addFields({
-      name: "🛡️ Moderation Summary (Admin Only)",
-      value: modSummary,
-      inline: false,
-    });
-
-    if (modStats.latestCases && modStats.latestCases.length > 0) {
-      embed.addFields({
-        name: "Latest Cases",
-        value: modStats.latestCases.join(", "),
         inline: false,
       });
     }
