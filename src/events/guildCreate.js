@@ -22,6 +22,16 @@ module.exports = {
       },
     });
 
+    // Grant 100 complimentary AI credits on first join (only on create, not update)
+    await prisma.aiCredits.upsert({
+      where: { guildId: guild.id },
+      update: {}, // do nothing if record already exists
+      create: {
+        guildId: guild.id,
+        balance: 100,
+      },
+    });
+
     // Log install event
     const memberCount = guild.memberCount ?? 0;
     const ownerId = guild.ownerId || null;
