@@ -332,12 +332,21 @@ async function sendLevelUpAnnouncement(
   if (!perms?.has("SendMessages")) return;
 
   const displayName = member
-    ? member.displayName || user.username
-    : user.username;
+    ? member.displayName || member.user?.globalName || user.username
+    : user.globalName || user.username;
 
+  // Use PNG/static avatar for canvas compatibility
   const avatarUrl = member
-    ? member.displayAvatarURL({ dynamic: true, size: 128 })
-    : user.displayAvatarURL({ dynamic: true, size: 128 });
+    ? member.displayAvatarURL({
+        extension: "png",
+        size: 256,
+        forceStatic: true,
+      })
+    : user.displayAvatarURL({
+        extension: "png",
+        size: 256,
+        forceStatic: true,
+      });
 
   try {
     let levelUpCardBuffer = null;
@@ -353,7 +362,8 @@ async function sendLevelUpAnnouncement(
       // Canvas failed, fallback to embed only
     }
 
-    const content = `🎉 **${displayName}** has reached **Level ${newLevel}**! Thanks for keeping the alliance active!`;
+    // Content with user @mention
+    const content = `🎉 <@${user.id}> has reached **Level ${newLevel}**! Thanks for keeping active in the alliance!`;
 
     if (levelUpCardBuffer) {
       await channel.send({
@@ -364,9 +374,10 @@ async function sendLevelUpAnnouncement(
             name: `level-up-${user.id}.png`,
           },
         ],
+        allowedMentions: { users: [user.id] },
       });
     } else {
-      // Fallback embed
+      // Gold-themed fallback embed
       const { EmbedBuilder } = require("discord.js");
       const embed = new EmbedBuilder()
         .setTitle("🎉 Level Up!")
@@ -374,12 +385,16 @@ async function sendLevelUpAnnouncement(
           `${user} has reached **Level ${newLevel}**!\n` +
             `Level ${oldLevel} ➜ Level ${newLevel}`,
         )
-        .setColor(0x00cccc)
+        .setColor(0xd4af37)
         .setThumbnail(avatarUrl || null)
         .setTimestamp()
         .setFooter({ text: "Discore XP • Keep the alliance active!" });
 
-      await channel.send({ content, embeds: [embed] });
+      await channel.send({
+        content,
+        embeds: [embed],
+        allowedMentions: { users: [user.id] },
+      });
     }
   } catch (err) {
     logger.warn("Level-up announcement failed", {

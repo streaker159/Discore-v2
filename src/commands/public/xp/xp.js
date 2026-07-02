@@ -26,6 +26,19 @@ const {
 const { createProfileXpCard } = require("../../../modules/xp/profileXpCard");
 const prisma = require("../../../lib/prisma");
 
+const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Schedule auto-delete for a message (profile/rank responses)
+ * Safe — ignores if already deleted or lacks permission
+ */
+function scheduleAutoDelete(message) {
+  if (!message?.deletable) return;
+  setTimeout(() => {
+    message.delete().catch(() => {});
+  }, AUTO_DELETE_MS);
+}
+
 // ── Permission helpers ─────────────────────────────────────────────────────
 async function isAdmin(interaction) {
   const member = interaction.member;
@@ -436,27 +449,43 @@ module.exports = {
 
       // Try to generate profile card
       let profileCardBuffer = null;
+      const displayName = member
+        ? member.displayName || targetUser.globalName || targetUser.username
+        : targetUser.globalName || targetUser.username;
+      const avatarUrl = member
+        ? member.displayAvatarURL({
+            extension: "png",
+            size: 256,
+            forceStatic: true,
+          })
+        : targetUser.displayAvatarURL({
+            extension: "png",
+            size: 256,
+            forceStatic: true,
+          });
+
       try {
         profileCardBuffer = await createProfileXpCard({
-          avatarUrl:
-            member?.displayAvatarURL({ dynamic: true }) ||
-            targetUser.displayAvatarURL({ dynamic: true }) ||
-            undefined,
-          displayName: member
-            ? member.displayName || targetUser.username
-            : targetUser.username,
+          avatarUrl,
+          displayName,
+          username: targetUser.username,
           level: xpStats.level,
           currentXp: xpStats.progress?.progressXp || 0,
           nextLevelXp: xpStats.progress?.nextLevelXp || 100,
           rank,
           progressPercent: xpStats.progress?.progressPercent || 0,
+          messagesCounted: xpStats.messagesCounted || 0,
+          reactionsCounted: xpStats.reactionsCounted || 0,
         });
       } catch {
         // Fallback to embed
       }
 
+      const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
+
       if (profileCardBuffer) {
-        return interaction.editReply({
+        const reply = await interaction.editReply({
+          content: `-# This profile auto-deletes in 10 minutes. Run the command again for live stats.`,
           files: [
             {
               attachment: profileCardBuffer,
@@ -464,6 +493,8 @@ module.exports = {
             },
           ],
         });
+        scheduleAutoDelete(reply);
+        return;
       }
 
       // Fallback embed
@@ -475,8 +506,13 @@ module.exports = {
         weeklyXp,
         monthlyXp,
       });
+      embed.setFooter({
+        text: "Discore XP • This profile auto-deletes in 10 minutes. Run the command again for live stats.",
+      });
 
-      return interaction.editReply({ embeds: [embed] });
+      const reply = await interaction.editReply({ embeds: [embed] });
+      scheduleAutoDelete(reply);
+      return;
     }
 
     // ── /xp leaderboard ─────────────────────────────────────────────────

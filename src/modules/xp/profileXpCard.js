@@ -1,19 +1,28 @@
 "use strict";
 
 /**
- * Profile XP header card generator
- * Creates a dark-themed profile card with avatar, level, XP, rank, and progress bar
- * Uses @napi-rs/canvas for image generation.
- * Designed to be 1000x250 for future profile headers.
- * Falls back to returning null if canvas is unavailable.
+ * Profile XP card generator — Discore Gold Edition
+ * 1000x250 dark card with gold accents, avatar with gold ring,
+ * nickname/display name, username, level/XP/rank stats row,
+ * gold progress bar, and angled gold graphic on right.
+ * Uses @napi-rs/canvas. Falls back to null.
  */
 
 let canvasModule = null;
 try {
   canvasModule = require("@napi-rs/canvas");
-} catch {
-  // Canvas not available
-}
+} catch {}
+
+const COLORS = {
+  bgDark: "#101820",
+  panel: "#18212b",
+  gold: "#d4af37",
+  goldBright: "#f5c542",
+  goldDim: "#9a7b28",
+  white: "#ffffff",
+  muted: "#9a9a9a",
+  barBg: "#1e2a3a",
+};
 
 async function loadImage(url) {
   if (!canvasModule || !url) return null;
@@ -28,27 +37,31 @@ async function loadImage(url) {
 }
 
 /**
- * Create a profile XP header card
  * @param {object} opts
- * @param {string} opts.avatarUrl - User avatar URL
- * @param {string} opts.displayName - User display name (nickname preferred)
- * @param {number} opts.level - Current level
- * @param {number} opts.currentXp - Current XP progress (within level)
- * @param {number} opts.nextLevelXp - XP needed for next level
- * @param {number} opts.rank - Server rank (1-based)
- * @param {number} opts.progressPercent - Progress 0-100
- * @param {string} [opts.profileColor] - Accent color (default cyan)
+ * @param {string} opts.avatarUrl — PNG static URL
+ * @param {string} opts.displayName — nickname or display name
+ * @param {string} [opts.username] — @username (user.username)
+ * @param {number} opts.level
+ * @param {number} opts.currentXp — XP progress within level
+ * @param {number} opts.nextLevelXp — XP needed for next level
+ * @param {number} opts.rank — server rank (1-based)
+ * @param {number} opts.progressPercent — 0-100
+ * @param {number} [opts.messagesCounted]
+ * @param {number} [opts.reactionsCounted]
+ * @param {string} [opts.profileColor] — unused, kept for future
  * @returns {Promise<Buffer|null>}
  */
 async function createProfileXpCard({
   avatarUrl,
   displayName,
+  username,
   level,
   currentXp,
   nextLevelXp,
   rank,
   progressPercent,
-  profileColor,
+  messagesCounted,
+  reactionsCounted,
 }) {
   if (!canvasModule) return null;
 
@@ -60,147 +73,168 @@ async function createProfileXpCard({
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
 
-    const accentColor = profileColor || "#00cccc";
-
-    // Background - dark
-    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
-    bgGradient.addColorStop(0, "#0a1628");
-    bgGradient.addColorStop(1, "#162240");
-    ctx.fillStyle = bgGradient;
+    // ── Background ──────────────────────────────────────────────────
+    const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+    bgGrad.addColorStop(0, COLORS.bgDark);
+    bgGrad.addColorStop(0.5, "#0e1622");
+    bgGrad.addColorStop(1, COLORS.panel);
+    ctx.fillStyle = bgGrad;
     roundRect(ctx, 0, 0, width, height, 20);
     ctx.fill();
 
-    // Angled cyan shape on the right side
+    // ── Angled gold shape right side ────────────────────────────────
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(width - 200, 0);
+    ctx.moveTo(width - 250, 0);
     ctx.lineTo(width, 0);
     ctx.lineTo(width, height);
-    ctx.lineTo(width - 80, height);
+    ctx.lineTo(width - 100, height);
     ctx.closePath();
-    ctx.fillStyle = accentColor;
-    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = COLORS.gold;
+    ctx.globalAlpha = 0.05;
     ctx.fill();
-    ctx.globalAlpha = 1.0;
+    ctx.globalAlpha = 1;
     ctx.restore();
 
-    // Avatar
-    const avatarSize = 120;
-    const avatarX = 40;
-    const avatarY = (height - avatarSize) / 2;
+    // ── Top gold accent bar ─────────────────────────────────────────
+    ctx.fillStyle = COLORS.gold;
+    ctx.fillRect(0, 0, width, 4);
 
+    // ── Avatar ──────────────────────────────────────────────────────
+    const avatarSize = 120;
+    const avatarX = 45;
+    const avatarY = (height - avatarSize) / 2;
+    const avatarCenterX = avatarX + avatarSize / 2;
+    const avatarCenterY = avatarY + avatarSize / 2;
+
+    let avatarDrawn = false;
     if (avatarUrl) {
-      const avatarImg = await loadImage(avatarUrl);
-      if (avatarImg) {
+      const img = await loadImage(avatarUrl);
+      if (img) {
         ctx.save();
         ctx.beginPath();
-        ctx.arc(
-          avatarX + avatarSize / 2,
-          avatarY + avatarSize / 2,
-          avatarSize / 2,
-          0,
-          Math.PI * 2,
-        );
+        ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2, 0, Math.PI * 2);
         ctx.closePath();
         ctx.clip();
-        ctx.drawImage(avatarImg, avatarX, avatarY, avatarSize, avatarSize);
+        ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
         ctx.restore();
+        avatarDrawn = true;
       }
     }
 
-    // Avatar border ring (cyan)
-    ctx.strokeStyle = accentColor;
+    if (!avatarDrawn) {
+      ctx.fillStyle = COLORS.panel;
+      ctx.beginPath();
+      ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      const initial = (displayName || "P").charAt(0).toUpperCase();
+      ctx.fillStyle = COLORS.gold;
+      ctx.font = 'bold 48px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(initial, avatarCenterX, avatarCenterY);
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+    }
+
+    // ── Gold avatar ring ────────────────────────────────────────────
+    ctx.strokeStyle = COLORS.gold;
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(
-      avatarX + avatarSize / 2,
-      avatarY + avatarSize / 2,
-      avatarSize / 2 + 2,
-      0,
-      Math.PI * 2,
-    );
+    ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2 + 2, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Text positioning
+    // ── Text area ───────────────────────────────────────────────────
     const textX = avatarX + avatarSize + 40;
 
-    // Display name
-    ctx.fillStyle = "#ffffff";
-    ctx.font = 'bold 32px "Segoe UI", Arial, sans-serif';
-    ctx.fillText((displayName || "Player").substring(0, 30), textX, 75);
+    // Display name (large, white)
+    ctx.fillStyle = COLORS.white;
+    ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
+    const name = (displayName || "Player").substring(0, 28);
+    ctx.fillText(name, textX, 75);
 
-    // Line under username
-    ctx.strokeStyle = accentColor;
-    ctx.lineWidth = 2;
+    // Username (smaller, muted)
+    if (username) {
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = '16px "Segoe UI", Arial, sans-serif';
+      ctx.fillText(`@${username}`.substring(0, 35), textX, 100);
+    }
+
+    // Gold divider
+    ctx.strokeStyle = COLORS.gold;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(textX, 90);
-    ctx.lineTo(textX + 200, 90);
+    ctx.moveTo(textX, username ? 115 : 95);
+    ctx.lineTo(textX + 200, username ? 115 : 95);
     ctx.stroke();
 
-    // Stats row: Level, XP, Rank
-    const statsY = 130;
-    ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+    // ── Stats row ───────────────────────────────────────────────────
+    const statsY = username ? 145 : 125;
 
-    // Level
-    ctx.fillStyle = "#8899aa";
-    ctx.fillText("Level", textX, statsY);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(String(level || 1), textX, statsY + 35);
+    function drawStat(label, value, x) {
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = 'bold 16px "Segoe UI", Arial, sans-serif';
+      ctx.fillText(label, x, statsY);
+      ctx.fillStyle = COLORS.white;
+      ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+      ctx.fillText(String(value), x, statsY + 32);
+    }
 
-    // XP
-    const xpColX = textX + 160;
-    ctx.fillStyle = "#8899aa";
-    ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
-    ctx.fillText("XP", xpColX, statsY);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
-    const xpText = `${formatXpShort(currentXp || 0)} / ${formatXpShort(nextLevelXp || 100)}`;
-    ctx.fillText(xpText, xpColX, statsY + 35);
+    drawStat("Level", level || 1, textX);
+    drawStat(
+      "XP",
+      `${formatXpShort(currentXp || 0)} / ${formatXpShort(nextLevelXp || 100)}`,
+      textX + 140,
+    );
+    drawStat("Rank", rank > 0 ? `#${rank}` : "—", textX + 340);
 
-    // Rank
-    const rankColX = xpColX + 280;
-    ctx.fillStyle = "#8899aa";
-    ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
-    ctx.fillText("Rank", rankColX, statsY);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(rank > 0 ? `#${rank}` : "—", rankColX, statsY + 35);
+    // ── Optional mini stats ─────────────────────────────────────────
+    if ((messagesCounted || 0) > 0 || (reactionsCounted || 0) > 0) {
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = '13px "Segoe UI", Arial, sans-serif';
+      const mini = `Messages: ${messagesCounted || 0}  •  Reactions: ${reactionsCounted || 0}`;
+      ctx.fillText(mini, textX + 480, statsY + 15);
+    }
 
-    // Progress bar
-    const barY = statsY + 65;
-    const barWidth = 500;
-    const barHeight = 16;
+    // ── Progress bar ────────────────────────────────────────────────
+    const barY = statsY + 52;
+    const barWidth = 520;
+    const barHeight = 14;
     const barX = textX;
 
-    // Bar background
-    ctx.fillStyle = "#1a2a3a";
-    roundRect(ctx, barX, barY, barWidth, barHeight, 8);
+    // Bar bg
+    ctx.fillStyle = COLORS.barBg;
+    roundRect(ctx, barX, barY, barWidth, barHeight, 7);
     ctx.fill();
 
-    // Bar fill
-    const fillWidth = Math.max(
-      4,
+    // Bar fill (gold gradient)
+    const fillW = Math.max(
+      6,
       Math.min(barWidth, (progressPercent / 100) * barWidth),
     );
-    if (fillWidth > 0) {
-      const barGradient = ctx.createLinearGradient(barX, 0, barX + barWidth, 0);
-      barGradient.addColorStop(0, accentColor);
-      barGradient.addColorStop(1, accentColor + "88");
-      ctx.fillStyle = barGradient;
-      roundRect(ctx, barX, barY, fillWidth, barHeight, 8);
+    if (fillW > 0) {
+      const barGrad = ctx.createLinearGradient(barX, 0, barX + barWidth, 0);
+      barGrad.addColorStop(0, COLORS.goldBright);
+      barGrad.addColorStop(1, COLORS.gold);
+      ctx.fillStyle = barGrad;
+      roundRect(ctx, barX, barY, fillW, barHeight, 7);
       ctx.fill();
     }
 
-    // Progress text
-    ctx.fillStyle = "#ffffff";
-    ctx.font = '12px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(`${progressPercent}%`, barX + barWidth + 15, barY + 13);
+    // Progress %
+    ctx.fillStyle = COLORS.white;
+    ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(`${progressPercent}%`, barX + barWidth + 15, barY + 12);
 
-    // Small golden accent dot
-    ctx.fillStyle = "#ccaa00";
+    // ── Gold accent dot top-right ───────────────────────────────────
+    ctx.fillStyle = COLORS.goldBright;
     ctx.beginPath();
     ctx.arc(width - 30, 30, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = COLORS.gold;
+    ctx.beginPath();
+    ctx.arc(width - 30, 30, 4, 0, Math.PI * 2);
     ctx.fill();
 
     return canvas.toBuffer("image/png");
