@@ -447,7 +447,7 @@ module.exports = {
         getUserPeriodXp(guildId, userId, "monthly"),
       ]);
 
-      // Try to generate profile card
+      // Try to generate profile card with full data
       let profileCardBuffer = null;
       const displayName = member
         ? member.displayName || targetUser.globalName || targetUser.username
@@ -470,18 +470,20 @@ module.exports = {
           displayName,
           username: targetUser.username,
           level: xpStats.level,
+          totalXp: xpStats.totalXp,
           currentXp: xpStats.progress?.progressXp || 0,
           nextLevelXp: xpStats.progress?.nextLevelXp || 100,
           rank,
           progressPercent: xpStats.progress?.progressPercent || 0,
           messagesCounted: xpStats.messagesCounted || 0,
           reactionsCounted: xpStats.reactionsCounted || 0,
+          dailyXp,
+          weeklyXp,
+          monthlyXp,
         });
       } catch {
         // Fallback to embed
       }
-
-      const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
 
       if (profileCardBuffer) {
         const reply = await interaction.editReply({
@@ -497,20 +499,26 @@ module.exports = {
         return;
       }
 
-      // Fallback embed
-      const embed = createRankEmbed({
-        member,
-        xpStats,
-        rank,
-        dailyXp,
-        weeklyXp,
-        monthlyXp,
-      });
-      embed.setFooter({
-        text: "Discore XP • This profile auto-deletes in 10 minutes. Run the command again for live stats.",
-      });
+      // Slim fallback embed — card handles details, embed is minimal
+      const { EmbedBuilder } = require("discord.js");
+      const fallbackEmbed = new EmbedBuilder()
+        .setTitle(`📊 XP Rank — ${displayName}`)
+        .setColor(0xd4af37)
+        .addFields(
+          { name: "Level", value: String(xpStats.level), inline: true },
+          { name: "Rank", value: rank > 0 ? `#${rank}` : "—", inline: true },
+          {
+            name: "Progress",
+            value: `${xpStats.progress?.progressPercent || 0}%`,
+            inline: true,
+          },
+        )
+        .setFooter({
+          text: "Discore XP • This profile auto-deletes in 10 minutes.",
+        })
+        .setTimestamp();
 
-      const reply = await interaction.editReply({ embeds: [embed] });
+      const reply = await interaction.editReply({ embeds: [fallbackEmbed] });
       scheduleAutoDelete(reply);
       return;
     }

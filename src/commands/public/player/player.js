@@ -1,3 +1,5 @@
+"use strict";
+
 const {
   SlashCommandBuilder,
   PermissionFlagsBits,
@@ -13,9 +15,11 @@ const { createProfileXpCard } = require("../../../modules/xp/profileXpCard");
 const {
   getUserXpStats,
   getUserXpRank,
+  getUserPeriodXp,
 } = require("../../../modules/xp/xpService");
+const { formatDiscordTime } = require("../../../lib/embedBuilder");
 
-const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
+const AUTO_DELETE_MS = 10 * 60 * 1000;
 
 function scheduleAutoDelete(message) {
   if (!message?.deletable) return;
@@ -60,14 +64,21 @@ module.exports = {
           });
         }
 
-        // Get profile stats (includes XP)
-        const profileStats = await getPlayerProfileStats(
-          interaction.guildId,
-          targetUser.id,
-          member,
-        );
+        const guildId = interaction.guildId;
+        const userId = targetUser.id;
 
-        // Generate dynamic profile card
+        // ── Fetch all profile data in parallel ─────────────────────────
+        const [profileStats, xpStatsRaw, rank, dailyXp, weeklyXp, monthlyXp] =
+          await Promise.all([
+            getPlayerProfileStats(guildId, userId, member),
+            getUserXpStats(guildId, userId),
+            getUserXpRank(guildId, userId),
+            getUserPeriodXp(guildId, userId, "daily"),
+            getUserPeriodXp(guildId, userId, "weekly"),
+            getUserPeriodXp(guildId, userId, "monthly"),
+          ]);
+
+        // ── Build display info ────────────────────────────────────────
         const displayName =
           member.displayName || targetUser.globalName || targetUser.username;
 
@@ -77,34 +88,54 @@ module.exports = {
           forceStatic: true,
         });
 
-        // Try to get XP stats for the card
+        const activity = profileStats.activity || {};
+
+        // Activity strings for the card
+        const lastActive = activity.lastActiveAt
+          ? formatDiscordTime(activity.lastActiveAt).relative
+          : null;
+        const activeStreak = activity.activeDayStreak || 0;
+        const mostActiveChannel = activity.mostActiveChannelId
+          ? `<#${activity.mostActiveChannelId}>`
+          : null;
+
+        const joinedServer = member.joinedAt
+          ? formatDiscordTime(member.joinedAt).full
+          : null;
+        const accountCreated = formatDiscordTime(targetUser.createdAt).full;
+
+        // ── Generate profile card ──────────────────────────────────────
         let profileCardBuffer = null;
         try {
-          const xpStats = await getUserXpStats(
-            interaction.guildId,
-            targetUser.id,
-          );
-          const rank = await getUserXpRank(interaction.guildId, targetUser.id);
           profileCardBuffer = await createProfileXpCard({
             avatarUrl,
             displayName,
             username: targetUser.username,
-            level: xpStats.level,
-            currentXp: xpStats.progress?.progressXp || 0,
-            nextLevelXp: xpStats.progress?.nextLevelXp || 100,
+            level: xpStatsRaw.level,
+            totalXp: xpStatsRaw.totalXp,
+            currentXp: xpStatsRaw.progress?.progressXp || 0,
+            nextLevelXp: xpStatsRaw.progress?.nextLevelXp || 100,
             rank,
-            progressPercent: xpStats.progress?.progressPercent || 0,
-            messagesCounted: xpStats.messagesCounted || 0,
-            reactionsCounted: xpStats.reactionsCounted || 0,
+            progressPercent: xpStatsRaw.progress?.progressPercent || 0,
+            messagesCounted: xpStatsRaw.messagesCounted || 0,
+            reactionsCounted: xpStatsRaw.reactionsCounted || 0,
+            dailyXp,
+            weeklyXp,
+            monthlyXp,
+            joinedServer,
+            accountCreated,
+            lastActive,
+            activeStreak,
+            mostActiveChannel,
           });
         } catch {
-          // XP card generation failed, still show embed
+          // Canvas failed — fallback below
         }
 
-        // Create detail embed
-        const embed = await createPlayerProfileEmbed(member, profileStats);
+        // ── Create slim embed (roles only) ──────────────────────────────
+        const embed = await createPlayerProfileEmbed(member);
 
-        // Build response
+        // ── Build response ─────────────────────────────────────────────
         const payload = {
           content: `-# This profile auto-deletes in 10 minutes. Run the command again for live stats.`,
           embeds: [embed],
@@ -114,7 +145,7 @@ module.exports = {
           payload.files = [
             {
               attachment: profileCardBuffer,
-              name: `profile-${targetUser.id}.png`,
+              name: `profile-${userId}.png`,
             },
           ];
         }

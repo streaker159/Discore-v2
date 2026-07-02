@@ -1,10 +1,9 @@
 "use strict";
 
 /**
- * Profile XP card generator — Discore Gold Edition
- * 1000x250 dark card with gold accents, avatar with gold ring,
- * nickname/display name, username, level/XP/rank stats row,
- * gold progress bar, and angled gold graphic on right.
+ * Profile card generator — Discore Gold Edition (Full Dashboard)
+ * ~1000x540 dark card with gold accents. Contains all user-facing profile
+ * information so the embed below can stay slim (roles + admin mod summary).
  * Uses @napi-rs/canvas. Falls back to null.
  */
 
@@ -18,19 +17,19 @@ const COLORS = {
   panel: "#18212b",
   gold: "#d4af37",
   goldBright: "#f5c542",
-  goldDim: "#9a7b28",
   white: "#ffffff",
   muted: "#9a9a9a",
+  dim: "#6a7a8a",
   barBg: "#1e2a3a",
 };
 
 async function loadImage(url) {
   if (!canvasModule || !url) return null;
   try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const buffer = await response.arrayBuffer();
-    return new canvasModule.Image(Buffer.from(buffer));
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const buf = await resp.arrayBuffer();
+    return new canvasModule.Image(Buffer.from(buf));
   } catch {
     return null;
   }
@@ -38,74 +37,92 @@ async function loadImage(url) {
 
 /**
  * @param {object} opts
- * @param {string} opts.avatarUrl — PNG static URL
- * @param {string} opts.displayName — nickname or display name
- * @param {string} [opts.username] — @username (user.username)
+ * @param {string} opts.avatarUrl
+ * @param {string} opts.displayName
+ * @param {string} [opts.username]
  * @param {number} opts.level
- * @param {number} opts.currentXp — XP progress within level
- * @param {number} opts.nextLevelXp — XP needed for next level
- * @param {number} opts.rank — server rank (1-based)
- * @param {number} opts.progressPercent — 0-100
+ * @param {number} opts.totalXp
+ * @param {number} opts.currentXp
+ * @param {number} opts.nextLevelXp
+ * @param {number} opts.rank
+ * @param {number} opts.progressPercent
  * @param {number} [opts.messagesCounted]
  * @param {number} [opts.reactionsCounted]
- * @param {string} [opts.profileColor] — unused, kept for future
+ * @param {number} [opts.dailyXp]
+ * @param {number} [opts.weeklyXp]
+ * @param {number} [opts.monthlyXp]
+ * @param {string} [opts.joinedServer] — Discord timestamp string like "<t:1234:R>"
+ * @param {string} [opts.accountCreated] — same
+ * @param {string} [opts.lastActive] — relative time string
+ * @param {number} [opts.activeStreak] — days
+ * @param {string} [opts.mostActiveChannel] — channel mention string
  * @returns {Promise<Buffer|null>}
  */
-async function createProfileXpCard({
-  avatarUrl,
-  displayName,
-  username,
-  level,
-  currentXp,
-  nextLevelXp,
-  rank,
-  progressPercent,
-  messagesCounted,
-  reactionsCounted,
-}) {
+async function createProfileXpCard(opts) {
   if (!canvasModule) return null;
 
   try {
     const { createCanvas } = canvasModule;
+    const {
+      avatarUrl,
+      displayName,
+      username,
+      level,
+      totalXp,
+      currentXp,
+      nextLevelXp,
+      rank,
+      progressPercent,
+      messagesCounted,
+      reactionsCounted,
+      dailyXp,
+      weeklyXp,
+      monthlyXp,
+      joinedServer,
+      accountCreated,
+      lastActive,
+      activeStreak,
+      mostActiveChannel,
+    } = opts;
 
     const width = 1000;
-    const height = 250;
+    const height = 540;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
 
     // ── Background ──────────────────────────────────────────────────
     const bgGrad = ctx.createLinearGradient(0, 0, width, height);
     bgGrad.addColorStop(0, COLORS.bgDark);
-    bgGrad.addColorStop(0.5, "#0e1622");
+    bgGrad.addColorStop(0.6, "#0e1622");
     bgGrad.addColorStop(1, COLORS.panel);
     ctx.fillStyle = bgGrad;
-    roundRect(ctx, 0, 0, width, height, 20);
+    roundRect(ctx, 0, 0, width, height, 22);
     ctx.fill();
 
-    // ── Angled gold shape right side ────────────────────────────────
+    // ── Gold top bar ────────────────────────────────────────────────
+    ctx.fillStyle = COLORS.gold;
+    ctx.fillRect(0, 0, width, 4);
+
+    // ── Angled gold shape right ─────────────────────────────────────
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(width - 250, 0);
+    ctx.moveTo(width - 280, 0);
     ctx.lineTo(width, 0);
     ctx.lineTo(width, height);
-    ctx.lineTo(width - 100, height);
+    ctx.lineTo(width - 120, height);
     ctx.closePath();
     ctx.fillStyle = COLORS.gold;
-    ctx.globalAlpha = 0.05;
+    ctx.globalAlpha = 0.04;
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // ── Top gold accent bar ─────────────────────────────────────────
-    ctx.fillStyle = COLORS.gold;
-    ctx.fillRect(0, 0, width, 4);
-
     // ── Avatar ──────────────────────────────────────────────────────
     const avatarSize = 120;
     const avatarX = 45;
-    const avatarY = (height - avatarSize) / 2;
-    const avatarCenterX = avatarX + avatarSize / 2;
-    const avatarCenterY = avatarY + avatarSize / 2;
+    const avatarY = 45;
+    const avatarCX = avatarX + avatarSize / 2;
+    const avatarCY = avatarY + avatarSize / 2;
 
     let avatarDrawn = false;
     if (avatarUrl) {
@@ -113,7 +130,7 @@ async function createProfileXpCard({
       if (img) {
         ctx.save();
         ctx.beginPath();
-        ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2, 0, Math.PI * 2);
+        ctx.arc(avatarCX, avatarCY, avatarSize / 2, 0, Math.PI * 2);
         ctx.closePath();
         ctx.clip();
         ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
@@ -121,19 +138,17 @@ async function createProfileXpCard({
         avatarDrawn = true;
       }
     }
-
     if (!avatarDrawn) {
       ctx.fillStyle = COLORS.panel;
       ctx.beginPath();
-      ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.arc(avatarCX, avatarCY, avatarSize / 2, 0, Math.PI * 2);
       ctx.fill();
-
       const initial = (displayName || "P").charAt(0).toUpperCase();
       ctx.fillStyle = COLORS.gold;
       ctx.font = 'bold 48px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(initial, avatarCenterX, avatarCenterY);
+      ctx.fillText(initial, avatarCX, avatarCY);
       ctx.textAlign = "start";
       ctx.textBaseline = "alphabetic";
     }
@@ -142,92 +157,126 @@ async function createProfileXpCard({
     ctx.strokeStyle = COLORS.gold;
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(avatarCenterX, avatarCenterY, avatarSize / 2 + 2, 0, Math.PI * 2);
+    ctx.arc(avatarCX, avatarCY, avatarSize / 2 + 2, 0, Math.PI * 2);
     ctx.stroke();
 
-    // ── Text area ───────────────────────────────────────────────────
-    const textX = avatarX + avatarSize + 40;
+    // ── Identity column (right of avatar) ───────────────────────────
+    const col1X = avatarX + avatarSize + 40;
 
-    // Display name (large, white)
+    // Display name
     ctx.fillStyle = COLORS.white;
     ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
-    const name = (displayName || "Player").substring(0, 28);
-    ctx.fillText(name, textX, 75);
+    ctx.fillText((displayName || "Player").substring(0, 28), col1X, 80);
 
-    // Username (smaller, muted)
+    // @username
     if (username) {
       ctx.fillStyle = COLORS.muted;
       ctx.font = '16px "Segoe UI", Arial, sans-serif';
-      ctx.fillText(`@${username}`.substring(0, 35), textX, 100);
+      ctx.fillText(`@${username}`.substring(0, 32), col1X, 105);
     }
 
-    // Gold divider
+    // Gold divider under identity
     ctx.strokeStyle = COLORS.gold;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(textX, username ? 115 : 95);
-    ctx.lineTo(textX + 200, username ? 115 : 95);
+    ctx.moveTo(col1X, 118);
+    ctx.lineTo(col1X + 220, 118);
     ctx.stroke();
 
-    // ── Stats row ───────────────────────────────────────────────────
-    const statsY = username ? 145 : 125;
-
-    function drawStat(label, value, x) {
-      ctx.fillStyle = COLORS.muted;
-      ctx.font = 'bold 16px "Segoe UI", Arial, sans-serif';
-      ctx.fillText(label, x, statsY);
-      ctx.fillStyle = COLORS.white;
-      ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
-      ctx.fillText(String(value), x, statsY + 32);
-    }
-
-    drawStat("Level", level || 1, textX);
-    drawStat(
-      "XP",
-      `${formatXpShort(currentXp || 0)} / ${formatXpShort(nextLevelXp || 100)}`,
-      textX + 140,
+    // ── Main XP stat blocks (row 1) ─────────────────────────────────
+    const row1Y = 155;
+    drawStatBlock(ctx, "Level", String(level || 1), col1X, row1Y);
+    drawStatBlock(
+      ctx,
+      "Total XP",
+      formatXpShort(totalXp || 0),
+      col1X + 130,
+      row1Y,
     );
-    drawStat("Rank", rank > 0 ? `#${rank}` : "—", textX + 340);
+    drawStatBlock(ctx, "Rank", rank > 0 ? `#${rank}` : "—", col1X + 260, row1Y);
+    drawStatBlock(
+      ctx,
+      "Progress",
+      `${progressPercent || 0}%`,
+      col1X + 380,
+      row1Y,
+    );
 
-    // ── Optional mini stats ─────────────────────────────────────────
-    if ((messagesCounted || 0) > 0 || (reactionsCounted || 0) > 0) {
-      ctx.fillStyle = COLORS.muted;
-      ctx.font = '13px "Segoe UI", Arial, sans-serif';
-      const mini = `Messages: ${messagesCounted || 0}  •  Reactions: ${reactionsCounted || 0}`;
-      ctx.fillText(mini, textX + 480, statsY + 15);
-    }
-
-    // ── Progress bar ────────────────────────────────────────────────
-    const barY = statsY + 52;
-    const barWidth = 520;
-    const barHeight = 14;
-    const barX = textX;
-
-    // Bar bg
+    // ── Progress bar (row 2) ────────────────────────────────────────
+    const barY = row1Y + 65;
+    const barW = 500;
+    const barH = 14;
     ctx.fillStyle = COLORS.barBg;
-    roundRect(ctx, barX, barY, barWidth, barHeight, 7);
+    roundRect(ctx, col1X, barY, barW, barH, 7);
     ctx.fill();
 
-    // Bar fill (gold gradient)
     const fillW = Math.max(
       6,
-      Math.min(barWidth, (progressPercent / 100) * barWidth),
+      Math.min(barW, ((progressPercent || 0) / 100) * barW),
     );
     if (fillW > 0) {
-      const barGrad = ctx.createLinearGradient(barX, 0, barX + barWidth, 0);
+      const barGrad = ctx.createLinearGradient(col1X, 0, col1X + barW, 0);
       barGrad.addColorStop(0, COLORS.goldBright);
       barGrad.addColorStop(1, COLORS.gold);
       ctx.fillStyle = barGrad;
-      roundRect(ctx, barX, barY, fillW, barHeight, 7);
+      roundRect(ctx, col1X, barY, fillW, barH, 7);
       ctx.fill();
     }
-
-    // Progress %
-    ctx.fillStyle = COLORS.white;
+    ctx.fillStyle = COLORS.muted;
     ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(`${progressPercent}%`, barX + barWidth + 15, barY + 12);
+    ctx.fillText(
+      `${formatXpShort(currentXp || 0)} / ${formatXpShort(nextLevelXp || 100)} XP`,
+      col1X,
+      barY + 30,
+    );
 
-    // ── Gold accent dot top-right ───────────────────────────────────
+    // ── Divider line ────────────────────────────────────────────────
+    ctx.strokeStyle = "#253040";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(avatarX, barY + 55);
+    ctx.lineTo(width - avatarX, barY + 55);
+    ctx.stroke();
+
+    // ── Lower sections ──────────────────────────────────────────────
+    const secY = barY + 78;
+    const secLeftX = avatarX;
+    const secColW = 285;
+
+    // ── Section: Period XP ──────────────────────────────────────────
+    drawSectionLabel(ctx, "Period XP", secLeftX, secY);
+    const pItems = [];
+    if (dailyXp !== undefined) pItems.push(`Today  ${formatXpShort(dailyXp)}`);
+    if (weeklyXp !== undefined) pItems.push(`Week  ${formatXpShort(weeklyXp)}`);
+    if (monthlyXp !== undefined)
+      pItems.push(`Month  ${formatXpShort(monthlyXp)}`);
+    if (pItems.length === 0) pItems.push("No data yet");
+    drawSectionItems(ctx, pItems, secLeftX, secY + 24, COLORS.muted);
+
+    // ── Section: Activity ───────────────────────────────────────────
+    const sec2X = secLeftX + secColW + 20;
+    drawSectionLabel(ctx, "Activity", sec2X, secY);
+    const aItems = [];
+    if (typeof messagesCounted === "number")
+      aItems.push(`Messages  ${messagesCounted}`);
+    if (typeof reactionsCounted === "number")
+      aItems.push(`Reactions  ${reactionsCounted}`);
+    if (lastActive) aItems.push(`Last active  ${lastActive}`);
+    if (activeStreak > 0) aItems.push(`Streak  ${activeStreak} day(s)`);
+    if (mostActiveChannel) aItems.push(`Most active  ${mostActiveChannel}`);
+    if (aItems.length === 0) aItems.push("No activity yet");
+    drawSectionItems(ctx, aItems, sec2X, secY + 24, COLORS.muted);
+
+    // ── Section: Account ────────────────────────────────────────────
+    const sec3X = sec2X + secColW + 20;
+    drawSectionLabel(ctx, "Account", sec3X, secY);
+    const acItems = [];
+    if (joinedServer) acItems.push(`Joined  ${joinedServer}`);
+    if (accountCreated) acItems.push(`Created  ${accountCreated}`);
+    if (acItems.length === 0) acItems.push("—");
+    drawSectionItems(ctx, acItems, sec3X, secY + 24, COLORS.muted);
+
+    // ── Gold accent dot ─────────────────────────────────────────────
     ctx.fillStyle = COLORS.goldBright;
     ctx.beginPath();
     ctx.arc(width - 30, 30, 8, 0, Math.PI * 2);
@@ -241,6 +290,31 @@ async function createProfileXpCard({
   } catch (err) {
     console.error("[ProfileXpCard] Generation error:", err.message);
     return null;
+  }
+}
+
+// ── Drawing helpers ──────────────────────────────────────────────────────
+
+function drawStatBlock(ctx, label, value, x, y) {
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = 'bold 14px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(label, x, y);
+  ctx.fillStyle = COLORS.white;
+  ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(String(value), x, y + 32);
+}
+
+function drawSectionLabel(ctx, text, x, y) {
+  ctx.fillStyle = COLORS.gold;
+  ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(text, x, y);
+}
+
+function drawSectionItems(ctx, items, x, y, color) {
+  ctx.fillStyle = color;
+  ctx.font = '14px "Segoe UI", Arial, sans-serif';
+  for (let i = 0; i < items.length; i++) {
+    ctx.fillText(items[i].substring(0, 35), x, y + i * 22);
   }
 }
 
