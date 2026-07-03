@@ -242,12 +242,28 @@ module.exports = {
               { name: "❤️ Most Reactions", value: "reactions" },
             ),
         ),
+    )
+
+    // ── /xp wipe ─────────────────────────────────────────────────────────
+    .addSubcommand((s) =>
+      s
+        .setName("wipe")
+        .setDescription(
+          "Wipe all server XP or a specific user's XP (admin only)",
+        )
+        .addUserOption((o) =>
+          o
+            .setName("user")
+            .setDescription(
+              "User to wipe XP for (leave blank to wipe entire server)",
+            ),
+        ),
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    // ── /xp setup ──────────────────────────────────────────────────────
+    // ── /xp setup ─ Open the Control Panel ────────────────────────────
     if (sub === "setup") {
       if (!(await isAdmin(interaction))) {
         return interaction.reply({
@@ -259,164 +275,17 @@ module.exports = {
 
       await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
-      const data = {};
+      const config = await getXpConfig(interaction.guildId);
+      const {
+        buildPanelEmbed,
+        buildPanelRows,
+        buildPanelRows2,
+      } = require("../../../components/buttons/xp/xpSetupButtons");
 
-      const enabled = interaction.options.getBoolean("enabled");
-      if (enabled !== null) data.enabled = enabled;
-
-      const levelUpChannel = interaction.options.getChannel("level_up_channel");
-      if (levelUpChannel !== null) data.levelUpChannelId = levelUpChannel.id;
-
-      const weeklyChannel = interaction.options.getChannel(
-        "weekly_leaderboard_channel",
-      );
-      if (weeklyChannel !== null)
-        data.weeklyLeaderboardChannelId = weeklyChannel.id;
-
-      const msgXpEnabled = interaction.options.getBoolean("message_xp_enabled");
-      if (msgXpEnabled !== null) data.messageXpEnabled = msgXpEnabled;
-
-      const rxnXpEnabled = interaction.options.getBoolean(
-        "reaction_xp_enabled",
-      );
-      if (rxnXpEnabled !== null) data.reactionXpEnabled = rxnXpEnabled;
-
-      const minMsg = interaction.options.getInteger("min_message_xp");
-      if (minMsg !== null) data.minMessageXp = minMsg;
-
-      const maxMsg = interaction.options.getInteger("max_message_xp");
-      if (maxMsg !== null) data.maxMessageXp = maxMsg;
-
-      const msgCd = interaction.options.getInteger("message_cooldown_seconds");
-      if (msgCd !== null) data.messageCooldownSeconds = msgCd;
-
-      const minRxn = interaction.options.getInteger("min_reaction_xp");
-      if (minRxn !== null) data.minReactionXp = minRxn;
-
-      const maxRxn = interaction.options.getInteger("max_reaction_xp");
-      if (maxRxn !== null) data.maxReactionXp = maxRxn;
-
-      const rxnCd = interaction.options.getInteger("reaction_cooldown_seconds");
-      if (rxnCd !== null) data.reactionCooldownSeconds = rxnCd;
-
-      const announceLevelUps =
-        interaction.options.getBoolean("announce_level_ups");
-      if (announceLevelUps !== null) data.announceLevelUps = announceLevelUps;
-
-      const weeklyTop10 = interaction.options.getBoolean(
-        "weekly_top10_enabled",
-      );
-      if (weeklyTop10 !== null) data.weeklyTop10Enabled = weeklyTop10;
-
-      if (Object.keys(data).length === 0) {
-        const config = await getXpConfig(interaction.guildId);
-        const embed = new EmbedBuilder()
-          .setTitle("⚙️ Discore XP Setup")
-          .setDescription(
-            "Current XP configuration. Use options to change settings.",
-          )
-          .setColor(0x00cccc)
-          .addFields(
-            {
-              name: "Enabled",
-              value: config.enabled ? "✅ Yes" : "❌ No",
-              inline: true,
-            },
-            {
-              name: "Level-Up Channel",
-              value: config.levelUpChannelId
-                ? `<#${config.levelUpChannelId}>`
-                : "Not set",
-              inline: true,
-            },
-            {
-              name: "Weekly Top 10 Channel",
-              value: config.weeklyLeaderboardChannelId
-                ? `<#${config.weeklyLeaderboardChannelId}>`
-                : "Not set",
-              inline: true,
-            },
-            {
-              name: "Message XP",
-              value: config.messageXpEnabled
-                ? `✅ ${config.minMessageXp}–${config.maxMessageXp} XP (${config.messageCooldownSeconds}s cooldown)`
-                : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "Reaction XP",
-              value: config.reactionXpEnabled
-                ? `✅ ${config.minReactionXp}–${config.maxReactionXp} XP (${config.reactionCooldownSeconds}s cooldown)`
-                : "❌ Disabled",
-              inline: true,
-            },
-            {
-              name: "Level-Up Announcements",
-              value: config.announceLevelUps ? "✅ Yes" : "❌ No",
-              inline: true,
-            },
-            {
-              name: "Weekly Top 10",
-              value: config.weeklyTop10Enabled ? "✅ Yes" : "❌ No",
-              inline: true,
-            },
-          )
-          .setFooter({ text: "Use /xp setup with options to change" })
-          .setTimestamp();
-
-        return interaction.editReply({ embeds: [embed] });
-      }
-
-      // Validate
-      const errors = validateSetupData(data);
-      if (errors.length > 0) {
-        return interaction.editReply({
-          content: `⚠️ ${errors.join("\n")}`,
-        });
-      }
-
-      const config = await updateXpConfig(interaction.guildId, data);
-      invalidateXpConfigCache(interaction.guildId);
-
-      const embed = new EmbedBuilder()
-        .setTitle("✅ XP Settings Updated")
-        .setDescription("The XP system has been configured.")
-        .setColor(0x00cccc)
-        .addFields(
-          {
-            name: "Enabled",
-            value: config.enabled ? "✅ Yes" : "❌ No",
-            inline: true,
-          },
-          {
-            name: "Level-Up Channel",
-            value: config.levelUpChannelId
-              ? `<#${config.levelUpChannelId}>`
-              : "Not set",
-            inline: true,
-          },
-          {
-            name: "Weekly Top 10 Channel",
-            value: config.weeklyLeaderboardChannelId
-              ? `<#${config.weeklyLeaderboardChannelId}>`
-              : "Not set",
-            inline: true,
-          },
-          {
-            name: "Message XP",
-            value: `${config.minMessageXp}–${config.maxMessageXp} XP / ${config.messageCooldownSeconds}s cooldown`,
-            inline: true,
-          },
-          {
-            name: "Reaction XP",
-            value: `${config.minReactionXp}–${config.maxReactionXp} XP / ${config.reactionCooldownSeconds}s cooldown`,
-            inline: true,
-          },
-        )
-        .setFooter({ text: "Discore XP" })
-        .setTimestamp();
-
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.editReply({
+        embeds: [buildPanelEmbed(config)],
+        components: [...buildPanelRows(), ...buildPanelRows2()],
+      });
     }
 
     // ── /xp rank ────────────────────────────────────────────────────────
@@ -550,6 +419,68 @@ module.exports = {
       const reply = await interaction.editReply(payload);
       scheduleAutoDelete(reply);
       return;
+    }
+
+    // ── /xp wipe ────────────────────────────────────────────────────────
+    if (sub === "wipe") {
+      if (!(await isAdmin(interaction))) {
+        return interaction.reply({
+          content:
+            "🚫 You need Administrator, Manage Guild, or the configured Discore admin role to use this command.",
+          flags: [MessageFlags.Ephemeral],
+        });
+      }
+
+      await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+      const targetUser = interaction.options.getUser("user");
+      const guildId = interaction.guildId;
+
+      try {
+        if (targetUser) {
+          // Wipe a single user's XP
+          const deletedUser = await prisma.userXp.deleteMany({
+            where: { guildId, userId: targetUser.id },
+          });
+          const deletedEvents = await prisma.userXpEvent.deleteMany({
+            where: { guildId, userId: targetUser.id },
+          });
+
+          const embed = new EmbedBuilder()
+            .setTitle("🗑️ User XP Wiped")
+            .setDescription(
+              `XP data wiped for ${targetUser}.\n` +
+                `Removed ${deletedUser.count} XP record(s) and ${deletedEvents.count} event(s).`,
+            )
+            .setColor(0xd4af37)
+            .setTimestamp();
+
+          return interaction.editReply({ embeds: [embed] });
+        } else {
+          // Wipe entire server XP
+          const deletedUsers = await prisma.userXp.deleteMany({
+            where: { guildId },
+          });
+          const deletedEvents = await prisma.userXpEvent.deleteMany({
+            where: { guildId },
+          });
+
+          const embed = new EmbedBuilder()
+            .setTitle("🗑️ Server XP Wiped")
+            .setDescription(
+              `All XP data wiped for this server.\n` +
+                `Removed ${deletedUsers.count} user record(s) and ${deletedEvents.count} event(s).`,
+            )
+            .setColor(0xd4af37)
+            .setTimestamp();
+
+          return interaction.editReply({ embeds: [embed] });
+        }
+      } catch (err) {
+        return interaction.editReply({
+          content: `⚠️ Failed to wipe XP: ${err.message}`,
+        });
+      }
     }
   },
 };
