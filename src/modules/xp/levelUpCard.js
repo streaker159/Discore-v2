@@ -145,7 +145,7 @@ async function createLevelUpCard({
     ctx.stroke();
 
     // Level numbers: "1  •  2"
-    const levelText = `${oldLevel}  •  ${newLevel}`;
+    const levelText = `${oldLevel}  →  ${newLevel}`;
     ctx.fillStyle = COLORS.goldBright;
     ctx.font = 'bold 52px "Segoe UI", Arial, sans-serif';
     ctx.fillText(levelText, textX, 175);
