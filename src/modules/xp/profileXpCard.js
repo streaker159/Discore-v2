@@ -75,7 +75,28 @@ async function createProfileXpCard(opts) {
     } = opts;
 
     const width = 1000;
-    const height = 590;
+    const avatarX = 45;
+    const rolesMaxWidth = width - avatarX * 2;
+    const rolesLineHeight = 20;
+    const rolesMaxLines = 12;
+
+    // Roles need to be laid out before we know the final canvas height (more
+    // roles → more wrapped lines → a taller card), so measure them on a
+    // throwaway canvas first — text metrics don't depend on canvas size.
+    const measureCtx = canvasModule.createCanvas(10, 10).getContext("2d");
+    measureCtx.font = '13px "Segoe UI", Arial, sans-serif';
+    const roleLines = layoutRolesLines(
+      measureCtx,
+      roles,
+      rolesMaxWidth,
+      rolesMaxLines,
+    );
+
+    const rolesFirstLineY = 478;
+    const height = Math.max(
+      590,
+      rolesFirstLineY + (roleLines.length - 1) * rolesLineHeight + 50,
+    );
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
 
@@ -108,7 +129,6 @@ async function createProfileXpCard(opts) {
 
     // ── Avatar ──────────────────────────────────────────────────────
     const avatarSize = 120;
-    const avatarX = 45;
     const avatarY = 45;
     const avatarCX = avatarX + avatarSize / 2;
     const avatarCY = avatarY + avatarSize / 2;
@@ -281,9 +301,15 @@ async function createProfileXpCard(opts) {
       secLeftX,
       rolesLabelY,
     );
-    ctx.fillStyle = COLORS.muted;
-    ctx.font = '13px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(formatRolesText(roles), secLeftX, rolesLabelY + 24);
+    drawTextLines(
+      ctx,
+      roleLines,
+      secLeftX,
+      rolesLabelY + 24,
+      rolesLineHeight,
+      COLORS.muted,
+      '13px "Segoe UI", Arial, sans-serif',
+    );
 
     // ── Gold accent dot ─────────────────────────────────────────────
     ctx.fillStyle = COLORS.goldBright;
@@ -333,22 +359,90 @@ function formatXpShort(xp) {
   return String(Math.floor(xp));
 }
 
-function formatRolesText(roles) {
-  if (!Array.isArray(roles) || roles.length === 0) return "No roles";
+// Emoji / pictographic ranges — canvas fonts generally don't have emoji
+// glyphs, so leaving these in role names renders as tofu/missing-glyph boxes.
+// Strip them and just show the plain text portion of the role name.
+const EMOJI_REGEX =
+  /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{2000}-\u{206F}]/gu;
 
-  const maxChars = 150;
-  let text = "";
-  let shown = 0;
-  for (const role of roles) {
-    const candidate = text ? `${text}, ${role}` : role;
-    if (candidate.length > maxChars && shown > 0) break;
-    text = candidate;
-    shown++;
+function cleanRoleName(name) {
+  const stripped = String(name || "")
+    .replace(EMOJI_REGEX, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped || "Role";
+}
+
+function clampToWidth(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let clamped = text;
+  while (
+    clamped.length > 1 &&
+    ctx.measureText(`${clamped}…`).width > maxWidth
+  ) {
+    clamped = clamped.slice(0, -1);
   }
+  return `${clamped}…`;
+}
+
+/**
+ * Lay out role names into a width-aware, wrapped list of lines (pure — no
+ * drawing). More roles naturally produce more lines, up to maxLines, beyond
+ * which the remainder collapses into a "+N more" suffix on the last line.
+ */
+function layoutRolesLines(ctx, roles, maxWidth, maxLines) {
+  if (!Array.isArray(roles) || roles.length === 0) return ["No roles"];
+
+  const names = roles.map(cleanRoleName);
+  const lines = [];
+  let current = "";
+  let shown = 0;
+
+  for (const name of names) {
+    if (lines.length >= maxLines) break;
+
+    const candidate = current ? `${current}, ${name}` : name;
+    if (!current || ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+      shown++;
+    } else {
+      lines.push(current);
+      if (lines.length >= maxLines) break;
+      current = name;
+      shown++;
+    }
+  }
+  if (lines.length < maxLines && current) lines.push(current);
 
   const remaining = roles.length - shown;
-  if (remaining > 0) text += ` +${remaining} more`;
-  return text;
+  if (remaining > 0 && lines.length > 0) {
+    const idx = lines.length - 1;
+    let lastLine = lines[idx];
+    const suffix = ` +${remaining} more`;
+    while (
+      lastLine.includes(",") &&
+      ctx.measureText(lastLine + suffix).width > maxWidth
+    ) {
+      lastLine = lastLine.slice(0, lastLine.lastIndexOf(","));
+    }
+    lines[idx] = clampToWidth(ctx, lastLine + suffix, maxWidth);
+  } else if (lines.length > 0) {
+    lines[lines.length - 1] = clampToWidth(
+      ctx,
+      lines[lines.length - 1],
+      maxWidth,
+    );
+  }
+
+  return lines;
+}
+
+function drawTextLines(ctx, lines, x, y, lineHeight, color, font) {
+  ctx.fillStyle = color;
+  ctx.font = font;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, x, y + i * lineHeight);
+  });
 }
 
 module.exports = { createProfileXpCard, loadImage, roundRect };
