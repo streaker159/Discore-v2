@@ -7,10 +7,9 @@
  * Uses @napi-rs/canvas. Falls back to null.
  */
 
-let canvasModule = null;
-try {
-  canvasModule = require("@napi-rs/canvas");
-} catch {}
+const { getCanvasModule, loadImage, roundRect } = require("./canvasUtils");
+
+const canvasModule = getCanvasModule();
 
 const COLORS = {
   bgDark: "#101820",
@@ -22,21 +21,6 @@ const COLORS = {
   dim: "#6a7a8a",
   barBg: "#1e2a3a",
 };
-
-async function loadImage(url) {
-  if (!canvasModule || !url) return null;
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const buf = await resp.arrayBuffer();
-    // Use the canvas module's own loader — it waits for the image to fully
-    // decode before resolving. Constructing `new Image(buffer)` directly does
-    // NOT decode synchronously, so drawImage() would silently draw nothing.
-    return await canvasModule.loadImage(Buffer.from(buf));
-  } catch {
-    return null;
-  }
-}
 
 /**
  * @param {object} opts
@@ -325,20 +309,6 @@ function formatXpShort(xp) {
   if (xp >= 1_000_000) return `${(xp / 1_000_000).toFixed(1)}M`;
   if (xp >= 1_000) return `${(xp / 1_000).toFixed(1)}K`;
   return String(Math.floor(xp));
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
 }
 
 module.exports = { createProfileXpCard, loadImage, roundRect };

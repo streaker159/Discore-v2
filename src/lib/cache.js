@@ -34,4 +34,8 @@ module.exports = {
   gameFinderCache: new TTLCache(120_000),
   // Holds pending profile parse results while user reviews (15 min TTL)
   pendingProfileCache: new TTLCache(15 * 60_000),
+  // Short-lived cache for XP leaderboard query results (per guild+period).
+  // Keeps repeated dropdown clicks / re-runs from hammering the DB while
+  // still staying fresh enough (data rarely needs to be second-accurate).
+  xpLeaderboardCache: new TTLCache(15_000),
 };

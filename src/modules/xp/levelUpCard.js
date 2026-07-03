@@ -7,12 +7,9 @@
  * Uses @napi-rs/canvas. Falls back to null if canvas is unavailable.
  */
 
-let canvasModule = null;
-try {
-  canvasModule = require("@napi-rs/canvas");
-} catch {
-  // Canvas not available
-}
+const { getCanvasModule, loadImage, roundRect } = require("./canvasUtils");
+
+const canvasModule = getCanvasModule();
 
 const COLORS = {
   bgDark: "#101820",
@@ -22,24 +19,6 @@ const COLORS = {
   white: "#ffffff",
   muted: "#c7c7c7",
 };
-
-/**
- * Load an image from a URL into a canvas Image
- */
-async function loadImage(url) {
-  if (!canvasModule || !url) return null;
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const buffer = await response.arrayBuffer();
-    // Use the canvas module's own loader — it waits for the image to fully
-    // decode before resolving. Constructing `new Image(buffer)` directly does
-    // NOT decode synchronously, so drawImage() would silently draw nothing.
-    return await canvasModule.loadImage(Buffer.from(buffer));
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Create a level-up announcement card
@@ -188,20 +167,6 @@ async function createLevelUpCard({
     console.error("[LevelUpCard] Generation error:", err.message);
     return null;
   }
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
 }
 
 module.exports = { createLevelUpCard, loadImage, roundRect };

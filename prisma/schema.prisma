@@ -1195,6 +1195,8 @@ model UserXp {
   @@index([guildId, totalXp])
   @@index([guildId, level])
   @@index([guildId, userId])
+  @@index([guildId, messagesCounted])
+  @@index([guildId, reactionsCounted])
 }
 
 model UserXpEvent {

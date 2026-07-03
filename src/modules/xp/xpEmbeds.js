@@ -111,9 +111,19 @@ function createLeaderboardEmbed({
     daily: "📅 XP Leaderboard — Daily",
     weekly: "🗓️ XP Leaderboard — Weekly",
     monthly: "🌙 XP Leaderboard — Monthly",
+    messages: "💬 Leaderboard — Most Messages",
+    reactions: "❤️ Leaderboard — Most Reactions",
   };
 
   const title = titles[period] || titles.overall;
+  const isMessages = period === "messages";
+  const isReactions = period === "reactions";
+
+  const formatMetric = (entry) => {
+    if (isMessages) return `${entry.messagesCounted || 0} messages`;
+    if (isReactions) return `${entry.reactionsCounted || 0} reactions`;
+    return `${formatXp(entry.totalXp)} XP`;
+  };
 
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -121,12 +131,12 @@ function createLeaderboardEmbed({
     .setTimestamp();
 
   if (leaderboard.length === 0) {
-    embed.setDescription("No XP earned yet in this period. Start chatting!");
+    embed.setDescription("No data yet for this period. Start chatting!");
   } else {
     const lines = leaderboard
       .map(
         (entry, index) =>
-          `**#${index + 1}** ${entry.displayName || entry.userTag || entry.userId} — LVL ${entry.level} — **${formatXp(entry.totalXp)} XP**`,
+          `**#${index + 1}** ${entry.displayName || entry.userTag || entry.userId} — LVL ${entry.level} — **${formatMetric(entry)}**`,
       )
       .join("\n");
 
@@ -135,9 +145,14 @@ function createLeaderboardEmbed({
 
   // Show requesting user's rank if not in top 10
   if (userRank && userRank > 10) {
+    const value = isMessages
+      ? `${userXp || 0} messages`
+      : isReactions
+        ? `${userXp || 0} reactions`
+        : `${formatXp(userXp || 0)} XP`;
     embed.addFields({
       name: "📌 Your Rank",
-      value: `**#${userRank}** — LVL ${userLevel || 1} — **${formatXp(userXp || 0)} XP**`,
+      value: `**#${userRank}** — LVL ${userLevel || 1} — **${value}**`,
       inline: false,
     });
   }

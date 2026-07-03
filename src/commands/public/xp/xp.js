@@ -10,7 +10,6 @@ const {
 const {
   getUserXpStats,
   getUserXpRank,
-  getLeaderboard,
   getUserPeriodXp,
 } = require("../../../modules/xp/xpService");
 const {
@@ -19,11 +18,10 @@ const {
   invalidateXpConfigCache,
 } = require("../../../modules/xp/xpConfigService");
 const { formatXp } = require("../../../modules/xp/xpFormula");
-const {
-  createRankEmbed,
-  createLeaderboardEmbed,
-} = require("../../../modules/xp/xpEmbeds");
 const { createProfileXpCard } = require("../../../modules/xp/profileXpCard");
+const {
+  buildLeaderboardPayload,
+} = require("../../../modules/xp/leaderboardPayload");
 const prisma = require("../../../lib/prisma");
 
 const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
@@ -240,6 +238,8 @@ module.exports = {
               { name: "📅 Daily XP", value: "daily" },
               { name: "🗓️ Weekly XP", value: "weekly" },
               { name: "🌙 Monthly XP", value: "monthly" },
+              { name: "💬 Most Messages", value: "messages" },
+              { name: "❤️ Most Reactions", value: "reactions" },
             ),
         ),
     ),
@@ -528,89 +528,26 @@ module.exports = {
       await interaction.deferReply();
 
       const period = interaction.options.getString("period") || "overall";
-      const guildId = interaction.guildId;
-      const userId = interaction.user.id;
+      const member = interaction.member;
 
-      const leaderboard = await getLeaderboard(guildId, period, 10);
-
-      // Get requesting user's rank and XP
-      let userRank = 0;
-      let userXp = 0;
-      let userLevel = 1;
-
-      if (period === "overall") {
-        const stats = await getUserXpStats(guildId, userId);
-        userRank = await getUserXpRank(guildId, userId);
-        userXp = stats.totalXp;
-        userLevel = stats.level;
-      } else {
-        // For period boards, check if user is in top 10; if not, calculate
-        const isInTop10 = leaderboard.some((e) => e.userId === userId);
-        if (!isInTop10) {
-          userXp = await getUserPeriodXp(guildId, userId, period);
-          if (userXp > 0) {
-            // Approximate rank by counting users with more period XP
-            const dateRange = getDateRange(period);
-            const count = await prisma.userXpEvent.groupBy({
-              by: ["userId"],
-              where: {
-                guildId,
-                createdAt: { gte: dateRange.start, lte: dateRange.end },
-              },
-              _sum: { amount: true },
-              having: { amount: { _sum: { gt: userXp } } },
-            });
-            userRank = count.length + 1;
-          }
-          const stats = await getUserXpStats(guildId, userId);
-          userLevel = stats.level;
-        } else {
-          userRank = leaderboard.findIndex((e) => e.userId === userId) + 1;
-        }
-      }
-
-      const embed = createLeaderboardEmbed({
-        leaderboard,
+      const payload = await buildLeaderboardPayload({
+        guild: interaction.guild,
         period,
-        guildName: interaction.guild.name,
-        userRank,
-        userXp,
-        userLevel,
+        viewer: {
+          id: interaction.user.id,
+          displayName:
+            member?.displayName ||
+            interaction.user.globalName ||
+            interaction.user.username,
+          avatarUrl: (member || interaction.user).displayAvatarURL({
+            extension: "png",
+            size: 256,
+            forceStatic: true,
+          }),
+        },
       });
 
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.editReply(payload);
     }
   },
 };
-
-/**
- * Get date range helper (mirrors xpService for period rank calc)
- */
-function getDateRange(period) {
-  const now = new Date();
-  let start;
-
-  switch (period) {
-    case "daily": {
-      start = new Date(now);
-      start.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "weekly": {
-      start = new Date(now);
-      const day = start.getUTCDay();
-      const diff = start.getUTCDate() - day;
-      start.setUTCDate(diff);
-      start.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "monthly": {
-      start = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
-      break;
-    }
-    default:
-      start = new Date(0);
-  }
-
-  return { start, end: now };
-}

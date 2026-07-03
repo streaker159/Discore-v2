@@ -11,6 +11,7 @@ const {
 } = require("./xpFormula");
 const { getXpConfig } = require("./xpConfigService");
 const { isCooldownActive, setCooldown } = require("./xpCooldownCache");
+const { xpLeaderboardCache } = require("../../lib/cache");
 
 /**
  * Handle message XP award
@@ -472,15 +473,28 @@ async function getUserXpRank(guildId, userId) {
 /**
  * Get leaderboard data for a guild
  * @param {string} guildId
- * @param {'overall'|'daily'|'weekly'|'monthly'} period
+ * @param {'overall'|'daily'|'weekly'|'monthly'|'messages'|'reactions'} period
  * @param {number} limit
  * @returns {Promise<Array>}
  */
 async function getLeaderboard(guildId, period = "overall", limit = 10) {
-  if (period === "overall") {
+  const cacheKey = `${guildId}:${period}:${limit}`;
+  const cached = xpLeaderboardCache.get(cacheKey);
+  if (cached) return cached;
+
+  let result;
+
+  if (period === "overall" || period === "messages" || period === "reactions") {
+    const orderField =
+      period === "messages"
+        ? "messagesCounted"
+        : period === "reactions"
+          ? "reactionsCounted"
+          : "totalXp";
+
     const rows = await prisma.userXp.findMany({
       where: { guildId },
-      orderBy: { totalXp: "desc" },
+      orderBy: { [orderField]: "desc" },
       take: limit,
       select: {
         userId: true,
@@ -489,61 +503,165 @@ async function getLeaderboard(guildId, period = "overall", limit = 10) {
         displayName: true,
         userTag: true,
         avatarUrl: true,
+        messagesCounted: true,
+        reactionsCounted: true,
       },
     });
-    return rows.map((r) => ({
+    result = rows.map((r) => ({
       userId: r.userId,
       totalXp: r.totalXp,
       level: r.level,
       displayName: r.displayName,
       userTag: r.userTag,
       avatarUrl: r.avatarUrl,
+      messagesCounted: r.messagesCounted,
+      reactionsCounted: r.reactionsCounted,
     }));
+  } else {
+    // Daily/weekly/monthly: aggregate UserXpEvent
+    const dateRange = getDateRange(period);
+
+    const rows = await prisma.userXpEvent.groupBy({
+      by: ["userId"],
+      where: {
+        guildId,
+        createdAt: {
+          gte: dateRange.start,
+          lte: dateRange.end,
+        },
+      },
+      _sum: { amount: true },
+      orderBy: { _sum: { amount: "desc" } },
+      take: limit,
+    });
+
+    // For period leaderboards, we need levels from UserXp
+    const userIds = rows.map((r) => r.userId);
+    const xpRows = await prisma.userXp.findMany({
+      where: { guildId, userId: { in: userIds } },
+      select: {
+        userId: true,
+        level: true,
+        displayName: true,
+        userTag: true,
+        avatarUrl: true,
+        messagesCounted: true,
+        reactionsCounted: true,
+      },
+    });
+
+    const xpMap = new Map(xpRows.map((r) => [r.userId, r]));
+
+    result = rows.map((r) => {
+      const xp = xpMap.get(r.userId);
+      return {
+        userId: r.userId,
+        totalXp: r._sum.amount || 0,
+        level: xp?.level || 1,
+        displayName: xp?.displayName,
+        userTag: xp?.userTag,
+        avatarUrl: xp?.avatarUrl,
+        messagesCounted: xp?.messagesCounted || 0,
+        reactionsCounted: xp?.reactionsCounted || 0,
+      };
+    });
   }
 
-  // Daily/weekly/monthly: aggregate UserXpEvent
-  const dateRange = getDateRange(period);
+  xpLeaderboardCache.set(cacheKey, result, 15_000);
+  return result;
+}
 
-  const rows = await prisma.userXpEvent.groupBy({
+/**
+ * Get the numeric metric value a leaderboard entry represents for a period.
+ * @param {object} entry
+ * @param {string} period
+ * @returns {number}
+ */
+function getLeaderboardMetricValue(entry, period) {
+  if (period === "messages") return entry.messagesCounted || 0;
+  if (period === "reactions") return entry.reactionsCounted || 0;
+  return entry.totalXp || 0;
+}
+
+/**
+ * Get a user's rank + metric value for a leaderboard period, reusing an
+ * already-fetched top-N list when possible to avoid extra DB calls.
+ * @param {string} guildId
+ * @param {string} userId
+ * @param {'overall'|'daily'|'weekly'|'monthly'|'messages'|'reactions'} period
+ * @param {Array} [topEntries] - result of getLeaderboard() for the same guild/period
+ * @returns {Promise<{ rank: number, value: number, level: number, inTop: boolean }>}
+ */
+async function getUserLeaderboardStanding(
+  guildId,
+  userId,
+  period,
+  topEntries = [],
+) {
+  const idx = topEntries.findIndex((e) => e.userId === userId);
+  if (idx !== -1) {
+    const entry = topEntries[idx];
+    return {
+      rank: idx + 1,
+      value: getLeaderboardMetricValue(entry, period),
+      level: entry.level || 1,
+      inTop: true,
+    };
+  }
+
+  if (period === "messages" || period === "reactions") {
+    const field =
+      period === "messages" ? "messagesCounted" : "reactionsCounted";
+    const userXp = await prisma.userXp.findUnique({
+      where: { guildId_userId: { guildId, userId } },
+      select: { [field]: true, level: true },
+    });
+    const value = userXp?.[field] || 0;
+    if (!userXp || value === 0) {
+      return { rank: 0, value: 0, level: userXp?.level || 1, inTop: false };
+    }
+    const count = await prisma.userXp.count({
+      where: { guildId, [field]: { gt: value } },
+    });
+    return { rank: count + 1, value, level: userXp.level, inTop: false };
+  }
+
+  if (period === "overall") {
+    const stats = await getUserXpStats(guildId, userId);
+    if (!stats.totalXp) {
+      return { rank: 0, value: 0, level: stats.level, inTop: false };
+    }
+    const rank = await getUserXpRank(guildId, userId);
+    return { rank, value: stats.totalXp, level: stats.level, inTop: false };
+  }
+
+  // daily / weekly / monthly
+  const [value, stats] = await Promise.all([
+    getUserPeriodXp(guildId, userId, period),
+    getUserXpStats(guildId, userId),
+  ]);
+
+  if (!value) {
+    return { rank: 0, value: 0, level: stats.level, inTop: false };
+  }
+
+  const dateRange = getDateRange(period);
+  const higherRanked = await prisma.userXpEvent.groupBy({
     by: ["userId"],
     where: {
       guildId,
-      createdAt: {
-        gte: dateRange.start,
-        lte: dateRange.end,
-      },
+      createdAt: { gte: dateRange.start, lte: dateRange.end },
     },
     _sum: { amount: true },
-    orderBy: { _sum: { amount: "desc" } },
-    take: limit,
+    having: { amount: { _sum: { gt: value } } },
   });
 
-  // For period leaderboards, we need levels from UserXp
-  const userIds = rows.map((r) => r.userId);
-  const xpRows = await prisma.userXp.findMany({
-    where: { guildId, userId: { in: userIds } },
-    select: {
-      userId: true,
-      level: true,
-      displayName: true,
-      userTag: true,
-      avatarUrl: true,
-    },
-  });
-
-  const xpMap = new Map(xpRows.map((r) => [r.userId, r]));
-
-  return rows.map((r) => {
-    const xp = xpMap.get(r.userId);
-    return {
-      userId: r.userId,
-      totalXp: r._sum.amount || 0,
-      level: xp?.level || 1,
-      displayName: xp?.displayName,
-      userTag: xp?.userTag,
-      avatarUrl: xp?.avatarUrl,
-    };
-  });
+  return {
+    rank: higherRanked.length + 1,
+    value,
+    level: stats.level,
+    inTop: false,
+  };
 }
 
 /**
@@ -687,6 +805,8 @@ module.exports = {
   getUserXpStats,
   getUserXpRank,
   getLeaderboard,
+  getLeaderboardMetricValue,
+  getUserLeaderboardStanding,
   getUserPeriodXp,
   postWeeklyTop10,
   sendLevelUpAnnouncement,
