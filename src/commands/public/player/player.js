@@ -8,9 +8,6 @@ const {
 const {
   getPlayerProfileStats,
 } = require("../../../modules/player/services/playerProfileService");
-const {
-  createPlayerProfileEmbed,
-} = require("../../../modules/player/embeds/playerProfileEmbed");
 const { createProfileXpCard } = require("../../../modules/xp/profileXpCard");
 const {
   getUserXpStats,
@@ -138,7 +135,12 @@ module.exports = {
           : null;
         const accountCreated = formatCardDate(targetUser.createdAt);
 
-        // ── Generate profile card ──────────────────────────────────────
+        const roles = member.roles.cache
+          .filter((r) => r.id !== member.guild.id)
+          .sort((a, b) => b.position - a.position)
+          .map((r) => r.name);
+
+        // ── Generate profile card (roles are drawn on the card itself) ──
         let profileCardBuffer = null;
         try {
           profileCardBuffer = await createProfileXpCard({
@@ -161,18 +163,15 @@ module.exports = {
             lastActive,
             activeStreak,
             mostActiveChannel,
+            roles,
           });
         } catch {
-          // Canvas failed — fallback below
+          // Canvas failed — fallback embed below
         }
-
-        // ── Create slim embed (roles only) ──────────────────────────────
-        const embed = await createPlayerProfileEmbed(member);
 
         // ── Build response ─────────────────────────────────────────────
         const payload = {
           content: `-# This profile auto-deletes in 10 minutes. Run the command again for live stats.`,
-          embeds: [embed],
         };
 
         if (profileCardBuffer) {
@@ -182,6 +181,30 @@ module.exports = {
               name: `profile-${userId}.png`,
             },
           ];
+        } else {
+          // Canvas unavailable on this host — minimal text fallback so the
+          // command still returns useful info instead of just the notice.
+          const { EmbedBuilder } = require("discord.js");
+          const roleText =
+            roles.slice(0, 15).join(", ").substring(0, 1024) || "No roles";
+          const fallbackEmbed = new EmbedBuilder()
+            .setTitle(`📊 Player Profile — ${displayName}`)
+            .setColor(0xd4af37)
+            .addFields(
+              { name: "Level", value: String(xpStatsRaw.level), inline: true },
+              {
+                name: "Rank",
+                value: rank > 0 ? `#${rank}` : "—",
+                inline: true,
+              },
+              {
+                name: `Roles (${roles.length})`,
+                value: roleText,
+                inline: false,
+              },
+            )
+            .setTimestamp();
+          payload.embeds = [fallbackEmbed];
         }
 
         const reply = await interaction.editReply(payload);

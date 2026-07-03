@@ -43,6 +43,7 @@ const COLORS = {
  * @param {string} [opts.lastActive] — plain relative time string
  * @param {number} [opts.activeStreak] — days
  * @param {string} [opts.mostActiveChannel] — plain "#channel-name" string
+ * @param {string[]} [opts.roles] — role names, highest position first
  * @returns {Promise<Buffer|null>}
  */
 async function createProfileXpCard(opts) {
@@ -70,10 +71,11 @@ async function createProfileXpCard(opts) {
       lastActive,
       activeStreak,
       mostActiveChannel,
+      roles,
     } = opts;
 
     const width = 1000;
-    const height = 540;
+    const height = 590;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
 
@@ -263,6 +265,26 @@ async function createProfileXpCard(opts) {
     if (acItems.length === 0) acItems.push("—");
     drawSectionItems(ctx, acItems, sec3X, secY + 24, COLORS.muted);
 
+    // ── Section: Roles (full width, own row below the 3 columns) ────
+    const rolesDividerY = secY + 134;
+    ctx.strokeStyle = "#253040";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(avatarX, rolesDividerY);
+    ctx.lineTo(width - avatarX, rolesDividerY);
+    ctx.stroke();
+
+    const rolesLabelY = rolesDividerY + 22;
+    drawSectionLabel(
+      ctx,
+      `Roles${Array.isArray(roles) ? ` (${roles.length})` : ""}`,
+      secLeftX,
+      rolesLabelY,
+    );
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = '13px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(formatRolesText(roles), secLeftX, rolesLabelY + 24);
+
     // ── Gold accent dot ─────────────────────────────────────────────
     ctx.fillStyle = COLORS.goldBright;
     ctx.beginPath();
@@ -309,6 +331,24 @@ function formatXpShort(xp) {
   if (xp >= 1_000_000) return `${(xp / 1_000_000).toFixed(1)}M`;
   if (xp >= 1_000) return `${(xp / 1_000).toFixed(1)}K`;
   return String(Math.floor(xp));
+}
+
+function formatRolesText(roles) {
+  if (!Array.isArray(roles) || roles.length === 0) return "No roles";
+
+  const maxChars = 150;
+  let text = "";
+  let shown = 0;
+  for (const role of roles) {
+    const candidate = text ? `${text}, ${role}` : role;
+    if (candidate.length > maxChars && shown > 0) break;
+    text = candidate;
+    shown++;
+  }
+
+  const remaining = roles.length - shown;
+  if (remaining > 0) text += ` +${remaining} more`;
+  return text;
 }
 
 module.exports = { createProfileXpCard, loadImage, roundRect };

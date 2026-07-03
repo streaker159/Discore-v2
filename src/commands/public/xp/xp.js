@@ -547,7 +547,9 @@ module.exports = {
         },
       });
 
-      return interaction.editReply(payload);
+      const reply = await interaction.editReply(payload);
+      scheduleAutoDelete(reply);
+      return;
     }
   },
 };

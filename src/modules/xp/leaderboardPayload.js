@@ -56,6 +56,9 @@ const PERIODS = [
 
 const VALID_PERIODS = new Set(PERIODS.map((p) => p.value));
 
+const AUTO_DELETE_NOTICE =
+  "-# This leaderboard auto-deletes in 10 minutes. Run the command again for live stats.";
+
 function buildSelectRow(period) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`xp:lb:${period}`)
@@ -116,7 +119,7 @@ async function buildLeaderboardPayload({ guild, period, viewer }) {
 
   if (cardBuffer) {
     return {
-      content: "",
+      content: AUTO_DELETE_NOTICE,
       embeds: [],
       files: [
         {
@@ -138,7 +141,12 @@ async function buildLeaderboardPayload({ guild, period, viewer }) {
     userLevel: standing.level,
   });
 
-  return { content: "", embeds: [embed], files: [], components };
+  return {
+    content: AUTO_DELETE_NOTICE,
+    embeds: [embed],
+    files: [],
+    components,
+  };
 }
 
 module.exports = { buildLeaderboardPayload, PERIODS };
