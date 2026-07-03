@@ -85,11 +85,14 @@ async function handleAnnounce(interaction) {
     });
   }
 
+  // Normalise: collapse 3+ blank lines into 2, trim outer whitespace
+  const normalised = description.replace(/\n{3,}/g, "\n\n").trim();
+
   const embed = new EmbedBuilder()
     .setTitle(title)
-    .setDescription(description)
-    .setColor(0x5865f2)
-    .setFooter({ text: "Discore Official · Update Broadcast" })
+    .setDescription(normalised)
+    .setColor(0xd4af37)
+    .setFooter({ text: "Discore Official • Update Broadcast" })
     .setTimestamp();
 
   if (imageAttachment) {
