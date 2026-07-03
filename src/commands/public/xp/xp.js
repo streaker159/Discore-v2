@@ -121,94 +121,11 @@ module.exports = {
     .setName("xp")
     .setDescription("Discore XP system - leveling, leaderboard, and ranks.")
 
-    // ── /xp setup ────────────────────────────────────────────────────────
+    // ── /xp setup ─ Open the Control Panel ────────────────────────────
     .addSubcommand((s) =>
       s
         .setName("setup")
-        .setDescription("Configure the XP system (admin only)")
-        .addBooleanOption((o) =>
-          o.setName("enabled").setDescription("Enable/disable XP system"),
-        )
-        .addChannelOption((o) =>
-          o
-            .setName("level_up_channel")
-            .setDescription("Channel for level-up announcements")
-            .addChannelTypes(
-              ChannelType.GuildText,
-              ChannelType.GuildAnnouncement,
-            ),
-        )
-        .addChannelOption((o) =>
-          o
-            .setName("weekly_leaderboard_channel")
-            .setDescription("Channel for weekly top 10 posts")
-            .addChannelTypes(
-              ChannelType.GuildText,
-              ChannelType.GuildAnnouncement,
-            ),
-        )
-        .addBooleanOption((o) =>
-          o
-            .setName("message_xp_enabled")
-            .setDescription("Enable/disable message XP"),
-        )
-        .addBooleanOption((o) =>
-          o
-            .setName("reaction_xp_enabled")
-            .setDescription("Enable/disable reaction XP"),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("min_message_xp")
-            .setDescription("Minimum XP per message (default 15)")
-            .setMinValue(1)
-            .setMaxValue(10000),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("max_message_xp")
-            .setDescription("Maximum XP per message (default 40)")
-            .setMinValue(1)
-            .setMaxValue(10000),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("message_cooldown_seconds")
-            .setDescription("Cooldown between message XP (default 60)")
-            .setMinValue(5)
-            .setMaxValue(3600),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("min_reaction_xp")
-            .setDescription("Minimum XP per reaction (default 5)")
-            .setMinValue(1)
-            .setMaxValue(1000),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("max_reaction_xp")
-            .setDescription("Maximum XP per reaction (default 10)")
-            .setMinValue(1)
-            .setMaxValue(1000),
-        )
-        .addIntegerOption((o) =>
-          o
-            .setName("reaction_cooldown_seconds")
-            .setDescription("Cooldown between reaction XP (default 300)")
-            .setMinValue(10)
-            .setMaxValue(3600),
-        )
-        .addBooleanOption((o) =>
-          o
-            .setName("announce_level_ups")
-            .setDescription("Send level-up announcements"),
-        )
-        .addBooleanOption((o) =>
-          o
-            .setName("weekly_top10_enabled")
-            .setDescription("Enable weekly top 10 leaderboard post"),
-        ),
+        .setDescription("Open the XP Control Panel (admin only)"),
     )
 
     // ── /xp rank ─────────────────────────────────────────────────────────
@@ -280,7 +197,7 @@ module.exports = {
         buildPanelEmbed,
         buildPanelRows,
         buildPanelRows2,
-      } = require("../../../components/buttons/xp/xpSetupButtons");
+      } = require("../../../modules/xp/xpPanelHelpers");
 
       return interaction.editReply({
         embeds: [buildPanelEmbed(config)],

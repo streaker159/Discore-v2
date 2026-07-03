@@ -19,12 +19,14 @@ const {
   invalidateXpConfigCache,
 } = require("../../../modules/xp/xpConfigService");
 const { formatXp } = require("../../../modules/xp/xpFormula");
+const {
+  channelMention,
+  buildPanelEmbed,
+  buildPanelRows,
+  buildPanelRows2,
+} = require("../../../modules/xp/xpPanelHelpers");
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-function isPanelOwner(interaction, adminId) {
-  return interaction.user.id === adminId;
-}
 
 async function checkAdmin(interaction) {
   const member = interaction.member;
@@ -45,123 +47,6 @@ async function checkAdmin(interaction) {
   )
     return true;
   return false;
-}
-
-function channelMention(id) {
-  return id ? `<#${id}>` : "Not set";
-}
-
-function parseBool(val) {
-  const s = String(val || "")
-    .trim()
-    .toLowerCase();
-  return (
-    s === "true" || s === "yes" || s === "on" || s === "enabled" || s === "1"
-  );
-}
-
-function buildPanelEmbed(config) {
-  return new EmbedBuilder()
-    .setTitle("🎖️ Discore XP Control Panel")
-    .setDescription(
-      "Configure activity XP, rewards, cooldowns, channels, announcements, leaderboards, previews, and admin reset tools.",
-    )
-    .setColor(0xd4af37)
-    .addFields(
-      {
-        name: "🟢 System Status",
-        value: [
-          `**XP System:** ${config.enabled ? "✅ Enabled" : "❌ Disabled"}`,
-          `**Message XP:** ${config.messageXpEnabled ? "✅ Enabled" : "❌ Disabled"}`,
-          `**Reaction XP:** ${config.reactionXpEnabled ? "✅ Enabled" : "❌ Disabled"}`,
-          `**Level-up Announcements:** ${config.announceLevelUps ? "✅ Enabled" : "❌ Disabled"}`,
-          `**Weekly Top 10:** ${config.weeklyTop10Enabled ? "✅ Enabled" : "❌ Disabled"}`,
-        ].join("\n"),
-        inline: false,
-      },
-      {
-        name: "📣 Channels",
-        value: [
-          `**Level-up:** ${channelMention(config.levelUpChannelId)}`,
-          `**Weekly LB:** ${channelMention(config.weeklyLeaderboardChannelId)}`,
-        ].join("\n"),
-        inline: true,
-      },
-      {
-        name: "⚙️ Rewards",
-        value: [
-          `**Message:** ${config.minMessageXp}–${config.maxMessageXp} XP`,
-          `**Reaction:** ${config.minReactionXp}–${config.maxReactionXp} XP`,
-        ].join("\n"),
-        inline: true,
-      },
-      {
-        name: "⏱️ Cooldowns",
-        value: [
-          `**Message:** ${config.messageCooldownSeconds}s`,
-          `**Reaction:** ${config.reactionCooldownSeconds}s`,
-        ].join("\n"),
-        inline: true,
-      },
-    )
-    .setFooter({ text: "Powered by Discore • XP System" })
-    .setTimestamp();
-}
-
-function buildPanelRows() {
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("xp:panel:general")
-        .setLabel("General")
-        .setEmoji("⚙️")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("xp:panel:rewards")
-        .setLabel("Rewards")
-        .setEmoji("🎁")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("xp:panel:cooldowns")
-        .setLabel("Cooldowns")
-        .setEmoji("⏱️")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("xp:panel:channels")
-        .setLabel("Channels")
-        .setEmoji("📣")
-        .setStyle(ButtonStyle.Primary),
-    ),
-  ];
-}
-
-function buildPanelRows2() {
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("xp:panel:preview")
-        .setLabel("Preview")
-        .setEmoji("🧪")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("xp:panel:admin")
-        .setLabel("Admin Tools")
-        .setEmoji("🛠️")
-        .setStyle(ButtonStyle.Danger),
-    ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("xp:panel:refresh")
-        .setLabel("Refresh")
-        .setEmoji("🔄")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("xp:panel:close")
-        .setLabel("Close")
-        .setEmoji("❌")
-        .setStyle(ButtonStyle.Secondary),
-    ),
-  ];
 }
 
 // ── Exports ───────────────────────────────────────────────────────────────
