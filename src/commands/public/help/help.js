@@ -60,6 +60,12 @@ const CATEGORIES = [
     label: "Premium & Server Setup",
     description: "Plans, AI credits & server config",
   },
+  {
+    value: "xp",
+    emoji: "✨",
+    label: "XP & Leveling",
+    description: "XP system, levels & leaderboards",
+  },
 ];
 
 // ─── Embed builders ───────────────────────────────────────────────────────────

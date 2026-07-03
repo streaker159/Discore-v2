@@ -52,6 +52,12 @@ const CATEGORIES = [
     label: "Premium & Server Setup",
     description: "Plans, AI credits & server config",
   },
+  {
+    value: "xp",
+    emoji: "✨",
+    label: "XP & Leveling",
+    description: "XP system, levels & leaderboards",
+  },
 ];
 
 // ─── Embed builders ───────────────────────────────────────────────────────────
@@ -444,6 +450,93 @@ async function buildPremiumEmbed(interaction) {
   });
 }
 
+async function buildXpEmbed(interaction) {
+  return createDiscoreEmbed(interaction, {
+    title: "✨ XP & Leveling — Complete Guide",
+    description: [
+      "> ⚠️ This system is **in active development**. Behaviour may change.",
+      "",
+      "### 🎯 What Is Discore XP?",
+      "Discore XP is an activity-based leveling system that rewards members for chatting and engaging in your server. Think Arcane/MEE6-style XP but built directly into Discore with premium polish.",
+      "",
+      "### 📈 How It Works",
+      "• **Message XP** — Send messages in any channel to earn XP (FREE)",
+      "• **Reaction XP** — Add reactions to earn small bonus XP (Premium)",
+      "• **Cooldowns** — Prevents spam farming. Default 60s for messages, 300s for reactions",
+      "• **Level-ups** — Announced in your configured level-up channel with a premium gold card",
+      "",
+      "### 📊 Viewing Your Stats",
+      "**`/xp rank`** — View your current level, XP, progress, and rank",
+      "• Shows a beautiful gold profile card with all your stats",
+      "• Also viewable inside `/player profile`",
+      "",
+      "**`/xp leaderboard`** — View the server XP leaderboard",
+      "• 📊 **Overall** — All-time XP rankings",
+      "• 📅 **Daily** — Today's most active members",
+      "• 🗓️ **Weekly** — This week's top earners",
+      "• 🌙 **Monthly** — This month's XP leaders",
+      "",
+      "### ⚙️ Setting Up XP (Admins)",
+      "Run **`/xp setup`** to open the **XP Control Panel** — a premium interactive panel with buttons and modals:",
+      "",
+      "**⚙️ General** — Enable/disable the XP system, message XP, reaction XP, level-up announcements, and weekly top 10 posts",
+      "",
+      "**🎁 XP Rewards** — Set the XP range per message (default 15–40) and per reaction (default 5–10)",
+      "",
+      "**⏱️ Cooldowns** — Control how often members can earn XP. Message cooldown (default 60s) and reaction cooldown (default 300s)",
+      "",
+      "**📣 Channels** — Set where level-up announcements and weekly leaderboard posts go",
+      "",
+      "**🧪 Preview** — Test your profile card, level-up card, and weekly top 10 without earning XP",
+      "",
+      "**🛠️ Admin Tools** — Reset individual user XP, wipe the entire server's XP, or reset weekly/monthly counters",
+      "",
+      "### 🔢 XP Formula",
+      "Discore uses a simple increasing curve:",
+      "• Level 1 → 0 XP",
+      "• Level 2 → 100 XP total",
+      "• Level 3 → 300 XP total",
+      "• Level 4 → 600 XP total",
+      "• Level n → 50 × n × (n−1) XP total",
+      "",
+      "This keeps early levels fast and rewarding while making higher levels progressively harder.",
+      "",
+      "### 🎨 Profile & Level-Up Cards",
+      "Discore generates **premium gold-themed image cards** for:",
+      "• **Level-ups** — Sent to your level-up channel with user @mention",
+      "• **Profile cards** — Shown in `/xp rank` and `/player profile`",
+      "• Cards include your avatar, display name, level, XP bar, rank, period XP, activity stats, and account info",
+      "",
+      "### 🗑️ Wiping XP Data",
+      "Admins can reset XP data through the **Admin Tools** in `/xp setup`:",
+      "• **Reset User XP** — Wipe a single user's XP (by user ID)",
+      "• **Wipe Server XP** — Reset **all** XP for the entire server (requires typed confirmation: `RESET SERVER XP`)",
+      "• **Reset Weekly XP** — Clear only this week's XP counters (keeps total XP and levels)",
+      "• **Reset Monthly XP** — Clear only this month's XP counters",
+      "",
+      "### 🏆 Weekly Top 10",
+      "If enabled, Discore automatically posts a **Weekly XP Top 10** leaderboard to your configured channel every Sunday.",
+      "",
+      "### 💎 Free vs Premium",
+      "| Feature | Free | Premium |",
+      "|---|---|---|",
+      "| Message XP | ✅ | ✅ |",
+      "| Reaction XP | ❌ | ✅ |",
+      "| `/xp rank` & leaderboard | ✅ | ✅ |",
+      "| Level-up announcements | ✅ | ✅ |",
+      "| Weekly Top 10 auto-post | ❌ | ✅ |",
+      "| Profile cosmetics (future) | ❌ | ✅ |",
+      "",
+      "### 📝 Commands Quick Reference",
+      "`/xp setup` — Open the XP Control Panel (admin)",
+      "`/xp rank` — View your XP stats",
+      "`/xp leaderboard` — View server leaderboard",
+      "`/xp wipe` — Quick wipe of server/user XP (admin)",
+      "`/player profile` — View profile including XP section",
+    ].join("\n"),
+  });
+}
+
 // ─── Get embed builder ────────────────────────────────────────────────────────
 
 async function getCategoryEmbed(interaction, category) {
@@ -464,6 +557,8 @@ async function getCategoryEmbed(interaction, category) {
       return buildPlayersEmbed(interaction);
     case "premium":
       return buildPremiumEmbed(interaction);
+    case "xp":
+      return buildXpEmbed(interaction);
     default:
       return buildOverviewEmbed(interaction);
   }
