@@ -1,4 +1,8 @@
-const { SlashCommandBuilder, MessageFlags } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+} = require("discord.js");
 const { requireBotOwner } = require("../../../lib/ownerGuard");
 const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
 
@@ -7,6 +11,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("system")
     .setDescription("Bot-owner system tools.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand((s) =>
       s.setName("info").setDescription("Show system info."),
     ),

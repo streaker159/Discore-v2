@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const { requireBotAdmin } = require("../../../lib/ownerGuard");
 const prisma = require("../../../lib/prisma");
 const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
@@ -9,6 +9,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("game-admin")
     .setDescription("Owner-only game data tools.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand((s) =>
       s
         .setName("add-unit")

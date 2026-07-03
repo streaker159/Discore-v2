@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const { requireBotOwner } = require("../../../lib/ownerGuard");
 const {
   grantPremium,
@@ -12,6 +12,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("premium-admin")
     .setDescription("Owner-only premium controls.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand((s) =>
       s
         .setName("grant")
