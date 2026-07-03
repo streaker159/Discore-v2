@@ -69,7 +69,7 @@ function buildPanelRows() {
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId("xp:panel:rewards")
-        .setLabel("Rewards")
+        .setLabel("XP Rewards")
         .setEmoji("🎁")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
