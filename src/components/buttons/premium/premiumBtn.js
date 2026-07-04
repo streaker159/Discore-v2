@@ -405,8 +405,14 @@ module.exports = [
           flags: 64,
         });
       } catch (err) {
+        const msg = err?.message || String(err);
+        const logger = require("../../../lib/logger");
+        logger.error("premium_ai_usage_modal submit failed", {
+          error: msg,
+          guildId: interaction.guildId,
+        });
         return interaction.followUp({
-          content: "❌ Failed to update settings: " + err.message,
+          content: "❌ Failed to update settings: " + msg.substring(0, 1900),
           flags: 64,
         });
       }
@@ -443,8 +449,14 @@ module.exports = [
           flags: 64,
         });
       } catch (err) {
+        const msg = err?.message || String(err);
+        const logger = require("../../../lib/logger");
+        logger.error("premium_ai_features_modal submit failed", {
+          error: msg,
+          guildId: interaction.guildId,
+        });
         return interaction.followUp({
-          content: "❌ Failed to update settings: " + err.message,
+          content: "❌ Failed to update settings: " + msg.substring(0, 1900),
           flags: 64,
         });
       }

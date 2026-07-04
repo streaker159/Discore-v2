@@ -420,7 +420,8 @@ async function updateAiSettings(
     data.perUserDailyImageGenLimit = parseInt(perUserDailyImageGenLimit) || 0;
   if (cooldownSeconds !== undefined)
     data.cooldownSeconds = parseInt(cooldownSeconds) || 0;
-  if (aiEnabled !== undefined) data.aiEnabled = aiEnabled;
+  if (aiEnabled !== undefined)
+    data.aiEnabled = aiEnabled === true || aiEnabled === "true";
   if (aiTranslationEnabled !== undefined)
     data.aiTranslationEnabled =
       aiTranslationEnabled === true || aiTranslationEnabled === "true";
