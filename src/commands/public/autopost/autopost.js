@@ -18,7 +18,7 @@ const {
 } = require("../../../modules/autopost/autoPostEmbeds");
 const {
   buildDashboardButtons,
-} = require("../../../components/buttons/autopost/autoPostButtons");
+} = require("../../../modules/autopost/autoPostEmbeds");
 
 module.exports = {
   scope: "PUBLIC",

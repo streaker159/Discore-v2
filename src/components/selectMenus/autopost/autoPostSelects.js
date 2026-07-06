@@ -498,7 +498,7 @@ module.exports = [
       );
       const {
         buildDashboardButtons,
-      } = require("../../buttons/autopost/autoPostButtons");
+      } = require("../../../modules/autopost/autoPostEmbeds");
 
       await interaction.update({
         content: `🗑️ **${postName}** has been deleted.`,

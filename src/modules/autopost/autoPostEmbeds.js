@@ -329,6 +329,59 @@ function buildPostListEmbed(posts, guild) {
   return embed;
 }
 
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+
+function buildDashboardButtons() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("autopost:create")
+        .setLabel("Create")
+        .setEmoji("➕")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("autopost:list")
+        .setLabel("List")
+        .setEmoji("📋")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("autopost:edit")
+        .setLabel("Edit")
+        .setEmoji("✏️")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("autopost:pause_resume")
+        .setLabel("Pause/Resume")
+        .setEmoji("⏸️")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("autopost:delete_post")
+        .setLabel("Delete")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("autopost:test_send")
+        .setLabel("Test Send")
+        .setEmoji("🧪")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("autopost:refresh")
+        .setLabel("Refresh")
+        .setEmoji("🔄")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("autopost:help")
+        .setLabel("Help / Guide")
+        .setEmoji("❓")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+}
+
 module.exports = {
   TRIGGER_LABELS,
   TRIGGER_EMOJIS,
@@ -340,4 +393,5 @@ module.exports = {
   buildStepEmbed,
   buildPreviewEmbed,
   buildPostListEmbed,
+  buildDashboardButtons,
 };
