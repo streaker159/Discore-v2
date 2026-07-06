@@ -89,6 +89,7 @@ module.exports = {
       if (
         interaction.isButton() ||
         interaction.isStringSelectMenu() ||
+        interaction.isChannelSelectMenu() ||
         interaction.isModalSubmit()
       ) {
         trackInteractionInBackground(interaction);
