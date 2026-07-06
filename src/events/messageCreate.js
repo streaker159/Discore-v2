@@ -20,6 +20,7 @@ const {
 } = require("../modules/ai/providers/imageProvider");
 const { canUseAi, consumeAiCredits } = require("../modules/premium/service");
 const { getAiAdminSettings } = require("../modules/premium/service");
+const logger = require("../lib/logger");
 
 const IMAGE_GEN_COST = 5; // Credits per image generation
 
@@ -188,6 +189,12 @@ module.exports = {
               });
               if (!result.success) {
                 await recordFailure(post.id);
+                logger.warn("Auto post keyword trigger failed to send", {
+                  guildId,
+                  postId: post.id,
+                  postName: post.name,
+                  error: result.error,
+                });
               }
             }
           }
@@ -219,13 +226,22 @@ module.exports = {
               });
               if (!result.success) {
                 await recordFailure(post.id);
+                logger.warn("Auto post mention trigger failed to send", {
+                  guildId,
+                  postId: post.id,
+                  postName: post.name,
+                  error: result.error,
+                });
               }
             }
           }
         }
       }
     } catch (err) {
-      // Non-critical, don't block message handling
+      logger.error("Auto post trigger check crashed", {
+        guildId,
+        error: err.message,
+      });
     }
 
     // ── Bot mention AI ──────────────────────────────────────────────────

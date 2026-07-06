@@ -375,6 +375,14 @@ async function sendAutoPost(client, post, triggerVars = {}, testMode = false) {
 
   const payload = buildMessagePayload(post, triggerVars);
 
+  if (payload.embeds.length > 0 && !perms?.has("EmbedLinks")) {
+    return { success: false, error: "no_embed_link_permission" };
+  }
+
+  if (!payload.content && payload.embeds.length === 0) {
+    return { success: false, error: "empty_message" };
+  }
+
   if (testMode) {
     if (payload.content) {
       payload.content = `${payload.content}\n\n-# 🧪 Test Auto Post • Sent by Admin`;

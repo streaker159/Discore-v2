@@ -134,6 +134,17 @@ const modalHandlers = [
           flags: MessageFlags.Ephemeral,
         });
       }
+      if (
+        (messageMode === "EMBED" || messageMode === "BOTH") &&
+        !embedTitle &&
+        !embedDescription
+      ) {
+        return interaction.reply({
+          content:
+            "❌ Please provide an Embed Title or Embed Description — an embed can't be empty.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
 
       // Store in session
       setSession(interaction.user.id, {
@@ -527,6 +538,17 @@ const modalHandlers = [
       if (footerErr) {
         return interaction.reply({
           content: `❌ ${footerErr}`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (
+        (post.messageMode === "EMBED" || post.messageMode === "BOTH") &&
+        !embedTitle &&
+        !embedDescription
+      ) {
+        return interaction.reply({
+          content:
+            "❌ Please provide an Embed Title or Embed Description — an embed can't be empty.",
           flags: MessageFlags.Ephemeral,
         });
       }
