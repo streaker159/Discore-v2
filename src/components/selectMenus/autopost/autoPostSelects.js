@@ -137,8 +137,7 @@ module.exports = [
       const missing = [];
       if (!perms?.has("ViewChannel")) missing.push("View Channel");
       if (!perms?.has("SendMessages")) missing.push("Send Messages");
-      if (!perms?.has("EmbedLinks") && interaction.values?.[0])
-        missing.push("Embed Links");
+      if (!perms?.has("EmbedLinks")) missing.push("Embed Links");
 
       if (missing.length > 0) {
         return interaction.update({

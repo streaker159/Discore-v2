@@ -42,12 +42,10 @@ const {
 const {
   buildDashboardEmbed,
   buildPremiumLockedEmbed,
-  buildPostDetailEmbed,
   buildPostListEmbed,
   buildStepEmbed,
   TRIGGER_LABELS,
   TRIGGER_EMOJIS,
-  STATUS_LABELS,
 } = require("../../../modules/autopost/autoPostEmbeds");
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -79,59 +77,6 @@ async function requireAccess(interaction) {
     return false;
   }
   return true;
-}
-
-// ── Dashboard buttons row ─────────────────────────────────────────────────
-
-function buildDashboardButtons() {
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("autopost:create")
-        .setLabel("Create")
-        .setEmoji("➕")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId("autopost:list")
-        .setLabel("List")
-        .setEmoji("📋")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("autopost:edit")
-        .setLabel("Edit")
-        .setEmoji("✏️")
-        .setStyle(ButtonStyle.Secondary),
-    ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("autopost:pause_resume")
-        .setLabel("Pause/Resume")
-        .setEmoji("⏸️")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("autopost:delete_post")
-        .setLabel("Delete")
-        .setEmoji("🗑️")
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId("autopost:test_send")
-        .setLabel("Test Send")
-        .setEmoji("🧪")
-        .setStyle(ButtonStyle.Secondary),
-    ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("autopost:refresh")
-        .setLabel("Refresh")
-        .setEmoji("🔄")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("autopost:help")
-        .setLabel("Help / Guide")
-        .setEmoji("❓")
-        .setStyle(ButtonStyle.Secondary),
-    ),
-  ];
 }
 
 // ── Build list select menu ────────────────────────────────────────────────
@@ -176,6 +121,10 @@ module.exports = [
         interaction.guildId,
         interaction.guild,
       );
+      const {
+        buildDashboardButtons,
+      } = require("../../../modules/autopost/autoPostEmbeds");
+
       await interaction.editReply({
         embeds: [embed],
         components: buildDashboardButtons(),

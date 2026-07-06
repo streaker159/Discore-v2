@@ -1,6 +1,11 @@
 "use strict";
 
-const { EmbedBuilder } = require("discord.js");
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const { getPremiumStatus } = require("../premium/service");
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -328,8 +333,6 @@ function buildPostListEmbed(posts, guild) {
   embed.setDescription(description);
   return embed;
 }
-
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 function buildDashboardButtons() {
   return [

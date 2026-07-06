@@ -178,8 +178,8 @@ async function deletePost(postId, guildId) {
 }
 
 async function pausePost(postId, guildId, reason) {
-  return prisma.autoPost.update({
-    where: { id: postId },
+  return prisma.autoPost.updateMany({
+    where: { id: postId, guildId },
     data: {
       status: "PAUSED",
       pausedReason: reason || "Manually paused",

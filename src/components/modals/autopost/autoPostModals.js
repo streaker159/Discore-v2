@@ -91,15 +91,19 @@ const modalHandlers = [
       const session = getSession(interaction.user.id);
       const messageMode = session.messageMode || "PLAIN";
 
-      const content =
-        interaction.fields.getTextInputValue("content")?.trim() || null;
-      const embedTitle =
-        interaction.fields.getTextInputValue("embedTitle")?.trim() || null;
-      const embedDescription =
-        interaction.fields.getTextInputValue("embedDescription")?.trim() ||
-        null;
-      const embedFooter =
-        interaction.fields.getTextInputValue("embedFooter")?.trim() || null;
+      const content = interaction.fields.fields.has("content")
+        ? interaction.fields.getTextInputValue("content")?.trim() || null
+        : null;
+      const embedTitle = interaction.fields.fields.has("embedTitle")
+        ? interaction.fields.getTextInputValue("embedTitle")?.trim() || null
+        : null;
+      const embedDescription = interaction.fields.fields.has("embedDescription")
+        ? interaction.fields.getTextInputValue("embedDescription")?.trim() ||
+          null
+        : null;
+      const embedFooter = interaction.fields.fields.has("embedFooter")
+        ? interaction.fields.getTextInputValue("embedFooter")?.trim() || null
+        : null;
 
       // Validate
       const contentErr = validateContent(content);
