@@ -147,148 +147,45 @@ const modalHandlers = [
 
       const triggerType = session.triggerType;
 
-      if (triggerType === "SCHEDULED") {
-        // Show schedule config modal
-        const modal = new ModalBuilder()
-          .setCustomId("autopost:modal:schedule")
-          .setTitle("Schedule Settings");
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("recurrence")
-              .setLabel(
-                "Recurrence (once / daily / weekly / monthly / every_x_hours)",
-              )
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("daily")
-              .setValue("daily")
-              .setRequired(true),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("time")
-              .setLabel("Time (HH:MM, 24h format)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("09:00")
-              .setValue("09:00")
-              .setRequired(true),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("timezone")
-              .setLabel("Timezone (e.g., UTC, Europe/Paris)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("UTC")
-              .setValue("UTC")
-              .setRequired(true),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("weekday")
-              .setLabel("Weekday (1=Mon, 7=Sun, for weekly only)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("Leave blank if not weekly")
-              .setRequired(false),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("intervalHours")
-              .setLabel("Interval hours (for every_x_hours only)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("24")
-              .setRequired(false),
-          ),
-        );
-
-        return interaction.showModal(modal);
-      }
-
       if (triggerType === "MEMBER_JOIN") {
         // No extra config needed → go straight to preview
         return showPreview(interaction);
       }
 
-      if (triggerType === "MENTION") {
-        const modal = new ModalBuilder()
-          .setCustomId("autopost:modal:mention")
-          .setTitle("Mention Trigger Settings");
+      // For SCHEDULED, MENTION, KEYWORD → reply with a button to open config modal
+      const configTypeIds = {
+        SCHEDULED: "autopost:open:config:schedule",
+        MENTION: "autopost:open:config:mention",
+        KEYWORD: "autopost:open:config:keyword",
+      };
 
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("targetId")
-              .setLabel("Role ID or User ID to watch for")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("Paste the role or user ID")
-              .setRequired(true),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("cooldown")
-              .setLabel("Cooldown in seconds (30-86400)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("300")
-              .setValue("300")
-              .setRequired(true),
-          ),
-        );
+      const configTypeLabels = {
+        SCHEDULED: "Configure Schedule",
+        MENTION: "Configure Mention Trigger",
+        KEYWORD: "Configure Keyword Trigger",
+      };
 
-        return interaction.showModal(modal);
-      }
+      const buttonId = configTypeIds[triggerType];
+      const buttonLabel = configTypeLabels[triggerType] || "Next";
 
-      if (triggerType === "KEYWORD") {
-        const modal = new ModalBuilder()
-          .setCustomId("autopost:modal:keyword")
-          .setTitle("Keyword Trigger Settings");
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(buttonId)
+          .setLabel(buttonLabel)
+          .setEmoji("⚙️")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("autopost:preview:now")
+          .setLabel("Skip Config — Preview")
+          .setEmoji("📋")
+          .setStyle(ButtonStyle.Secondary),
+      );
 
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("phrase")
-              .setLabel("Keyword/phrase (2-100 chars)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("e.g., how do I apply")
-              .setMinLength(2)
-              .setMaxLength(100)
-              .setRequired(true),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("matchType")
-              .setLabel("Match type: CONTAINS or EXACT")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("CONTAINS")
-              .setValue("CONTAINS")
-              .setRequired(true),
-          ),
-        );
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("cooldown")
-              .setLabel("Cooldown in seconds (30-86400)")
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder("300")
-              .setValue("300")
-              .setRequired(true),
-          ),
-        );
-
-        return interaction.showModal(modal);
-      }
+      return interaction.reply({
+        content: `✅ Content saved for **${name}**.\n\nClick below to configure the **${TRIGGER_LABELS[triggerType]}** or skip to preview.`,
+        components: [row],
+        flags: MessageFlags.Ephemeral,
+      });
     },
   },
 
@@ -546,6 +443,161 @@ async function showPreview(interaction) {
   });
 }
 
+// ── Buttons to open config modals (from content modal reply) ─────────────
+
+const configOpeners = [
+  {
+    customIdPrefix: "autopost:open:config:schedule",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      await interaction.deferUpdate().catch(() => {});
+      const modal = new ModalBuilder()
+        .setCustomId("autopost:modal:schedule")
+        .setTitle("Schedule Settings");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("recurrence")
+            .setLabel(
+              "Recurrence (once / daily / weekly / monthly / every_x_hours)",
+            )
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("daily")
+            .setValue("daily")
+            .setRequired(true),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("time")
+            .setLabel("Time (HH:MM, 24h format)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("09:00")
+            .setValue("09:00")
+            .setRequired(true),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("timezone")
+            .setLabel("Timezone (e.g., UTC, Europe/Paris)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("UTC")
+            .setValue("UTC")
+            .setRequired(true),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("weekday")
+            .setLabel("Weekday (1=Mon, 7=Sun, for weekly only)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("Leave blank if not weekly")
+            .setRequired(false),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("intervalHours")
+            .setLabel("Interval hours (for every_x_hours only)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("24")
+            .setRequired(false),
+        ),
+      );
+      return interaction.showModal(modal);
+    },
+  },
+  {
+    customIdPrefix: "autopost:open:config:mention",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      await interaction.deferUpdate().catch(() => {});
+      const modal = new ModalBuilder()
+        .setCustomId("autopost:modal:mention")
+        .setTitle("Mention Trigger Settings");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("targetId")
+            .setLabel("Role ID or User ID to watch for")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("Paste the role or user ID")
+            .setRequired(true),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("cooldown")
+            .setLabel("Cooldown in seconds (30-86400)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("300")
+            .setValue("300")
+            .setRequired(true),
+        ),
+      );
+      return interaction.showModal(modal);
+    },
+  },
+  {
+    customIdPrefix: "autopost:open:config:keyword",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      await interaction.deferUpdate().catch(() => {});
+      const modal = new ModalBuilder()
+        .setCustomId("autopost:modal:keyword")
+        .setTitle("Keyword Trigger Settings");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("phrase")
+            .setLabel("Keyword/phrase (2-100 chars)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("e.g., how do I apply")
+            .setMinLength(2)
+            .setMaxLength(100)
+            .setRequired(true),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("matchType")
+            .setLabel("Match type: CONTAINS or EXACT")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("CONTAINS")
+            .setValue("CONTAINS")
+            .setRequired(true),
+        ),
+      );
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("cooldown")
+            .setLabel("Cooldown in seconds (30-86400)")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("300")
+            .setValue("300")
+            .setRequired(true),
+        ),
+      );
+      return interaction.showModal(modal);
+    },
+  },
+  {
+    customIdPrefix: "autopost:preview:now",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      await showPreview(interaction);
+    },
+  },
+];
+
 // Extend the module exports with the save/test buttons
 const saveButtonsModule = [
   // ═══════════════════════════════════════════════════════════════════════
@@ -713,4 +765,4 @@ const saveButtonsModule = [
 ];
 
 // Combine all
-module.exports = [...modalHandlers, ...saveButtonsModule];
+module.exports = [...modalHandlers, ...configOpeners, ...saveButtonsModule];
