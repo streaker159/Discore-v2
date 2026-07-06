@@ -26,7 +26,7 @@ module.exports = {
       if (!canHandleAppeals(interaction.member, dbGuild)) {
         return interaction.reply({
           content: "⚠️ You don't have permission to handle appeals.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -61,7 +61,7 @@ module.exports = {
       console.error("[Appeal Reduce Error]", error);
       return interaction.reply({
         content: `⚠️ Error: ${error.message}`,
-        ephemeral: true,
+        flags: 64,
       });
     }
   },

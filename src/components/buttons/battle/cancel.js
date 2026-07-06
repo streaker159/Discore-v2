@@ -12,7 +12,7 @@ module.exports = {
     if (!signup)
       return interaction.reply({
         content: "Battle signup not found.",
-        ephemeral: true,
+        flags: 64,
       });
 
     if (
@@ -21,7 +21,7 @@ module.exports = {
     ) {
       return interaction.reply({
         content: "Only the captain or an admin can cancel this signup.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 

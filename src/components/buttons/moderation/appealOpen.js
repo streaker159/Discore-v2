@@ -17,7 +17,7 @@ module.exports = {
     if (!caseId) {
       return interaction.reply({
         content: "⚠️ Invalid appeal request. Case ID not found.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 

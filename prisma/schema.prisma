@@ -1128,6 +1128,41 @@ model SafeVaultDailyLimit {
   @@index([dateKey])
 }
 
+model AutoPost {
+  id               String        @id @default(cuid())
+  guildId          String
+  name             String
+  enabled          Boolean       @default(true)
+  status           AutoPostStatus @default(ACTIVE)
+  triggerType      TriggerType
+  channelId        String
+  messageMode      MessageMode   @default(PLAIN)
+  content          String?       @db.Text
+  embedTitle       String?
+  embedDescription String?       @db.Text
+  embedColor       String?
+  embedFooter      String?
+  embedImageUrl    String?
+  triggerConfig    Json?
+  scheduleConfig   Json?
+  timezone         String        @default("UTC")
+  nextRunAt        DateTime?
+  lastRunAt        DateTime?
+  cooldownSeconds  Int           @default(300)
+  lastTriggeredAt  DateTime?
+  failureCount     Int           @default(0)
+  pausedReason     String?
+  createdById      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([guildId])
+  @@index([guildId, status])
+  @@index([guildId, enabled])
+  @@index([triggerType])
+  @@index([nextRunAt])
+}
+
 model TrackedRole {
   guildId   String
   roleId    String
@@ -1344,6 +1379,25 @@ enum ImportStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum TriggerType {
+  SCHEDULED
+  MEMBER_JOIN
+  MENTION
+  KEYWORD
+}
+
+enum MessageMode {
+  PLAIN
+  EMBED
+  BOTH
+}
+
+enum AutoPostStatus {
+  ACTIVE
+  PAUSED
+  FAILED
 }
 
 enum SourceType {

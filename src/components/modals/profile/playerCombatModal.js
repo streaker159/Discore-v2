@@ -32,7 +32,7 @@ module.exports = {
     if (pending.discordId !== interaction.user.id) {
       return interaction.reply({
         content: "⚠️ This edit session belongs to a different user.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -52,7 +52,7 @@ module.exports = {
 
     if (token && !isDirect) pendingProfileCache.set(token, pending);
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     if (isDirect) {
       const result = await updatePlayerFromParsed(

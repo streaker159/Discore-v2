@@ -32,4 +32,6 @@ module.exports = {
   "xp.reaction": "PREMIUM",
   "xp.weeklyLeaderboard": "PREMIUM",
   "xp.profileCosmetics": "PREMIUM",
+  // Auto Posts
+  autopost: "PREMIUM",
 };

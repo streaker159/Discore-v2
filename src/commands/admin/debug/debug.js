@@ -16,7 +16,7 @@ module.exports = {
     await prisma.$queryRaw`SELECT 1`;
     return interaction.reply({
       content: "✅ Database connection OK.",
-      ephemeral: true,
+      flags: 64,
     });
   },
 };

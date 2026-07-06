@@ -38,7 +38,7 @@ module.exports = {
       if (!profile) {
         return interaction.reply({
           content: "⚠️ Profile not found.",
-          ephemeral: true,
+          flags: 64,
         });
       }
       const embed = buildPlayerEmbed(profile, targetUser);
@@ -51,7 +51,7 @@ module.exports = {
       return interaction.reply({
         content:
           "📸 **To update your profile:**\nRun `/player update` and attach up to **5** screenshots of your in-game profile page (showing stats, alliance, level, etc.).",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -64,7 +64,7 @@ module.exports = {
         content: newState
           ? "🌐 Your profile is now **public**."
           : "🔒 Your profile is now **private**.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -191,7 +191,7 @@ module.exports = {
         return interaction.reply({
           content:
             "⚠️ This confirmation has expired or is invalid. Please run `/player update` again.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 

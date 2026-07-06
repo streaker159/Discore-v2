@@ -26,14 +26,14 @@ module.exports = {
     if (!event)
       return interaction.reply({
         content: "⚠️ Event not found.",
-        ephemeral: true,
+        flags: 64,
       });
 
     if (!canManageEvent(interaction, event)) {
       return interaction.reply({
         content:
           "Only the event creator or a server admin (Manage Server / Administrator) can edit this event.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 

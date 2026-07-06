@@ -12,7 +12,7 @@ const {
 module.exports = {
   customIdPrefix: "event:create:",
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     const parts = interaction.customId.split(":");
     const tagOnCreate = parts[2] !== "0" ? parts[2] : null;

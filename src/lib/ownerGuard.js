@@ -1,6 +1,6 @@
 function splitIds(value) {
-  return String(value || '')
-    .split(',')
+  return String(value || "")
+    .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
 }
@@ -10,7 +10,9 @@ function getOwnerIds() {
 }
 
 function getAdminIds() {
-  return [...new Set([...getOwnerIds(), ...splitIds(process.env.BOT_ADMIN_IDS)])];
+  return [
+    ...new Set([...getOwnerIds(), ...splitIds(process.env.BOT_ADMIN_IDS)]),
+  ];
 }
 
 function isBotOwner(userId) {
@@ -23,7 +25,10 @@ function isBotAdmin(userId) {
 
 async function requireBotOwner(interaction) {
   if (!isBotOwner(interaction.user.id)) {
-    await interaction.reply({ content: 'This command is bot-owner only.', ephemeral: true });
+    await interaction.reply({
+      content: "This command is bot-owner only.",
+      flags: 64,
+    });
     return false;
   }
   return true;
@@ -31,7 +36,10 @@ async function requireBotOwner(interaction) {
 
 async function requireBotAdmin(interaction) {
   if (!isBotAdmin(interaction.user.id)) {
-    await interaction.reply({ content: 'This command is bot-admin only.', ephemeral: true });
+    await interaction.reply({
+      content: "This command is bot-admin only.",
+      flags: 64,
+    });
     return false;
   }
   return true;

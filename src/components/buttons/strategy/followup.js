@@ -4,7 +4,7 @@ module.exports = {
     await interaction.reply({
       content:
         "💡 Use `/strategy ask` or `/strategy deep` to ask your next question.",
-      ephemeral: true,
+      flags: 64,
     });
   },
 };

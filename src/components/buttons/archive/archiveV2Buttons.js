@@ -78,11 +78,11 @@ module.exports = [
       if (!boardId) {
         return interaction.reply({
           content: "Invalid archive.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: 64 });
 
       try {
         const restored = await restoreArchiveAsNew(
@@ -117,7 +117,7 @@ module.exports = [
 
       return interaction.reply({
         content: `Use \`/archive add-result archive_id:${label}\` to add results. (The button opens guidance for now.)`,
-        ephemeral: true,
+        flags: 64,
       });
     },
   },

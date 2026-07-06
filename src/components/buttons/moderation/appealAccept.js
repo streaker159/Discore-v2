@@ -26,7 +26,7 @@ module.exports = {
       if (!canHandleAppeals(interaction.member, dbGuild)) {
         return interaction.reply({
           content: "⚠️ You don't have permission to handle appeals.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -38,7 +38,9 @@ module.exports = {
         .setCustomId("accept_reason")
         .setLabel("Decision note shown to user and case view")
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder("Explain why the appeal is accepted and what is being removed.")
+        .setPlaceholder(
+          "Explain why the appeal is accepted and what is being removed.",
+        )
         .setRequired(true)
         .setMaxLength(1000);
 
@@ -51,13 +53,13 @@ module.exports = {
       if (interaction.replied || interaction.deferred) {
         return interaction.followUp({
           content: `⚠️ Error: ${error.message}`,
-          ephemeral: true,
+          flags: 64,
         });
       }
 
       return interaction.reply({
         content: `⚠️ Error: ${error.message}`,
-        ephemeral: true,
+        flags: 64,
       });
     }
   },

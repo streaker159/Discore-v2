@@ -14,7 +14,12 @@ function loadJobs(client) {
   for (const file of files) {
     const job = require(file);
 
-    // Support new-style jobs with start function (like moderationExpiryJob)
+    // Support new-style jobs with start function
+    if (typeof job.startAutoPostScheduler === "function") {
+      job.startAutoPostScheduler(client);
+      logger.info("Started job", { name: "autoPostScheduler" });
+      continue;
+    }
     if (typeof job.startModerationExpiryJob === "function") {
       job.startModerationExpiryJob(client);
       logger.info("Started job", { name: "moderationExpiryJob" });

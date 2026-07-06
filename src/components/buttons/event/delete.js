@@ -60,7 +60,7 @@ module.exports = {
       if (!canManageEvent(interaction, event)) {
         return interaction.reply({
           content: "Only the event creator or a server admin (Manage Server / Administrator) can do that.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -119,12 +119,12 @@ module.exports = {
     const eventId = parts[2];
     const event = await getEvent(eventId);
     if (!event)
-      return interaction.reply({ content: "Event not found.", ephemeral: true });
+      return interaction.reply({ content: "Event not found.", flags: 64 });
 
     if (!canManageEvent(interaction, event)) {
       return interaction.reply({
         content: "Only the event creator or a server admin (Manage Server / Administrator) can cancel this event.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -134,7 +134,7 @@ module.exports = {
       await interaction.message.delete().catch(() => {});
       return interaction.reply({
         content: "Event embed removed and all data deleted.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -153,7 +153,7 @@ module.exports = {
     return interaction.reply({
       content: `Are you sure you want to cancel **${event.title}**?\nThe embed will be updated to Cancelled and all tagged roles will be notified.`,
       components: [confirmRow],
-      ephemeral: true,
+      flags: 64,
     });
   },
 };

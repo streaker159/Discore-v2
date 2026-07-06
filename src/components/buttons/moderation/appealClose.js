@@ -10,7 +10,7 @@ module.exports = {
   customId: "appeal_close",
 
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     try {
       const appealId = interaction.customId.split(":")[1];

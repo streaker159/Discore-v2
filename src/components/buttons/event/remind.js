@@ -16,12 +16,12 @@ module.exports = {
     if (!event)
       return interaction.reply({
         content: "⚠️ Event not found.",
-        ephemeral: true,
+        flags: 64,
       });
     if (["COMPLETED", "CANCELLED", "EXPIRED"].includes(event.status))
       return interaction.reply({
         content: "⚠️ This event has already ended.",
-        ephemeral: true,
+        flags: 64,
       });
 
     const now = Date.now();
@@ -30,7 +30,7 @@ module.exports = {
     if (diffMs <= 0)
       return interaction.reply({
         content: "⏱️ This event has already started.",
-        ephemeral: true,
+        flags: 64,
       });
 
     // Build reminder options filtered to what's still in the future
@@ -49,7 +49,7 @@ module.exports = {
     if (options.filter((o) => o.value !== "cancel").length === 0)
       return interaction.reply({
         content: "⏱️ Not enough time left to set a reminder.",
-        ephemeral: true,
+        flags: 64,
       });
 
     const row = new ActionRowBuilder().addComponents(
@@ -62,7 +62,7 @@ module.exports = {
     return interaction.reply({
       content: "🔔 When would you like to be reminded?",
       components: [row],
-      ephemeral: true,
+      flags: 64,
     });
   },
 };

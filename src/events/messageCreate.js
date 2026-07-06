@@ -137,6 +137,97 @@ module.exports = {
       console.error("[Automod Enforcement Error]", err);
     }
 
+    // ── Auto Post: Keyword & Mention triggers ───────────────────────────
+    try {
+      const {
+        checkPremiumActive,
+        getPosts,
+        isOnCooldown,
+        markTriggered,
+        sendAutoPost,
+        recordFailure,
+      } = require("../modules/autopost/autoPostService");
+      const isPremium = await checkPremiumActive(guildId);
+
+      if (isPremium) {
+        const autoPosts = await getPosts(guildId);
+        for (const post of autoPosts) {
+          if (post.status !== "ACTIVE" || !post.enabled) continue;
+
+          if (post.triggerType === "KEYWORD") {
+            const cfg = post.triggerConfig || {};
+            const phrase = cfg.phrase || "";
+            const matchType = cfg.matchType || "CONTAINS";
+            if (!phrase) continue;
+
+            const msgContent = message.content.toLowerCase();
+            const phraseLower = phrase.toLowerCase();
+
+            let matched = false;
+            if (matchType === "EXACT") {
+              matched = msgContent === phraseLower;
+            } else {
+              matched = msgContent.includes(phraseLower);
+            }
+
+            if (matched && !(await isOnCooldown(post))) {
+              await markTriggered(post.id);
+              const guild = message.guild;
+              const member = message.member;
+              const result = await sendAutoPost(client, post, {
+                serverName: guild.name,
+                memberCount: String(guild.memberCount),
+                userMention: `<@${message.author.id}>`,
+                username: message.author.username,
+                displayName:
+                  member?.displayName ||
+                  message.author.displayName ||
+                  message.author.username,
+                channel: `<#${message.channel.id}>`,
+                trigger: phrase,
+              });
+              if (!result.success) {
+                await recordFailure(post.id);
+              }
+            }
+          }
+
+          if (post.triggerType === "MENTION") {
+            const cfg = post.triggerConfig || {};
+            const targetId = cfg.targetId;
+            if (!targetId) continue;
+
+            // Check if the message mentions the target role or user
+            const mentionsRole = message.mentions.roles.has(targetId);
+            const mentionsUser = message.mentions.users.has(targetId);
+
+            if ((mentionsRole || mentionsUser) && !(await isOnCooldown(post))) {
+              await markTriggered(post.id);
+              const guild = message.guild;
+              const member = message.member;
+              const result = await sendAutoPost(client, post, {
+                serverName: guild.name,
+                memberCount: String(guild.memberCount),
+                userMention: `<@${message.author.id}>`,
+                username: message.author.username,
+                displayName:
+                  member?.displayName ||
+                  message.author.displayName ||
+                  message.author.username,
+                channel: `<#${message.channel.id}>`,
+                trigger: mentionsRole ? `<@&${targetId}>` : `<@${targetId}>`,
+              });
+              if (!result.success) {
+                await recordFailure(post.id);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // Non-critical, don't block message handling
+    }
+
     // ── Bot mention AI ──────────────────────────────────────────────────
     const userId = message.author.id;
     const channelId = message.channel.id;

@@ -36,7 +36,7 @@ async function requireFeature(interaction, featureKey) {
   if (ok) return true;
   await interaction.reply({
     content: `🔒 **Discore Premium required.** This feature is premium locked.`,
-    ephemeral: true,
+    flags: 64,
   });
   return false;
 }

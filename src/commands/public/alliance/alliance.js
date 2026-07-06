@@ -107,7 +107,7 @@ module.exports = {
       if (!alliance) {
         return interaction.reply({
           content: `⚠️ No alliance profile found for **[${tag}]** in game \`${game}\`.\nUse \`/alliance setup\` to create one.`,
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -118,7 +118,7 @@ module.exports = {
         if (!isAdmin && alliance.ownerId !== interaction.user.id) {
           return interaction.reply({
             content: "🔒 That alliance profile is private.",
-            ephemeral: true,
+            flags: 64,
           });
         }
       }
@@ -147,7 +147,7 @@ module.exports = {
           if (!att.contentType?.startsWith("image/")) {
             return interaction.reply({
               content: `⚠️ Screenshot ${i} is not a valid image file.`,
-              ephemeral: true,
+              flags: 64,
             });
           }
           attachments.push(att);
@@ -158,7 +158,7 @@ module.exports = {
         return interaction.reply({
           content:
             "⚠️ Please attach at least one screenshot of your in-game alliance profile.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -176,7 +176,7 @@ module.exports = {
         if (!isManager) {
           return interaction.reply({
             content: `⚠️ Only the alliance owner or manager can update **[${tag}]**.`,
-            ephemeral: true,
+            flags: 64,
           });
         }
 
@@ -184,12 +184,12 @@ module.exports = {
         if (!canUpdate) {
           return interaction.reply({
             content: `⏳ This alliance can only be updated once every **${RATE_LIMIT_HOURS} hours**. Try again in **${hoursLeft}h**.`,
-            ephemeral: true,
+            flags: 64,
           });
         }
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: 64 });
 
       const imageUrls = attachments.map((a) => a.url);
       let parsed = await parseAllianceScreenshots(imageUrls);
@@ -240,7 +240,7 @@ module.exports = {
       if (!alliance) {
         return interaction.reply({
           content: `⚠️ Alliance **[${tag}]** not found.`,
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -255,7 +255,7 @@ module.exports = {
       if (!isManager) {
         return interaction.reply({
           content: `⚠️ You don't have permission to change **[${tag}]** settings.`,
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -265,7 +265,7 @@ module.exports = {
         content: isPublic
           ? `🌐 **[${tag}]** is now public and will appear in leaderboards.`
           : `🔒 **[${tag}]** is now private.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
   },

@@ -24,14 +24,14 @@ module.exports = {
     if (!pending) {
       return interaction.reply({
         content: "⚠️ Session expired. Please run `/alliance setup` again.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
     if (pending.discordId !== interaction.user.id) {
       return interaction.reply({
         content: "⚠️ This session belongs to a different user.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -74,7 +74,7 @@ module.exports = {
 
     pendingProfileCache.set(token, pending);
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     const previewEmbed = buildAllianceParsePreviewEmbed(
       pending.parsed,

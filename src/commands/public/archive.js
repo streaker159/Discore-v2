@@ -264,7 +264,7 @@ module.exports = {
         return interaction.reply({
           content:
             "You need the **Scoreboard Manager** role (or Manage Server permission) to manage archives.",
-          ephemeral: true,
+          flags: 64,
         });
       }
     }
@@ -300,7 +300,7 @@ module.exports = {
           if (!board)
             return interaction.reply({
               content: `📭 Archive not found: \`${archiveId}\`. Use \`/archive list\` to browse.`,
-              ephemeral: true,
+              flags: 64,
             });
 
           const embed = buildArchiveViewEmbed(board, interaction.guild);
@@ -326,7 +326,7 @@ module.exports = {
             if (!board)
               return interaction.reply({
                 content: `📭 Archive not found: \`${archiveId}\`.`,
-                ephemeral: true,
+                flags: 64,
               });
 
             const restored = await restoreArchiveAsNew(
@@ -342,7 +342,7 @@ module.exports = {
           } catch (err) {
             return interaction.reply({
               content: `❌ ${err.message}`,
-              ephemeral: true,
+              flags: 64,
             });
           }
         }
@@ -362,7 +362,7 @@ module.exports = {
             if (!board)
               return interaction.reply({
                 content: `📭 Archive not found: \`${archiveId}\`.`,
-                ephemeral: true,
+                flags: 64,
               });
 
             await addResultToArchive(
@@ -388,7 +388,7 @@ module.exports = {
           } catch (err) {
             return interaction.reply({
               content: `❌ ${err.message}`,
-              ephemeral: true,
+              flags: 64,
             });
           }
         }
@@ -396,7 +396,7 @@ module.exports = {
         default:
           return interaction.reply({
             content: "Unknown archive subcommand.",
-            ephemeral: true,
+            flags: 64,
           });
       }
     } catch (error) {
@@ -404,7 +404,7 @@ module.exports = {
       return interaction
         .reply({
           content: `⚠️ Archive command failed: ${error.message}`,
-          ephemeral: true,
+          flags: 64,
         })
         .catch(() => {});
     }

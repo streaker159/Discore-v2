@@ -20,19 +20,19 @@ module.exports = {
     if (!newStatus)
       return interaction.reply({
         content: "Unknown RSVP option.",
-        ephemeral: true,
+        flags: 64,
       });
 
     const event = await getEvent(eventId);
     if (!event)
       return interaction.reply({
         content: "Event not found.",
-        ephemeral: true,
+        flags: 64,
       });
     if (["COMPLETED", "CANCELLED"].includes(event.status)) {
       return interaction.reply({
         content: "⚠️ This event has ended.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 

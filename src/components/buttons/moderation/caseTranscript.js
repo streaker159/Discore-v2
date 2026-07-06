@@ -14,12 +14,12 @@ module.exports = {
     if (!transcriptId) {
       return interaction.reply({
         content: "Invalid transcript ID.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
     // Defer since PDF/txt generation may take time
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     const transcript = await prisma.moderationCaseTranscript
       .findUnique({

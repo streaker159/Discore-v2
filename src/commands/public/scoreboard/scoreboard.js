@@ -774,7 +774,7 @@ module.exports = {
         return interaction.reply({
           content:
             "You need the **Scoreboard Manager** role (or Manage Server permission) to use this.",
-          ephemeral: true,
+          flags: 64,
         });
       }
     }
@@ -789,7 +789,7 @@ module.exports = {
           return interaction.reply({
             content:
               "⚠️ No active scoreboards. Create one with `/scoreboard start`.",
-            ephemeral: true,
+            flags: 64,
           });
         }
 
@@ -819,7 +819,7 @@ module.exports = {
           content:
             "✨ **Select a scoreboard from the list below to view details:**",
           components: [row],
-          ephemeral: true,
+          flags: 64,
         });
       }
 
@@ -828,7 +828,7 @@ module.exports = {
       if (!board)
         return interaction.reply({
           content: `I could not find an active scoreboard named **${name}** in this server.`,
-          ephemeral: true,
+          flags: 64,
         });
 
       const {
@@ -878,7 +878,7 @@ module.exports = {
         return interaction.reply({
           content:
             "No active scoreboards. Create one with `/scoreboard start`.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const lines = boards.map((b) => {
@@ -903,7 +903,7 @@ module.exports = {
       if (!user && !role)
         return interaction.reply({
           content: "Provide a user or role.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const targetId = (user || role).id;
@@ -914,7 +914,7 @@ module.exports = {
       if (!results.length)
         return interaction.reply({
           content: "No scores found.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const active = results.filter((r) => !r.board.isArchived);
@@ -1246,7 +1246,7 @@ module.exports = {
       if (!user && !role && !customName)
         return interaction.reply({
           content: "Provide a user, role, or custom target.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const targetType = role ? "ROLE" : user ? "USER" : "CUSTOM";
@@ -1271,7 +1271,7 @@ module.exports = {
       return interaction.reply({
         content: `✅ Entry updated for **${displayName}**.`,
         embeds: [embed],
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1283,7 +1283,7 @@ module.exports = {
       if (!user && !role && !customName)
         return interaction.reply({
           content: "Provide a user, role, or custom target.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const targetId = role ? role.id : user ? user.id : customName;
@@ -1301,7 +1301,7 @@ module.exports = {
       return interaction.reply({
         content: `✅ Entry for **${displayName}** deleted.`,
         embeds: [embed],
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1311,7 +1311,7 @@ module.exports = {
       if (!/^#[0-9A-Fa-f]{6}$/.test(color))
         return interaction.reply({
           content: "Invalid hex color. Use format `#FF5733`.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const board = await setTheme({
@@ -1321,7 +1321,7 @@ module.exports = {
       });
       return interaction.reply({
         content: `✅ Theme for **${board.name}** set to \`${color}\`.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1334,7 +1334,7 @@ module.exports = {
       });
       return interaction.reply({
         content: `✅ Description for **${board.name}** updated.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1347,7 +1347,7 @@ module.exports = {
       });
       return interaction.reply({
         content: `✅ Live title for **${board.name}** set to **${board.liveTitle}**.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1359,13 +1359,13 @@ module.exports = {
       if (!remove && !urlInput)
         return interaction.reply({
           content: "Provide an image URL or use `remove: True` to clear it.",
-          ephemeral: true,
+          flags: 64,
         });
 
       if (urlInput && !urlInput.startsWith("https://"))
         return interaction.reply({
           content: "Image URL must start with `https://`.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const imageUrl = remove ? null : urlInput;
@@ -1378,7 +1378,7 @@ module.exports = {
         content: remove
           ? "✅ Image removed from scoreboard."
           : `✅ Image set. It will appear as a thumbnail on the scoreboard embed.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1391,7 +1391,7 @@ module.exports = {
       });
       return interaction.reply({
         content: `✅ Scoreboard renamed to **${board.name}**.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -1402,7 +1402,7 @@ module.exports = {
       const targetName = interaction.options.getString("base_board", true);
       const afterMerge = interaction.options.getString("after_merge", true);
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: 64 });
 
       try {
         const result = await mergeScoreboards({
@@ -1463,10 +1463,10 @@ module.exports = {
       if (!board)
         return interaction.reply({
           content: "Scoreboard not found.",
-          ephemeral: true,
+          flags: 64,
         });
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: 64 });
       const status = await repairLiveEmbed(interaction.client, board.id);
 
       const msgs = {
@@ -1487,7 +1487,7 @@ module.exports = {
         return interaction.reply({
           content:
             "⚠️ Type `DELETE` in the confirm field to permanently delete a scoreboard.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const board = await deleteScoreboard({
@@ -1496,7 +1496,7 @@ module.exports = {
       });
       return interaction.reply({
         content: `🗑️ Scoreboard **${board.name}** and all its entries permanently deleted.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
   },

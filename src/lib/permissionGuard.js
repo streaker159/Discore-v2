@@ -1,4 +1,4 @@
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits } = require("discord.js");
 
 function hasManageGuild(interaction) {
   return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
@@ -6,7 +6,10 @@ function hasManageGuild(interaction) {
 
 async function requireManageGuild(interaction) {
   if (!hasManageGuild(interaction)) {
-    await interaction.reply({ content: 'You need Manage Server permission to use this.', ephemeral: true });
+    await interaction.reply({
+      content: "You need Manage Server permission to use this.",
+      flags: 64,
+    });
     return false;
   }
   return true;

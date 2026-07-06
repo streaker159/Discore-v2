@@ -9,7 +9,7 @@ module.exports = {
     if (!signup)
       return interaction.reply({
         content: "Battle signup not found.",
-        ephemeral: true,
+        flags: 64,
       });
 
     // Remind 30 minutes before the battle
@@ -18,7 +18,7 @@ module.exports = {
       return interaction.reply({
         content:
           "⏱️ This battle is starting in less than 30 minutes — too late for a reminder.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -31,7 +31,7 @@ module.exports = {
     const unix = Math.floor(remindAt.getTime() / 1000);
     await interaction.reply({
       content: `🔔 Reminder set! I'll DM you at <t:${unix}:F> (30 minutes before).`,
-      ephemeral: true,
+      flags: 64,
     });
   },
 };

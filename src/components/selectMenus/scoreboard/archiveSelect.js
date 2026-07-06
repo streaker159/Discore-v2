@@ -55,7 +55,6 @@ module.exports = {
       content: null,
       embeds: [embed],
       components,
-      ephemeral: false,
     });
   },
 };

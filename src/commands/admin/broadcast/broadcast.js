@@ -25,6 +25,6 @@ module.exports = {
       title: "📢 Discore Broadcast Preview",
       description: interaction.options.getString("message", true),
     });
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], flags: 64 });
   },
 };

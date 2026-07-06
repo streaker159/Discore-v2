@@ -81,7 +81,7 @@ async function handleAnnounce(interaction) {
   if (imageAttachment && !imageAttachment.contentType?.startsWith("image/")) {
     return interaction.reply({
       content: "❌ The attachment must be an image file.",
-      ephemeral: true,
+      flags: 64,
     });
   }
 
@@ -115,11 +115,11 @@ async function handleAnnounce(interaction) {
     return interaction.reply({
       content: content + "_This is a preview. No servers received this._",
       ...payload,
-      ephemeral: true,
+      flags: 64,
     });
   }
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
 
   let guilds;
   if (serverId) {
@@ -232,7 +232,7 @@ async function handleAnnounce(interaction) {
 // ── handleStatus — expanded dashboard ────────────────────────────────────────
 
 async function handleStatus(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
 
   const client = interaction.client;
   const uptime = Math.floor(process.uptime());

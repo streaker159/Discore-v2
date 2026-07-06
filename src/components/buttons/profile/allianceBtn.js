@@ -35,7 +35,7 @@ module.exports = {
       if (!alliance)
         return interaction.reply({
           content: "⚠️ Alliance not found.",
-          ephemeral: true,
+          flags: 64,
         });
 
       const totalW = alliance.discoreWins ?? 0;
@@ -73,7 +73,7 @@ module.exports = {
         .setTimestamp()
         .setFooter({ text: "Discore • Alliance Stats" });
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({ embeds: [embed], flags: 64 });
     }
 
     // ── View members ───────────────────────────────────────
@@ -82,7 +82,7 @@ module.exports = {
       if (!alliance)
         return interaction.reply({
           content: "⚠️ Alliance not found.",
-          ephemeral: true,
+          flags: 64,
         });
 
       // Fetch registered players in this alliance
@@ -112,7 +112,7 @@ module.exports = {
 
       if (alliance.logoUrl) embed.setThumbnail(alliance.logoUrl);
 
-      return interaction.reply({ embeds: [embed], ephemeral: false });
+      return interaction.reply({ embeds: [embed],  });
     }
 
     // ── Update prompt ──────────────────────────────────────
@@ -121,14 +121,14 @@ module.exports = {
       if (!alliance)
         return interaction.reply({
           content: "⚠️ Alliance not found.",
-          ephemeral: true,
+          flags: 64,
         });
 
       return interaction.reply({
         content:
           `📸 **To update **[${alliance.tag}]** profile:**\n` +
           `Run \`/alliance setup tag:${alliance.tag}\` and attach up to **5** screenshots of your in-game alliance profile.`,
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -199,7 +199,7 @@ module.exports = {
         return interaction.reply({
           content:
             "⚠️ This confirmation has expired or is invalid. Please run `/alliance setup` again.",
-          ephemeral: true,
+          flags: 64,
         });
       }
 

@@ -45,7 +45,7 @@ module.exports = {
   customId: "appeal_submit",
 
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     try {
       const caseId = getCaseIdFromCustomId(interaction.customId);

@@ -38,7 +38,7 @@ module.exports = {
     if (pending.discordId !== interaction.user.id) {
       return interaction.reply({
         content: "⚠️ This edit session belongs to a different user.",
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -63,7 +63,7 @@ module.exports = {
       pendingProfileCache.set(token, pending);
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     // If direct (no token), save immediately
     if (isDirect) {

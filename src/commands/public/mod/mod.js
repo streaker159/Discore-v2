@@ -264,8 +264,7 @@ module.exports = {
     // Public case lookups should be visible to everyone.
     // Moderator actions stay private to staff.
     await interaction.deferReply({
-      flags: [MessageFlags.Ephemeral],
-      ephemeral: !isPublicLookupSubcommand(sub),
+      flags: isPublicLookupSubcommand(sub) ? [] : [MessageFlags.Ephemeral],
     });
 
     try {

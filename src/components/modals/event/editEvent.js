@@ -21,7 +21,7 @@ function canManageEvent(interaction, event) {
 module.exports = {
   customIdPrefix: "event:edit:modal:",
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     const eventId = interaction.customId.split(":")[3];
     const event = await getEvent(eventId);

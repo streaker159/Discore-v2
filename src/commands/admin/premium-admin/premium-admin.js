@@ -108,6 +108,6 @@ module.exports = {
       title: "💎 Premium Admin",
       description: message,
     });
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], flags: 64 });
   },
 };
