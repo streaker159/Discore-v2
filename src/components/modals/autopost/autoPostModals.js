@@ -359,12 +359,218 @@ const modalHandlers = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Edit content modal → show form with existing values
+  // Edit content: open modal pre-filled with existing values
   // ═══════════════════════════════════════════════════════════════════════
   {
     customIdPrefix: "autopost:edit:content",
     async execute(interaction) {
-      // This is a button, hence in selects file — but handling here for consistency
+      if (!(await requireAccess(interaction))) return;
+      const session = getSession(interaction.user.id);
+      const postId = session.editingPostId;
+
+      if (!postId) {
+        return interaction.reply({
+          content: "❌ No post being edited. Please try again.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const post = await getPost(postId, interaction.guildId);
+      if (!post) {
+        return interaction.reply({
+          content: "❌ Post not found.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId("autopost:modal:edit:content")
+        .setTitle("Edit Auto Post Content");
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("name")
+            .setLabel("Auto Post Name (1-50 chars)")
+            .setMaxLength(50)
+            .setMinLength(1)
+            .setStyle(TextInputStyle.Short)
+            .setValue(post.name || "")
+            .setRequired(true),
+        ),
+      );
+
+      if (post.messageMode === "PLAIN" || post.messageMode === "BOTH") {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("content")
+              .setLabel("Message Content")
+              .setMaxLength(1900)
+              .setStyle(TextInputStyle.Paragraph)
+              .setValue(post.content || "")
+              .setRequired(post.messageMode === "PLAIN"),
+          ),
+        );
+      }
+
+      if (post.messageMode === "EMBED" || post.messageMode === "BOTH") {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("embedTitle")
+              .setLabel("Embed Title (max 256 chars)")
+              .setMaxLength(256)
+              .setStyle(TextInputStyle.Short)
+              .setValue(post.embedTitle || "")
+              .setRequired(false),
+          ),
+        );
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("embedDescription")
+              .setLabel("Embed Description (max 4000)")
+              .setMaxLength(4000)
+              .setStyle(TextInputStyle.Paragraph)
+              .setValue(post.embedDescription || "")
+              .setRequired(false),
+          ),
+        );
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("embedFooter")
+              .setLabel("Embed Footer (max 2048, optional)")
+              .setMaxLength(2048)
+              .setStyle(TextInputStyle.Short)
+              .setValue(post.embedFooter || "")
+              .setRequired(false),
+          ),
+        );
+      }
+
+      await interaction.showModal(modal);
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Edit content modal submitted → validate & save
+  // ═══════════════════════════════════════════════════════════════════════
+  {
+    customIdPrefix: "autopost:modal:edit:content",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      const session = getSession(interaction.user.id);
+      const postId = session.editingPostId;
+
+      if (!postId) {
+        return interaction.reply({
+          content: "❌ No post being edited. Please try again.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const post = await getPost(postId, interaction.guildId);
+      if (!post) {
+        return interaction.reply({
+          content: "❌ Post not found.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const name = interaction.fields.getTextInputValue("name").trim();
+      const nameErr = validateName(name);
+      if (nameErr) {
+        return interaction.reply({
+          content: `❌ ${nameErr}`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const content = interaction.fields.fields.has("content")
+        ? interaction.fields.getTextInputValue("content")?.trim() || null
+        : post.content;
+      const embedTitle = interaction.fields.fields.has("embedTitle")
+        ? interaction.fields.getTextInputValue("embedTitle")?.trim() || null
+        : post.embedTitle;
+      const embedDescription = interaction.fields.fields.has("embedDescription")
+        ? interaction.fields.getTextInputValue("embedDescription")?.trim() ||
+          null
+        : post.embedDescription;
+      const embedFooter = interaction.fields.fields.has("embedFooter")
+        ? interaction.fields.getTextInputValue("embedFooter")?.trim() || null
+        : post.embedFooter;
+
+      const contentErr = validateContent(content);
+      if (contentErr) {
+        return interaction.reply({
+          content: `❌ ${contentErr}`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const titleErr = validateEmbedTitle(embedTitle);
+      if (titleErr) {
+        return interaction.reply({
+          content: `❌ ${titleErr}`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const descErr = validateEmbedDescription(embedDescription);
+      if (descErr) {
+        return interaction.reply({
+          content: `❌ ${descErr}`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const footerErr = validateFooter(embedFooter);
+      if (footerErr) {
+        return interaction.reply({
+          content: `❌ ${footerErr}`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      await updatePost(postId, interaction.guildId, {
+        name,
+        content,
+        embedTitle,
+        embedDescription,
+        embedFooter,
+      });
+      await logAutoPostAction(
+        interaction.guildId,
+        "EDIT_CONTENT",
+        interaction.user.id,
+        { postId, postName: name },
+      );
+
+      const updated = await getPost(postId, interaction.guildId);
+
+      await interaction.reply({
+        content: `✅ **${name}** updated successfully.`,
+        embeds: [buildPostDetailEmbed(updated, interaction.guild)],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId("autopost:edit:content")
+              .setLabel("Edit Content")
+              .setEmoji("📝")
+              .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+              .setCustomId("autopost:edit:channel")
+              .setLabel("Change Channel")
+              .setEmoji("📢")
+              .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId("autopost:refresh")
+              .setLabel("Back")
+              .setEmoji("⬅️")
+              .setStyle(ButtonStyle.Secondary),
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
     },
   },
 ];
@@ -450,7 +656,6 @@ const configOpeners = [
     customIdPrefix: "autopost:open:config:schedule",
     async execute(interaction) {
       if (!(await requireAccess(interaction))) return;
-      await interaction.deferUpdate().catch(() => {});
       const modal = new ModalBuilder()
         .setCustomId("autopost:modal:schedule")
         .setTitle("Schedule Settings");
@@ -516,7 +721,6 @@ const configOpeners = [
     customIdPrefix: "autopost:open:config:mention",
     async execute(interaction) {
       if (!(await requireAccess(interaction))) return;
-      await interaction.deferUpdate().catch(() => {});
       const modal = new ModalBuilder()
         .setCustomId("autopost:modal:mention")
         .setTitle("Mention Trigger Settings");
@@ -548,7 +752,6 @@ const configOpeners = [
     customIdPrefix: "autopost:open:config:keyword",
     async execute(interaction) {
       if (!(await requireAccess(interaction))) return;
-      await interaction.deferUpdate().catch(() => {});
       const modal = new ModalBuilder()
         .setCustomId("autopost:modal:keyword")
         .setTitle("Keyword Trigger Settings");
