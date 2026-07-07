@@ -1,6 +1,5 @@
 "use strict";
 
-const { EmbedBuilder } = require("discord.js");
 const prisma = require("../lib/prisma");
 const {
   trackMessage,
@@ -11,7 +10,9 @@ const {
   isConversationContinuation,
   addTurn,
 } = require("../modules/ai/conversationMemory");
-const { checkMessage, createCase } = require("../modules/automod/service");
+const {
+  processMessage: processAutomod,
+} = require("../modules/automod/enforcement");
 const {
   isImageGenerationRequest,
   extractImagePrompt,
@@ -46,97 +47,13 @@ module.exports = {
 
     const guildId = message.guild.id;
 
-    // ── Automod enforcement ──────────────────────────────────────────────
-    try {
-      const matchedRule = await checkMessage(guildId, message.content);
-      if (matchedRule) {
-        const action = matchedRule.action;
-
-        // Create automod case record
-        await createCase({
-          guildId,
-          userId: message.author.id,
-          channelId: message.channel.id,
-          messageId: message.id,
-          ruleId: matchedRule.id,
-          messageExcerpt: message.content,
-          actionTaken: action,
-        });
-
-        // Perform action
-        if (action === "DELETE") {
-          const channelPerms = message.channel.permissionsFor(client.user);
-          if (channelPerms?.has("ManageMessages")) {
-            await message.delete().catch(() => {});
-          }
-        } else if (action === "TIMEOUT") {
-          const member = await message.guild.members
-            .fetch(message.author.id)
-            .catch(() => null);
-          if (
-            member?.manageable &&
-            message.guild.members.me?.permissions.has("ModerateMembers")
-          ) {
-            await member
-              .timeout(60_000, `Automod: ${matchedRule.phrase}`)
-              .catch(() => {});
-          }
-        }
-        // REVIEW: no immediate action, case is already created for review
-
-        // Log to configured channel
-        const guildRecord = await prisma.guild.findUnique({
-          where: { id: guildId },
-          select: { moderationLogChannelId: true, logChannelId: true },
-        });
-        const logChannelId =
-          guildRecord?.moderationLogChannelId || guildRecord?.logChannelId;
-
-        if (logChannelId) {
-          const logChannel = await message.guild.channels
-            .fetch(logChannelId)
-            .catch(() => null);
-          if (logChannel?.isTextBased()) {
-            const logPerms = logChannel.permissionsFor(client.user);
-            if (logPerms?.has("SendMessages") && logPerms?.has("EmbedLinks")) {
-              const embed = new EmbedBuilder()
-                .setTitle("🛡️ Automod Triggered")
-                .setDescription(
-                  `**User:** ${message.author.tag} (${message.author.id})\n` +
-                    `**Channel:** ${message.channel}`,
-                )
-                .addFields(
-                  {
-                    name: "Rule",
-                    value: `ID ${matchedRule.id} • ${matchedRule.matchType}`,
-                    inline: true,
-                  },
-                  {
-                    name: "Phrase",
-                    value: `\`${matchedRule.phrase}\``,
-                    inline: true,
-                  },
-                  {
-                    name: "Action",
-                    value: action,
-                    inline: true,
-                  },
-                  {
-                    name: "Message",
-                    value: message.content.substring(0, 1024) || "(empty)",
-                  },
-                )
-                .setColor("#e74c3c")
-                .setTimestamp();
-
-              await logChannel.send({ embeds: [embed] }).catch(() => {});
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[Automod Enforcement Error]", err);
-    }
+    // ── Automod enforcement (cached, single-pass) ────────────────────────
+    processAutomod(client, message).catch((err) => {
+      logger.error("Automod: processMessage crashed", {
+        guildId,
+        error: err.message,
+      });
+    });
 
     // ── Auto Post: Keyword & Mention triggers ───────────────────────────
     try {

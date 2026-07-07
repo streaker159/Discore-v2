@@ -46,6 +46,9 @@ model Guild {
   onboardingChannelId      String?
   announcementChannelId    String?
   aiWelcomeChannelId       String?
+  automodEnabled           Boolean          @default(true)
+  automodReviewChannelId   String?
+  automodDefaultAction     AutoModAction    @default(REVIEW)
   appeals                  Appeal[]
   auditLogs                AuditLog[]
   autoModCases             AutoModCase[]
@@ -788,39 +791,54 @@ model UserRoleSnapshot {
 }
 
 model AutoModRule {
-  id        String        @id @default(cuid())
-  guildId   String
-  phrase    String
-  matchType MatchType     @default(CONTAINS)
-  action    AutoModAction @default(REVIEW)
-  enabled   Boolean       @default(true)
-  createdBy String
-  createdAt DateTime      @default(now())
-  cases     AutoModCase[]
-  guild     Guild         @relation(fields: [guildId], references: [id])
+  id                String        @id @default(cuid())
+  guildId           String
+  name              String?
+  phrase            String
+  matchType         MatchType     @default(CONTAINS)
+  action            AutoModAction @default(REVIEW)
+  severity          String        @default("MEDIUM")
+  enabled           Boolean       @default(true)
+  exemptRoleIds     Json?
+  ignoredChannelIds Json?
+  reviewChannelId   String?
+  timeoutSeconds    Int?
+  deleteMessage     Boolean       @default(false)
+  userMessage       String?       @db.Text
+  appealEnabled     Boolean       @default(false)
+  triggerCount      Int           @default(0)
+  lastTriggeredAt   DateTime?
+  createdBy         String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  cases             AutoModCase[]
+  guild             Guild         @relation(fields: [guildId], references: [id])
 
   @@index([guildId])
   @@index([enabled])
 }
 
 model AutoModCase {
-  id              String        @id @default(cuid())
-  publicId        String        @unique
-  guildId         String
-  userId          String
-  channelId       String
-  messageId       String?
-  ruleId          String
-  messageExcerpt  String
-  actionTaken     AutoModAction
-  status          ReviewStatus  @default(PENDING)
-  reviewMessageId String?
-  cleanupAfter    DateTime?
-  createdAt       DateTime      @default(now())
-  reviewedAt      DateTime?
-  reviewedBy      String?
-  guild           Guild         @relation(fields: [guildId], references: [id])
-  rule            AutoModRule   @relation(fields: [ruleId], references: [id])
+  id               String        @id @default(cuid())
+  publicId         String        @unique
+  guildId          String
+  userId           String
+  channelId        String
+  messageId        String?
+  ruleId           String
+  matchedText      String?
+  messageExcerpt   String
+  actionTaken      AutoModAction
+  status           ReviewStatus  @default(PENDING)
+  reviewMessageId  String?
+  resolutionAction String?
+  moderationCaseId String?
+  cleanupAfter     DateTime?
+  createdAt        DateTime      @default(now())
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  guild            Guild         @relation(fields: [guildId], references: [id])
+  rule             AutoModRule   @relation(fields: [ruleId], references: [id])
 
   @@index([guildId])
   @@index([status])
@@ -1359,6 +1377,8 @@ enum MatchType {
   EXACT
   CONTAINS
   STARTS_WITH
+  ENDS_WITH
+  WORD_BOUNDARY
   REGEX
 }
 
@@ -1367,6 +1387,9 @@ enum AutoModAction {
   REVIEW
   MUTE
   TIMEOUT
+  WARN
+  DELETE_AND_TIMEOUT
+  SILENT_LOG
 }
 
 enum ReviewStatus {

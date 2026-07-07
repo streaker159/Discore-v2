@@ -38,4 +38,8 @@ module.exports = {
   // Keeps repeated dropdown clicks / re-runs from hammering the DB while
   // still staying fresh enough (data rarely needs to be second-accurate).
   xpLeaderboardCache: new TTLCache(15_000),
+  // Per-guild automod enforcement context (settings + active rules).
+  // TTL 5 min — invalidated immediately on rule/settings create/edit/delete
+  // so the messageCreate enforcement path never has to hit the DB per message.
+  automodCache: new TTLCache(5 * 60_000),
 };

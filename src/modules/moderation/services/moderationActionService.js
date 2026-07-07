@@ -209,6 +209,7 @@ async function executeModAction(options) {
     probationChannelId,
     probationSlowmodeSeconds,
     probationRoleId,
+    canAppeal = true,
   } = options;
 
   if (!guild) {
@@ -283,7 +284,7 @@ async function executeModAction(options) {
       actionType,
       reason,
       durationSeconds,
-      canAppeal: true,
+      canAppeal,
     });
   }
 
@@ -322,7 +323,7 @@ async function executeModAction(options) {
       actionType,
       reason,
       durationSeconds,
-      canAppeal: true,
+      canAppeal,
     });
   }
 

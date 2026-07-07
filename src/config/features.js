@@ -27,6 +27,10 @@ module.exports = {
   "suggestions.create": "FREE",
   // Moderation exports (full case history + transcripts)
   "moderation.export": "PREMIUM",
+  // Automod: dashboard + basic review/delete rules are free.
+  // Advanced actions (timeout, appeals, custom user messages, exempt
+  // roles/ignored channels, test rule, more than 3 rules) require premium.
+  "automod.advanced": "PREMIUM",
   // Discore XP system
   "xp.message": "FREE",
   "xp.reaction": "PREMIUM",

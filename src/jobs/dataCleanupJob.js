@@ -70,10 +70,17 @@ module.exports = {
     if (expiredModCases.length) {
       const ids = expiredModCases.map((c) => c.id);
       await prisma.appeal.deleteMany({ where: { caseId: { in: ids } } });
-      await prisma.userRoleSnapshot.deleteMany({ where: { caseId: { in: ids } } });
-      const caseDel = await prisma.moderationCase.deleteMany({ where: { id: { in: ids } } });
+      await prisma.userRoleSnapshot.deleteMany({
+        where: { caseId: { in: ids } },
+      });
+      const caseDel = await prisma.moderationCase.deleteMany({
+        where: { id: { in: ids } },
+      });
       totalDeleted += caseDel.count;
-      logger.info("dataCleanupJob: hard-deleted expired mod cases", { count: caseDel.count, ids: expiredModCases.map((c) => c.publicId) });
+      logger.info("dataCleanupJob: hard-deleted expired mod cases", {
+        count: caseDel.count,
+        ids: expiredModCases.map((c) => c.publicId),
+      });
     }
 
     // ── REVOKED Moderation Cases (older than 30 days) ─────────────────────
@@ -100,6 +107,17 @@ module.exports = {
       logger.info("dataCleanupJob: hard-deleted revoked mod cases", {
         count: caseDel.count,
         ids: revokedCases.map((c) => c.publicId),
+      });
+    }
+
+    // ── Automod trigger logs past their cleanupAfter date ─────────────────
+    const automodDel = await prisma.autoModCase.deleteMany({
+      where: { cleanupAfter: { lte: now } },
+    });
+    if (automodDel.count) {
+      totalDeleted += automodDel.count;
+      logger.info("dataCleanupJob: deleted expired automod trigger logs", {
+        count: automodDel.count,
       });
     }
 
