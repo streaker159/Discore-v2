@@ -243,9 +243,14 @@ async function updateRule(ruleId, guildId, data) {
 }
 
 async function deleteRule(ruleId, guildId) {
-  const result = await prisma.autoModRule.deleteMany({
-    where: { id: ruleId, guildId },
-  });
+  // AutoModCase (trigger log) rows reference ruleId with a required FK, so
+  // they must be deleted first or the rule delete violates the constraint.
+  const result = await prisma
+    .$transaction([
+      prisma.autoModCase.deleteMany({ where: { ruleId, guildId } }),
+      prisma.autoModRule.deleteMany({ where: { id: ruleId, guildId } }),
+    ])
+    .then(([, ruleResult]) => ruleResult);
   invalidateCache(guildId);
   return result;
 }
