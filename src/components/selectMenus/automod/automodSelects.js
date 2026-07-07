@@ -2,6 +2,7 @@
 
 const { MessageFlags } = require("discord.js");
 const automodService = require("../../../modules/automod/service");
+const { buildAdvancedLockedEmbed } = require("../../../modules/automod/embeds");
 const {
   getSession,
   setSession,
@@ -16,6 +17,7 @@ const {
   buildTestModal,
   goToExemptStepOrPreview,
   primeEditSession,
+  showMatchActionStep,
 } = require("../../buttons/automod/automodButtons");
 
 module.exports = [
@@ -61,6 +63,46 @@ module.exports = [
 
       // Default: plain "view" from the rule list.
       return showRuleDetail(interaction, ruleId);
+    },
+  },
+
+  // ── Rule wizard: match type / action / severity dropdowns ────────────────
+  {
+    customIdPrefix: "automod:select:matchtype",
+    async execute(interaction) {
+      if (!requireAccess(interaction)) return;
+      setSession(interaction.user.id, { matchType: interaction.values[0] });
+      await showMatchActionStep(interaction, { isReply: false });
+    },
+  },
+  {
+    customIdPrefix: "automod:select:actiontype",
+    async execute(interaction) {
+      if (!requireAccess(interaction)) return;
+      const action = interaction.values[0];
+
+      if (["TIMEOUT", "DELETE_AND_TIMEOUT"].includes(action)) {
+        const hasAdvanced = await automodService.hasAdvancedAccess(
+          interaction.guildId,
+        );
+        if (!hasAdvanced) {
+          return interaction.reply({
+            embeds: [buildAdvancedLockedEmbed()],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      }
+
+      setSession(interaction.user.id, { action });
+      await showMatchActionStep(interaction, { isReply: false });
+    },
+  },
+  {
+    customIdPrefix: "automod:select:severity",
+    async execute(interaction) {
+      if (!requireAccess(interaction)) return;
+      setSession(interaction.user.id, { severity: interaction.values[0] });
+      await showMatchActionStep(interaction, { isReply: false });
     },
   },
 

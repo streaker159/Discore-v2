@@ -1,18 +1,12 @@
 "use strict";
 
-const {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  EmbedBuilder,
-  MessageFlags,
-} = require("discord.js");
+const { EmbedBuilder, MessageFlags } = require("discord.js");
 const automodService = require("../../../modules/automod/service");
-const { buildAdvancedLockedEmbed } = require("../../../modules/automod/embeds");
 const { getSession, setSession } = require("../../../modules/automod/sessions");
 const {
   requireAccess,
   goToExemptStepOrPreview,
+  showMatchActionStep,
 } = require("../../buttons/automod/automodButtons");
 
 function parseYesNo(value, fallback = false) {
@@ -36,30 +30,43 @@ function parseTimeoutDuration(value) {
   );
 }
 
-async function offerMessageConfigOrContinue(interaction, action) {
-  if (["WARN", "TIMEOUT", "DELETE_AND_TIMEOUT"].includes(action)) {
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("automod:wizard:configure:message")
-        .setLabel("Configure Message & Options")
-        .setEmoji("⚙️")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("automod:wizard:skip:message")
-        .setLabel("Skip")
-        .setEmoji("⏭️")
-        .setStyle(ButtonStyle.Secondary),
-    );
+/**
+ * Save name+phrase from the basics modal, priming matchType/action/severity
+ * with sensible defaults (create) or the existing rule's values (edit, via
+ * primeEditSession which already populated the session before this modal
+ * was shown), then hand off to the dropdown-based match/action/severity step.
+ */
+async function handleBasicsModalSubmit(interaction) {
+  if (!requireAccess(interaction)) return;
+
+  const name = interaction.fields.getTextInputValue("name").trim();
+  const phrase = interaction.fields.getTextInputValue("phrase").trim();
+
+  const nameErr = automodService.validateName(name);
+  if (nameErr) {
     return interaction.reply({
-      content:
-        "✅ Basics saved. Configure the timeout/message options or skip to continue.",
-      components: [row],
+      content: `❌ ${nameErr}`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const phraseErr = automodService.validatePhrase(phrase);
+  if (phraseErr) {
+    return interaction.reply({
+      content: `❌ ${phraseErr}`,
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  return goToExemptStepOrPreview(interaction);
+  const session = getSession(interaction.user.id);
+  setSession(interaction.user.id, {
+    name,
+    phrase,
+    matchType: session.matchType || "CONTAINS",
+    action: session.action || "REVIEW",
+    severity: session.severity || "MEDIUM",
+  });
+
+  await showMatchActionStep(interaction, { isReply: true });
 }
 
 module.exports = [
@@ -67,80 +74,7 @@ module.exports = [
   {
     customIdPrefix: "automod:modal:create",
     async execute(interaction) {
-      if (!requireAccess(interaction)) return;
-
-      const name = interaction.fields.getTextInputValue("name").trim();
-      const phrase = interaction.fields.getTextInputValue("phrase").trim();
-      const matchType = interaction.fields
-        .getTextInputValue("matchType")
-        .trim()
-        .toUpperCase();
-      const action = interaction.fields
-        .getTextInputValue("action")
-        .trim()
-        .toUpperCase();
-      const severityRaw = interaction.fields.fields.has("severity")
-        ? interaction.fields.getTextInputValue("severity")?.trim()
-        : "";
-      const severity = (severityRaw || "MEDIUM").toUpperCase();
-
-      const nameErr = automodService.validateName(name);
-      if (nameErr) {
-        return interaction.reply({
-          content: `❌ ${nameErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const phraseErr = automodService.validatePhrase(phrase);
-      if (phraseErr) {
-        return interaction.reply({
-          content: `❌ ${phraseErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const matchErr = automodService.validateMatchType(matchType);
-      if (matchErr) {
-        return interaction.reply({
-          content: `❌ ${matchErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const actionErr = automodService.validateAction(action);
-      if (actionErr) {
-        return interaction.reply({
-          content: `❌ ${actionErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const severityErr = automodService.validateSeverity(severity);
-      if (severityErr) {
-        return interaction.reply({
-          content: `❌ ${severityErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      if (["TIMEOUT", "DELETE_AND_TIMEOUT"].includes(action)) {
-        const hasAdvanced = await automodService.hasAdvancedAccess(
-          interaction.guildId,
-        );
-        if (!hasAdvanced) {
-          return interaction.reply({
-            embeds: [buildAdvancedLockedEmbed()],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-      }
-
-      setSession(interaction.user.id, {
-        name,
-        phrase,
-        matchType,
-        action,
-        severity,
-      });
-
-      await offerMessageConfigOrContinue(interaction, action);
+      await handleBasicsModalSubmit(interaction);
     },
   },
 
@@ -199,80 +133,7 @@ module.exports = [
   {
     customIdPrefix: "automod:modal:edit:basics",
     async execute(interaction) {
-      if (!requireAccess(interaction)) return;
-
-      const name = interaction.fields.getTextInputValue("name").trim();
-      const phrase = interaction.fields.getTextInputValue("phrase").trim();
-      const matchType = interaction.fields
-        .getTextInputValue("matchType")
-        .trim()
-        .toUpperCase();
-      const action = interaction.fields
-        .getTextInputValue("action")
-        .trim()
-        .toUpperCase();
-      const severityRaw = interaction.fields.fields.has("severity")
-        ? interaction.fields.getTextInputValue("severity")?.trim()
-        : "";
-      const severity = (severityRaw || "MEDIUM").toUpperCase();
-
-      const nameErr = automodService.validateName(name);
-      if (nameErr) {
-        return interaction.reply({
-          content: `❌ ${nameErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const phraseErr = automodService.validatePhrase(phrase);
-      if (phraseErr) {
-        return interaction.reply({
-          content: `❌ ${phraseErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const matchErr = automodService.validateMatchType(matchType);
-      if (matchErr) {
-        return interaction.reply({
-          content: `❌ ${matchErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const actionErr = automodService.validateAction(action);
-      if (actionErr) {
-        return interaction.reply({
-          content: `❌ ${actionErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      const severityErr = automodService.validateSeverity(severity);
-      if (severityErr) {
-        return interaction.reply({
-          content: `❌ ${severityErr}`,
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      if (["TIMEOUT", "DELETE_AND_TIMEOUT"].includes(action)) {
-        const hasAdvanced = await automodService.hasAdvancedAccess(
-          interaction.guildId,
-        );
-        if (!hasAdvanced) {
-          return interaction.reply({
-            embeds: [buildAdvancedLockedEmbed()],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-      }
-
-      setSession(interaction.user.id, {
-        name,
-        phrase,
-        matchType,
-        action,
-        severity,
-      });
-
-      await offerMessageConfigOrContinue(interaction, action);
+      await handleBasicsModalSubmit(interaction);
     },
   },
 

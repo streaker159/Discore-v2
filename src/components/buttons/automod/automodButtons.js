@@ -269,40 +269,6 @@ function createBasicsModal() {
         .setRequired(true),
     ),
   );
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("matchType")
-        .setLabel("Match Type")
-        .setPlaceholder("contains/exact/starts_with/ends_with/word_boundary")
-        .setStyle(TextInputStyle.Short)
-        .setValue("contains")
-        .setRequired(true),
-    ),
-  );
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("action")
-        .setLabel("Action")
-        .setPlaceholder(
-          "review/delete/warn/timeout/delete_and_timeout/silent_log",
-        )
-        .setStyle(TextInputStyle.Short)
-        .setValue("review")
-        .setRequired(true),
-    ),
-  );
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("severity")
-        .setLabel("Severity: low/medium/high")
-        .setStyle(TextInputStyle.Short)
-        .setValue("medium")
-        .setRequired(false),
-    ),
-  );
 
   return modal;
 }
@@ -504,40 +470,6 @@ function buildEditBasicsModal(rule) {
         .setRequired(true),
     ),
   );
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("matchType")
-        .setLabel("Match Type")
-        .setPlaceholder("contains/exact/starts_with/ends_with/word_boundary")
-        .setStyle(TextInputStyle.Short)
-        .setValue(rule.matchType.toLowerCase())
-        .setRequired(true),
-    ),
-  );
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("action")
-        .setLabel("Action")
-        .setPlaceholder(
-          "review/delete/warn/timeout/delete_and_timeout/silent_log",
-        )
-        .setStyle(TextInputStyle.Short)
-        .setValue(rule.action.toLowerCase())
-        .setRequired(true),
-    ),
-  );
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId("severity")
-        .setLabel("Severity: low/medium/high")
-        .setStyle(TextInputStyle.Short)
-        .setValue((rule.severity || "MEDIUM").toLowerCase())
-        .setRequired(false),
-    ),
-  );
 
   return modal;
 }
@@ -557,6 +489,120 @@ function buildTestModal(ruleId) {
     ),
   );
   return modal;
+}
+
+// ── Match Type / Action / Severity picker (dropdowns, not typed) ─────────
+
+function buildMatchActionStepEmbed(session) {
+  return buildStepEmbed(
+    2,
+    4,
+    "Match Type, Action & Severity",
+    `**Match Type:** ${automodService.MATCH_TYPE_LABELS[session.matchType] || session.matchType}\n` +
+      `**Action:** ${automodService.ACTION_LABELS[session.action] || session.action}\n` +
+      `**Severity:** ${automodService.SEVERITY_LABELS[session.severity] || session.severity}\n\n` +
+      "Use the dropdowns below to change any of these, then click Continue.",
+  );
+}
+
+function buildMatchActionStepComponents(session) {
+  const matchTypeSelect = new StringSelectMenuBuilder()
+    .setCustomId("automod:select:matchtype")
+    .setPlaceholder("Choose match type...")
+    .addOptions(
+      automodService.MATCH_TYPES.map((m) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(automodService.MATCH_TYPE_LABELS[m] || m)
+          .setValue(m)
+          .setDefault(m === session.matchType),
+      ),
+    );
+
+  const actionSelect = new StringSelectMenuBuilder()
+    .setCustomId("automod:select:actiontype")
+    .setPlaceholder("Choose action...")
+    .addOptions(
+      automodService.ACTIONS.map((a) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(automodService.ACTION_LABELS[a] || a)
+          .setValue(a)
+          .setDefault(a === session.action),
+      ),
+    );
+
+  const severitySelect = new StringSelectMenuBuilder()
+    .setCustomId("automod:select:severity")
+    .setPlaceholder("Choose severity...")
+    .addOptions(
+      automodService.SEVERITIES.map((s) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(automodService.SEVERITY_LABELS[s] || s)
+          .setValue(s)
+          .setDefault(s === session.severity),
+      ),
+    );
+
+  return [
+    new ActionRowBuilder().addComponents(matchTypeSelect),
+    new ActionRowBuilder().addComponents(actionSelect),
+    new ActionRowBuilder().addComponents(severitySelect),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("automod:wizard:continue:basics")
+        .setLabel("Continue")
+        .setEmoji("➡️")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("automod:wizard:cancel")
+        .setLabel("Cancel")
+        .setEmoji("❌")
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+}
+
+async function showMatchActionStep(interaction, { isReply = false } = {}) {
+  const session = getSession(interaction.user.id);
+  const embed = buildMatchActionStepEmbed(session);
+  const components = buildMatchActionStepComponents(session);
+
+  if (isReply) {
+    return interaction.reply({
+      embeds: [embed],
+      components,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  return interaction.update({ embeds: [embed], components });
+}
+
+async function continueAfterBasics(interaction) {
+  await interaction.deferUpdate().catch(() => {});
+  const session = getSession(interaction.user.id);
+  const action = session.action;
+
+  if (["WARN", "TIMEOUT", "DELETE_AND_TIMEOUT"].includes(action)) {
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("automod:wizard:configure:message")
+        .setLabel("Configure Message & Options")
+        .setEmoji("⚙️")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("automod:wizard:skip:message")
+        .setLabel("Skip")
+        .setEmoji("⏭️")
+        .setStyle(ButtonStyle.Secondary),
+    );
+    return interaction.editReply({
+      content:
+        "✅ Basics saved. Configure the timeout/message options or skip to continue.",
+      embeds: [],
+      components: [row],
+    });
+  }
+
+  return goToExemptStepOrPreview(interaction);
 }
 
 async function showActionButtons(interaction, ruleId) {
@@ -1026,6 +1072,13 @@ module.exports = [
 
   // ── Rule creation/edit wizard ────────────────────────────────────────────
   {
+    customIdPrefix: "automod:wizard:continue:basics",
+    async execute(interaction) {
+      if (!requireAccess(interaction)) return;
+      await continueAfterBasics(interaction);
+    },
+  },
+  {
     customIdPrefix: "automod:wizard:configure:message",
     async execute(interaction) {
       if (!requireAccess(interaction)) return;
@@ -1178,3 +1231,5 @@ module.exports.showActionButtons = showActionButtons;
 module.exports.showDeleteConfirm = showDeleteConfirm;
 module.exports.requireAccess = requireAccess;
 module.exports.primeEditSession = primeEditSession;
+module.exports.showMatchActionStep = showMatchActionStep;
+module.exports.continueAfterBasics = continueAfterBasics;
