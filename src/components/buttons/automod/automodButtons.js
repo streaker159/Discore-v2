@@ -273,7 +273,8 @@ function createBasicsModal() {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId("matchType")
-        .setLabel("Match: contains/exact/starts_with/ends_with/word_boundary")
+        .setLabel("Match Type")
+        .setPlaceholder("contains/exact/starts_with/ends_with/word_boundary")
         .setStyle(TextInputStyle.Short)
         .setValue("contains")
         .setRequired(true),
@@ -283,8 +284,9 @@ function createBasicsModal() {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId("action")
-        .setLabel(
-          "Action: review/delete/warn/timeout/delete_and_timeout/silent_log",
+        .setLabel("Action")
+        .setPlaceholder(
+          "review/delete/warn/timeout/delete_and_timeout/silent_log",
         )
         .setStyle(TextInputStyle.Short)
         .setValue("review")
@@ -506,7 +508,8 @@ function buildEditBasicsModal(rule) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId("matchType")
-        .setLabel("Match: contains/exact/starts_with/ends_with/word_boundary")
+        .setLabel("Match Type")
+        .setPlaceholder("contains/exact/starts_with/ends_with/word_boundary")
         .setStyle(TextInputStyle.Short)
         .setValue(rule.matchType.toLowerCase())
         .setRequired(true),
@@ -516,8 +519,9 @@ function buildEditBasicsModal(rule) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId("action")
-        .setLabel(
-          "Action: review/delete/warn/timeout/delete_and_timeout/silent_log",
+        .setLabel("Action")
+        .setPlaceholder(
+          "review/delete/warn/timeout/delete_and_timeout/silent_log",
         )
         .setStyle(TextInputStyle.Short)
         .setValue(rule.action.toLowerCase())
