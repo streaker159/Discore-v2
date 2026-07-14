@@ -430,6 +430,10 @@ function buildStepComponents(step, boardId, eventType, data = {}) {
 
 module.exports = {
   scope: "PUBLIC",
+  buildDashboardEmbed,
+  buildDashboardButtons,
+  buildStepEmbed,
+  buildStepComponents,
   data: new SlashCommandBuilder()
     .setName("event")
     .setDescription(
