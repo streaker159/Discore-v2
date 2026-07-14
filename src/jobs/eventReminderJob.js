@@ -68,13 +68,24 @@ module.exports = {
           if (!ch) return;
 
           const ping = rolePing(event.tagRoleIds);
-          await ch.send({
+          const sentMsg = await ch.send({
             content: ping ?? undefined,
             embeds: [remEmbed],
             allowedMentions: event.tagRoleIds?.length
               ? { roles: event.tagRoleIds }
               : { parse: [] },
           });
+          await prisma.eventNotificationLog
+            .update({
+              where: {
+                eventId_notificationType: {
+                  eventId: event.id,
+                  notificationType: "REMINDER",
+                },
+              },
+              data: { messageId: sentMsg.id },
+            })
+            .catch(() => {});
           logger.info("eventReminderJob: sent channel reminder", {
             id: event.id,
           });
@@ -154,6 +165,35 @@ module.exports = {
                   })
                   .catch(() => {}),
               );
+            }
+
+            // Fix the channel reminder message (if one was sent) so it no
+            // longer sits stuck showing "Starting in X minutes" forever.
+            const reminderLog = await prisma.eventNotificationLog
+              .findUnique({
+                where: {
+                  eventId_notificationType: {
+                    eventId: event.id,
+                    notificationType: "REMINDER",
+                  },
+                },
+              })
+              .catch(() => null);
+            if (reminderLog?.messageId) {
+              const remCh = reminderLog.channelId
+                ? await client.channels
+                    .fetch(reminderLog.channelId)
+                    .catch(() => null)
+                : ch;
+              const remMsg = await remCh?.messages
+                .fetch(reminderLog.messageId)
+                .catch(() => null);
+              if (remMsg) {
+                const startedEmbed = buildEventReminderEmbed(liveEvent, 0, {
+                  started: true,
+                });
+                await remMsg.edit({ embeds: [startedEmbed] }).catch(() => {});
+              }
             }
           }
 

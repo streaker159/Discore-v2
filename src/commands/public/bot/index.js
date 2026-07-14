@@ -48,6 +48,8 @@ async function handleAnnounce(interaction) {
     TextInputBuilder,
     TextInputStyle,
     ActionRowBuilder,
+    LabelBuilder,
+    FileUploadBuilder,
   } = require("discord.js");
 
   const modal = new ModalBuilder()
@@ -86,33 +88,33 @@ async function handleAnnounce(interaction) {
           .setMaxLength(7)
           .setPlaceholder("#d4af37"),
       ),
-      // Image URL
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("image_url")
-          .setLabel("Image URL (optional, https://...)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(500)
-          .setPlaceholder("https://i.imgur.com/example.png"),
-      ),
-      // Ping role toggle
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("ping_role")
-          .setLabel("Ping @Discore Official? (yes or no)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(3)
-          .setPlaceholder("no")
-          .setValue("no"),
-      ),
+      // Image upload
+      new LabelBuilder()
+        .setLabel("Image (optional)")
+        .setDescription(
+          "Upload a PNG, JPG, JPEG, GIF, or WEBP image. Max 8 MB.",
+        )
+        .setFileUploadComponent(
+          new FileUploadBuilder()
+            .setCustomId("image_upload")
+            .setRequired(false)
+            .setMinValues(0)
+            .setMaxValues(1),
+        ),
     );
 
   return interaction.showModal(modal);
 }
 
 // ── Modal submit handler ──────────────────────────────────────────────────────
+
+const ANNOUNCE_IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+];
+const ANNOUNCE_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 async function handleAnnounceModalSubmit(interaction) {
   const title = interaction.fields.getTextInputValue("title").trim();
@@ -121,11 +123,6 @@ async function handleAnnounceModalSubmit(interaction) {
     .trim();
   const colorInput =
     interaction.fields.getTextInputValue("color")?.trim() || "";
-  const pingRoleInput =
-    interaction.fields.getTextInputValue("ping_role")?.trim().toLowerCase() ||
-    "no";
-
-  const pingRole = pingRoleInput === "yes" || pingRoleInput === "true";
 
   // Validate color
   let color = 0xd4af37; // default gold
@@ -133,15 +130,45 @@ async function handleAnnounceModalSubmit(interaction) {
     color = parseInt(colorInput.replace("#", ""), 16);
   }
 
-  // Get image URL from text input
-  const imageUrl =
-    interaction.fields.getTextInputValue("image_url")?.trim() || null;
-  const imageName = imageUrl
-    ? imageUrl.split("/").pop()?.split("?")[0] || "image.png"
-    : null;
-  const isImage = imageUrl
-    ? /\.(png|jpg|jpeg|gif|webp)($|\?)/i.test(imageUrl)
-    : false;
+  // Get uploaded image (if any). If editing and no new file was uploaded,
+  // keep whatever image was already set.
+  const {
+    get: getAnnounceState,
+  } = require("../../../modules/events/wizardState");
+  const existing = getAnnounceState(interaction.user.id, "announce");
+  const attachment = interaction.fields
+    .getUploadedFiles("image_upload")
+    ?.first();
+
+  let imageUrl = existing?.imageUrl || null;
+  let imageName = existing?.imageName || null;
+  let isImage = existing?.isImage || false;
+
+  if (attachment) {
+    const filename = (attachment.name || "upload").toLowerCase();
+    const contentType = attachment.contentType || "";
+    const validExt = [".png", ".jpg", ".jpeg", ".webp", ".gif"].some((ext) =>
+      filename.endsWith(ext),
+    );
+    const validType = ANNOUNCE_IMAGE_TYPES.includes(contentType);
+
+    if (!validExt && !validType) {
+      return interaction.reply({
+        content: "❌ Unsupported file type. Use PNG, JPG, JPEG, GIF, or WEBP.",
+        flags: 64,
+      });
+    }
+    if (attachment.size > ANNOUNCE_MAX_IMAGE_BYTES) {
+      return interaction.reply({
+        content: "❌ Image too large. Max 8 MB.",
+        flags: 64,
+      });
+    }
+
+    imageUrl = attachment.url;
+    imageName = attachment.name || "image.png";
+    isImage = true;
+  }
 
   await interaction.deferReply({ flags: 64 });
 
@@ -169,7 +196,6 @@ async function handleAnnounceModalSubmit(interaction) {
       imageUrl,
       imageName,
       isImage,
-      pingRole,
     },
     60 * 60 * 1000,
   ); // 1 hour TTL
@@ -215,8 +241,7 @@ async function handleAnnounceSend(interaction) {
     });
   }
 
-  const { title, description, color, imageUrl, imageName, isImage, pingRole } =
-    data;
+  const { title, description, color, imageUrl, isImage } = data;
 
   await interaction.deferReply({ flags: 64 });
 
@@ -277,17 +302,10 @@ async function handleAnnounceSend(interaction) {
         continue;
       }
 
-      let content = "";
-      if (pingRole) {
-        const role = g.roles.cache.find((r) => r.name === "Discore Official");
-        if (role && role.mentionable) content = `${role} `;
-      }
-
-      const payload = { content: content || undefined, embeds: [embed] };
       if (isImage && imageUrl) {
         embed.setImage(imageUrl);
       }
-      payload.embeds = [embed];
+      const payload = { embeds: [embed] };
 
       await channel.send(payload);
       sent++;
@@ -378,6 +396,8 @@ async function handleAnnounceEdit(interaction) {
     TextInputBuilder,
     TextInputStyle,
     ActionRowBuilder,
+    LabelBuilder,
+    FileUploadBuilder,
   } = require("discord.js");
 
   const modal = new ModalBuilder()
@@ -413,24 +433,20 @@ async function handleAnnounceEdit(interaction) {
             "#" + (data.color?.toString(16).padStart(6, "0") || "d4af37"),
           ),
       ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("image_url")
-          .setLabel("Image URL (optional)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(500)
-          .setValue(data.imageUrl || ""),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("ping_role")
-          .setLabel("Ping @Discore Official? (yes/no)")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(3)
-          .setValue(data.pingRole ? "yes" : "no"),
-      ),
+      new LabelBuilder()
+        .setLabel("Image (optional)")
+        .setDescription(
+          data.imageUrl
+            ? "Leave blank to keep the current image. Upload a new one to replace it."
+            : "Upload a PNG, JPG, JPEG, GIF, or WEBP image. Max 8 MB.",
+        )
+        .setFileUploadComponent(
+          new FileUploadBuilder()
+            .setCustomId("image_upload")
+            .setRequired(false)
+            .setMinValues(0)
+            .setMaxValues(1),
+        ),
     );
 
   return interaction.showModal(modal);

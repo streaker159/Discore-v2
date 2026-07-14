@@ -360,7 +360,8 @@ function buildSlotBar(filled, total) {
   return `\`[${bar}]\``;
 }
 
-function buildEventReminderEmbed(event, minsUntil) {
+function buildEventReminderEmbed(event, minsUntil, opts = {}) {
+  const { started = false } = opts;
   const unix = Math.floor(new Date(event.scheduledAt).getTime() / 1000);
   const { icon, label } = getTypeInfo(event);
   const isBattle = event.eventType === "BATTLE";
@@ -370,9 +371,17 @@ function buildEventReminderEmbed(event, minsUntil) {
       : `in **${minsUntil} minute${minsUntil !== 1 ? "s" : ""}**`;
 
   const embed = new EmbedBuilder()
-    .setColor(isBattle ? 0xe74c3c : 0xf1c40f)
-    .setTitle(`⏰ ${isBattle ? "Battle" : label} Starting Soon!`)
-    .setDescription(`**${icon} ${event.title}**\n\nStarts ${timeStr}`)
+    .setColor(started ? 0x2ecc71 : isBattle ? 0xe74c3c : 0xf1c40f)
+    .setTitle(
+      started
+        ? `✅ ${isBattle ? "Battle" : label} Started!`
+        : `⏰ ${isBattle ? "Battle" : label} Starting Soon!`,
+    )
+    .setDescription(
+      started
+        ? `**${icon} ${event.title}**\n\nThe event has started!`
+        : `**${icon} ${event.title}**\n\nStarts ${timeStr}`,
+    )
     .addFields({
       name: "When",
       value: `<t:${unix}:F>\n<t:${unix}:R>`,
