@@ -12,7 +12,9 @@ const {
 const prisma = require("../../../lib/prisma");
 const {
   addResult,
+  editEntry,
   pushLiveEmbed,
+  pushEntryLiveEmbed,
   getScoreboardById,
   buildInteractiveShowEmbed,
   buildShowComponents,
@@ -295,7 +297,26 @@ module.exports = [
           scoreType: scoreTypeRaw,
         });
 
-        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+        // Update live scoreboard embed in the target channel
+        const liveBoard = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+          include: { entries: true },
+        });
+        if (liveBoard?.channelId) {
+          pushLiveEmbed(interaction.client, liveBoard).catch(() => {});
+          // Also update per-entry live embeds for role boards
+          const freshEntry = liveBoard.entries.find(
+            (e) => e.targetId === state.selectedTargetId,
+          );
+          if (freshEntry) {
+            pushEntryLiveEmbed(
+              interaction.client,
+              interaction.guild,
+              liveBoard,
+              freshEntry,
+            ).catch(() => {});
+          }
+        }
 
         await refreshBoardPanel(interaction, boardId);
 
@@ -362,7 +383,25 @@ module.exports = [
           scoreType: scoreTypeRaw,
         });
 
-        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+        // Update live scoreboard embed in the target channel
+        const liveBoard = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+          include: { entries: true },
+        });
+        if (liveBoard?.channelId) {
+          pushLiveEmbed(interaction.client, liveBoard).catch(() => {});
+          const freshEntry = liveBoard.entries.find(
+            (e) => e.targetId === state.selectedTargetId,
+          );
+          if (freshEntry) {
+            pushEntryLiveEmbed(
+              interaction.client,
+              interaction.guild,
+              liveBoard,
+              freshEntry,
+            ).catch(() => {});
+          }
+        }
 
         await refreshBoardPanel(interaction, boardId);
 
