@@ -163,14 +163,16 @@ function buildConfirmationEmbed({
   warning,
   color = 0xff0000,
 }) {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
     .setDescription(description)
-    .addFields(warning ? { name: "⚠️ Warning", value: warning } : null)
-    .filter((f) => f != null)
     .setFooter({ text: "This action cannot be easily undone." })
     .setTimestamp();
+  if (warning) {
+    embed.addFields({ name: "⚠️ Warning", value: warning });
+  }
+  return embed;
 }
 
 /**

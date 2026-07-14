@@ -476,6 +476,66 @@ module.exports = [
     },
   },
 
+  // ── Add Score Type ─────────────────────────────────────────────────
+  {
+    customIdPrefix: "sb:modal:addscoretype:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+      const typeName = interaction.fields.getTextInputValue("typename").trim();
+
+      if (!typeName || typeName.length < 1 || typeName.length > 32) {
+        return interaction.reply({
+          content: "❌ Score type name must be between 1 and 32 characters.",
+          flags: 64,
+        });
+      }
+
+      await interaction.deferUpdate();
+
+      try {
+        const board = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+        });
+        if (!board) {
+          return interaction.editReply({
+            content: "⚠️ Scoreboard no longer exists.",
+          });
+        }
+
+        const {
+          findOrCreateScoreType,
+        } = require("../../../modules/scoreboards/scoreTypes");
+        const scoreType = await findOrCreateScoreType(
+          interaction.guildId,
+          boardId,
+          typeName,
+        );
+
+        // Auto-select this new type in the panel state
+        panelState.patch(interaction.user.id, interaction.guildId, {
+          selectedScoreTypeId: scoreType.id,
+          selectedScoreTypeName: scoreType.name,
+        });
+
+        await refreshBoardPanelFromModal(interaction, boardId);
+
+        return interaction.followUp({
+          content: `✅ Score type **${scoreType.name}** created and selected. You can now add wins/losses filtered by this type.`,
+          flags: 64,
+        });
+      } catch (err) {
+        return interaction.followUp({
+          content: `❌ ${err.message}`,
+          flags: 64,
+        });
+      }
+    },
+  },
+
   // ── Set Theme ───────────────────────────────────────────────────────
   {
     customIdPrefix: "sb:modal:settheme:",

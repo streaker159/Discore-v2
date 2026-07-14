@@ -693,6 +693,19 @@ module.exports = [
           .setEmoji("⬅️"),
       );
 
+      const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`sb:customize:addscoretype:${boardId}`)
+          .setLabel("Add Score Type")
+          .setStyle(ButtonStyle.Success)
+          .setEmoji("🏷️"),
+        new ButtonBuilder()
+          .setCustomId(`sb:customize:removeimage:${boardId}`)
+          .setLabel("Remove Image")
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji("🗑️"),
+      );
+
       const embed = new EmbedBuilder()
         .setColor(0x1a7a9e)
         .setTitle("🎨 Customize Scoreboard")
@@ -702,10 +715,15 @@ module.exports = [
             "• **Set Description** — Update season info\n" +
             "• **Rename Board** — Change the internal board name\n" +
             "• **Set Theme** — Change the embed colour\n" +
-            "• **Set Image** — Set a thumbnail image",
+            "• **Set Image** — Upload a thumbnail image\n" +
+            "• **Add Score Type** — Create categories like 4x, 1x, Apocalypse\n" +
+            "• **Remove Image** — Clear the current image",
         );
 
-      return interaction.update({ embeds: [embed], components: [row1, row2] });
+      return interaction.update({
+        embeds: [embed],
+        components: [row1, row2, row3],
+      });
     },
   },
 
@@ -921,6 +939,34 @@ module.exports = [
         .setTitle("Upload Scoreboard Image")
         .addComponents(new ActionRowBuilder().addComponents(label));
 
+      return interaction.showModal(modal);
+    },
+  },
+
+  // ── Customize: add score type modal ───────────────────────────────────
+  {
+    customIdPrefix: "sb:customize:addscoretype:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      const modal = new ModalBuilder()
+        .setCustomId(`sb:modal:addscoretype:${boardId}`)
+        .setTitle("Add Score Type")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("typename")
+              .setLabel("Score Type Name (e.g. WW3 4X, Apocalypse)")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(32)
+              .setPlaceholder("e.g. WW3 1X, WW3 4X, Apocalypse"),
+          ),
+        );
       return interaction.showModal(modal);
     },
   },
