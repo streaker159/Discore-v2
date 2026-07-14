@@ -48,8 +48,6 @@ async function handleAnnounce(interaction) {
     TextInputBuilder,
     TextInputStyle,
     ActionRowBuilder,
-    LabelBuilder,
-    FileUploadBuilder,
   } = require("discord.js");
 
   const modal = new ModalBuilder()
@@ -75,7 +73,7 @@ async function handleAnnounce(interaction) {
           .setRequired(true)
           .setMaxLength(4000)
           .setPlaceholder(
-            "Write your announcement here.\n\nUse blank lines to separate sections.\n\n•••",
+            "Write your announcement here.\n\nUse blank lines to separate sections.",
           ),
       ),
       // Color
@@ -88,20 +86,15 @@ async function handleAnnounce(interaction) {
           .setMaxLength(7)
           .setPlaceholder("#d4af37"),
       ),
-      // File upload via Label + FileUpload
+      // Image URL
       new ActionRowBuilder().addComponents(
-        new LabelBuilder()
-          .setLabel("Image / File")
-          .setDescription(
-            "Upload an image to include in the announcement (optional).",
-          )
-          .setFileUploadComponent(
-            new FileUploadBuilder()
-              .setCustomId("announce_image")
-              .setRequired(false)
-              .setMinValues(0)
-              .setMaxValues(1),
-          ),
+        new TextInputBuilder()
+          .setCustomId("image_url")
+          .setLabel("Image URL (optional, https://...)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(500)
+          .setPlaceholder("https://i.imgur.com/example.png"),
       ),
       // Ping role toggle
       new ActionRowBuilder().addComponents(
@@ -111,7 +104,7 @@ async function handleAnnounce(interaction) {
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
           .setMaxLength(3)
-          .setPlaceholder("yes")
+          .setPlaceholder("no")
           .setValue("no"),
       ),
     );
@@ -140,15 +133,15 @@ async function handleAnnounceModalSubmit(interaction) {
     color = parseInt(colorInput.replace("#", ""), 16);
   }
 
-  // Extract uploaded file
-  const attachment =
-    interaction.files?.first?.() ||
-    (interaction.data?.resolved?.attachments &&
-      Object.values(interaction.data.resolved.attachments)[0]);
-
-  const imageUrl = attachment?.url || null;
-  const imageName = attachment?.name || null;
-  const isImage = attachment?.contentType?.startsWith("image/");
+  // Get image URL from text input
+  const imageUrl =
+    interaction.fields.getTextInputValue("image_url")?.trim() || null;
+  const imageName = imageUrl
+    ? imageUrl.split("/").pop()?.split("?")[0] || "image.png"
+    : null;
+  const isImage = imageUrl
+    ? /\.(png|jpg|jpeg|gif|webp)($|\?)/i.test(imageUrl)
+    : false;
 
   await interaction.deferReply({ flags: 64 });
 
@@ -292,16 +285,9 @@ async function handleAnnounceSend(interaction) {
 
       const payload = { content: content || undefined, embeds: [embed] };
       if (isImage && imageUrl) {
-        const resp = await fetch(imageUrl);
-        const buffer = Buffer.from(await resp.arrayBuffer());
-        payload.files = [
-          new AttachmentBuilder(buffer, {
-            name: imageName || "announcement.png",
-          }),
-        ];
-        embed.setImage(`attachment://${imageName || "announcement.png"}`);
-        payload.embeds = [embed];
+        embed.setImage(imageUrl);
       }
+      payload.embeds = [embed];
 
       await channel.send(payload);
       sent++;
@@ -392,8 +378,6 @@ async function handleAnnounceEdit(interaction) {
     TextInputBuilder,
     TextInputStyle,
     ActionRowBuilder,
-    LabelBuilder,
-    FileUploadBuilder,
   } = require("discord.js");
 
   const modal = new ModalBuilder()
@@ -430,18 +414,13 @@ async function handleAnnounceEdit(interaction) {
           ),
       ),
       new ActionRowBuilder().addComponents(
-        new LabelBuilder()
-          .setLabel("Image / File")
-          .setDescription(
-            "Upload a new image to replace the current one (optional).",
-          )
-          .setFileUploadComponent(
-            new FileUploadBuilder()
-              .setCustomId("announce_image")
-              .setRequired(false)
-              .setMinValues(0)
-              .setMaxValues(1),
-          ),
+        new TextInputBuilder()
+          .setCustomId("image_url")
+          .setLabel("Image URL (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(500)
+          .setValue(data.imageUrl || ""),
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
