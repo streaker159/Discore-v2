@@ -25,6 +25,11 @@ function loadJobs(client) {
       logger.info("Started job", { name: "moderationExpiryJob" });
       continue;
     }
+    if (typeof job.startSuggestionCleanupJob === "function") {
+      job.startSuggestionCleanupJob(client);
+      logger.info("Started job", { name: "suggestionCleanupJob" });
+      continue;
+    }
 
     // Support old-style jobs
     if (!job?.name || typeof job.run !== "function" || !job.intervalMs) {

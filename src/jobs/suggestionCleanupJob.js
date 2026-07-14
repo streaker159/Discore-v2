@@ -1,7 +1,12 @@
 "use strict";
 
 const prisma = require("../lib/prisma");
-const { purgeSuggestion } = require("../modules/suggestions/service");
+const {
+  purgeSuggestion,
+  buildSuggestionEmbed,
+  buildSuggestionButtons,
+  buildAdminButtons,
+} = require("../modules/suggestions/service");
 
 const DEBUG = process.env.DEBUG_SUGGESTION_CLEANUP === "true";
 
@@ -13,7 +18,6 @@ async function run(client) {
   const now = new Date();
   let closedExpired = 0;
   let purged = 0;
-  let draftsRemoved = 0;
 
   try {
     // 1. Close suggestions past closesAt that are still active
@@ -68,25 +72,81 @@ async function run(client) {
     if (DEBUG) console.error(err.stack);
   }
 
-  if (DEBUG && (closedExpired > 0 || purged > 0 || draftsRemoved > 0)) {
+  if (DEBUG && (closedExpired > 0 || purged > 0)) {
     console.log(
-      `[SuggestionCleanupJob] Closed: ${closedExpired}, Purged: ${purged}, Drafts removed: ${draftsRemoved}`,
+      `[SuggestionCleanupJob] Closed: ${closedExpired}, Purged: ${purged}`,
     );
   }
 }
 
 let running = false;
 
-module.exports = {
-  name: "suggestionCleanupJob",
-  intervalMs: 1 * 60 * 60 * 1000, // Every 1 hour
-  async run(client) {
-    if (running) return;
-    running = true;
-    try {
-      await run(client);
-    } finally {
-      running = false;
+/**
+ * On bot startup, refresh all existing active suggestion embeds
+ * to the new format with admin buttons, vote results, etc.
+ */
+async function refreshAllEmbedsOnStartup(client) {
+  try {
+    const suggestions = await prisma.suggestion.findMany({
+      where: {
+        status: { in: ["OPEN", "PENDING", "UNDER_REVIEW"] },
+        messageId: { not: null },
+        channelId: { not: null },
+      },
+      include: { votes: true },
+    });
+
+    if (!suggestions.length) {
+      console.log("[SuggestionRefresh] No active suggestions to refresh.");
+      return;
     }
-  },
-};
+
+    console.log(
+      `[SuggestionRefresh] Refreshing ${suggestions.length} active suggestion embeds...`,
+    );
+
+    let refreshed = 0;
+    for (const s of suggestions) {
+      try {
+        const ch = await client.channels.fetch(s.channelId).catch(() => null);
+        if (!ch) continue;
+        const msg = await ch.messages.fetch(s.messageId).catch(() => null);
+        if (!msg) continue;
+
+        const embed = await buildSuggestionEmbed(s);
+        const components = [
+          ...buildSuggestionButtons(s),
+          ...buildAdminButtons(s),
+        ];
+        await msg.edit({ embeds: [embed], components }).catch(() => {});
+        refreshed++;
+      } catch {
+        // skip individual failures
+      }
+    }
+
+    console.log(
+      `[SuggestionRefresh] Refreshed ${refreshed}/${suggestions.length} suggestion embeds.`,
+    );
+  } catch (err) {
+    console.error("[SuggestionRefresh] Error:", err.message);
+  }
+}
+
+function startSuggestionCleanupJob(client) {
+  const intervalMs = 1 * 60 * 60 * 1000; // Every 1 hour
+
+  // Run startup refresh first, then start interval
+  refreshAllEmbedsOnStartup(client).catch(() => {});
+
+  setInterval(
+    () =>
+      run(client).catch((e) =>
+        console.error("[SuggestionCleanupJob]", e.message),
+      ),
+    intervalMs,
+  );
+  console.log("[SuggestionCleanupJob] Started — interval:", intervalMs);
+}
+
+module.exports = { startSuggestionCleanupJob };
