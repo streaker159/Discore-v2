@@ -91,7 +91,6 @@ async function refreshAllEmbedsOnStartup(client) {
       where: {
         status: { in: ["OPEN", "PENDING", "UNDER_REVIEW"] },
         messageId: { not: null },
-        channelId: { not: null },
       },
       include: { votes: true },
     });
