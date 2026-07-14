@@ -21,8 +21,6 @@ const {
   EVENT_TYPES,
 } = require("../../../modules/events/service");
 const wizardState = require("../../../modules/events/wizardState");
-const { parseDateTime } = require("../../../lib/timeParser");
-const { getGuildSettings } = require("../../../lib/embedBuilder");
 const { getGuildPlan } = require("../../../lib/premiumGate");
 
 const STEPS = {
@@ -227,14 +225,7 @@ module.exports = [
               .setStyle(TextInputStyle.Short)
               .setRequired(true)
               .setPlaceholder("tomorrow 8pm UTC, 24/7/26 3pm")
-              .setValue(
-                data.when
-                  ? new Date(data.when)
-                      .toISOString()
-                      .slice(0, 16)
-                      .replace("T", " ")
-                  : "",
-              ),
+              .setValue(data.whenRaw || ""),
           ),
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
@@ -561,21 +552,20 @@ module.exports = [
       await interaction.deferUpdate();
 
       try {
-        const settings = await getGuildSettings(interaction.guildId).catch(
-          () => null,
-        );
-        const parsed = parseDateTime(new Date(data.when).toISOString(), {
-          timezone: settings?.timezone || "UTC",
-        });
-        if (!parsed.ok) {
+        const scheduledDate = new Date(data.when);
+        if (isNaN(scheduledDate.getTime())) {
           return interaction.editReply({
-            content: `❌ Date parsing error: ${parsed.reason}`,
+            content:
+              "❌ Invalid date. Go back to Step 2 and re-enter the date/time.",
           });
         }
 
         const { limits } = await getGuildPlan(interaction.guildId);
         const liveCount = await prisma.event.count({
-          where: { guildId: interaction.guildId, status: "UPCOMING" },
+          where: {
+            guildId: interaction.guildId,
+            status: { in: ["UPCOMING", "LIVE"] },
+          },
         });
         if (liveCount >= limits.liveEvents) {
           return interaction.editReply({
@@ -595,14 +585,14 @@ module.exports = [
           eventType: data.eventType,
           teamSize: data.teamSize || null,
           color: data.color || null,
-          scheduledAt: parsed.date,
-          timezoneUsed: parsed.timezone,
+          scheduledAt: scheduledDate,
+          timezoneUsed: data.timezoneUsed || "UTC",
           tagRoleIds: data.tagRoleIds || [],
           tagOnCreate: data.tagOnCreate || false,
           tagOnStart: data.tagOnStart || false,
           reminderBeforeMinutes: data.reminderBeforeMinutes || null,
           cleanupAfter: new Date(
-            parsed.date.getTime() +
+            scheduledDate.getTime() +
               (data.deleteAfterHours || 168) * 60 * 60 * 1000,
           ),
           thumbnailUrl: data.thumbnailUrl || null,
@@ -646,8 +636,9 @@ module.exports = [
 
         wizardState.del(interaction.user.id, interaction.guildId);
 
+        const unix = Math.floor(scheduledDate.getTime() / 1000);
         return interaction.editReply({
-          content: `✅ **${data.title}** posted!\n> Starts: ${parsed.discord.full || parsed.date.toISOString()}`,
+          content: `✅ **${data.title}** posted!\n> Starts: <t:${unix}:F>`,
           embeds: [],
           components: [],
         });
@@ -676,12 +667,11 @@ module.exports = [
       await interaction.deferUpdate();
 
       try {
-        const parsed = parseDateTime(new Date(data.when).toISOString(), {
-          timezone: "UTC",
-        });
-        if (!parsed.ok) {
+        const scheduledDate = new Date(data.when);
+        if (isNaN(scheduledDate.getTime())) {
           return interaction.editReply({
-            content: `❌ Date error: ${parsed.reason}`,
+            content:
+              "❌ Invalid date. Go back to Step 2 and re-enter the date/time.",
           });
         }
 
@@ -697,14 +687,14 @@ module.exports = [
           eventType: data.eventType,
           teamSize: data.teamSize || null,
           color: data.color || null,
-          scheduledAt: parsed.date,
-          timezoneUsed: parsed.timezone,
+          scheduledAt: scheduledDate,
+          timezoneUsed: data.timezoneUsed || "UTC",
           tagRoleIds: data.tagRoleIds || [],
           tagOnCreate: data.tagOnCreate || false,
           tagOnStart: data.tagOnStart || false,
           reminderBeforeMinutes: data.reminderBeforeMinutes || null,
           cleanupAfter: new Date(
-            parsed.date.getTime() +
+            scheduledDate.getTime() +
               (data.deleteAfterHours || 168) * 60 * 60 * 1000,
           ),
           thumbnailUrl: data.thumbnailUrl || null,
@@ -730,6 +720,61 @@ module.exports = [
           components: [],
         });
       }
+    },
+  },
+
+  // ── Wizard: set color select ──────────────────────────────────────────
+  {
+    customId: "event:wiz:set_color",
+    async execute(interaction) {
+      const data = getWizardData(interaction);
+      const row = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("event:wiz:color_select")
+          .setPlaceholder("Choose an embed color...")
+          .addOptions(
+            Object.keys(COLOR_PRESETS).map((name) =>
+              new StringSelectMenuOptionBuilder()
+                .setLabel(name.charAt(0).toUpperCase() + name.slice(1))
+                .setValue(name)
+                .setDefault(name === data.color),
+            ),
+          ),
+      );
+      const backRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`event:wiz:back:${STEPS.STYLE}`)
+          .setLabel("Back")
+          .setStyle(ButtonStyle.Secondary),
+      );
+      return interaction.update({
+        components: [row, backRow],
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x5865f2)
+            .setTitle("🎨 Set Embed Color")
+            .setDescription("Choose the color for this event's embed."),
+        ],
+      });
+    },
+  },
+
+  // ── Wizard: color selected ────────────────────────────────────────────
+  {
+    customIdPrefix: "event:wiz:color_select",
+    async execute(interaction) {
+      const value = interaction.values[0];
+      const data = getWizardData(interaction);
+      data.color = value;
+      saveWizardData(interaction, data);
+      const embed = buildStepEmbed(STEPS.STYLE, data.eventType, data);
+      const components = buildStepComponents(
+        STEPS.STYLE,
+        null,
+        data.eventType,
+        data,
+      );
+      return interaction.update({ embeds: [embed], components });
     },
   },
 

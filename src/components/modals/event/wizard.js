@@ -8,6 +8,8 @@ const {
 } = require("discord.js");
 const wizardState = require("../../../modules/events/wizardState");
 const prisma = require("../../../lib/prisma");
+const { parseDateTime } = require("../../../lib/timeParser");
+const { getGuildSettings } = require("../../../lib/embedBuilder");
 
 const STEPS = {
   TYPE: 1,
@@ -78,12 +80,27 @@ module.exports = [
           flags: 64,
         });
 
+      const settings = await getGuildSettings(interaction.guildId).catch(
+        () => null,
+      );
+      const parsed = parseDateTime(whenRaw, {
+        timezone: settings?.timezone || "UTC",
+      });
+      if (!parsed.ok) {
+        return interaction.reply({
+          content: `❌ ${parsed.reason}`,
+          flags: 64,
+        });
+      }
+
       const data = getWizardData(interaction);
       data.title = title;
       data.description = description;
       data.location = location;
       data.game = game;
-      data.when = new Date().toISOString(); // Store timestamp — actual parse happens on post/save
+      data.when = parsed.date.toISOString(); // Resolved absolute timestamp
+      data.whenRaw = whenRaw; // Original text, for re-editing
+      data.timezoneUsed = parsed.timezone;
       saveWizardData(interaction, data);
 
       const embed = buildStepEmbed(STEPS.BASIC_INFO, data.eventType, data);

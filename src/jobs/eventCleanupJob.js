@@ -52,7 +52,7 @@ let running = false;
 module.exports = {
   name: "eventCleanupJob",
   intervalMs: 3 * 60 * 60 * 1000,
-  async execute(client) {
+  async run(client) {
     if (running) return;
     running = true;
     try {
