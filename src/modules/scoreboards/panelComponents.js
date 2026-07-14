@@ -159,26 +159,21 @@ function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
     );
     rows.push(actionRow);
 
-    // Edit / Delete entry buttons row
-    const entryRow = new ActionRowBuilder().addComponents(
+    // Management row (combined: Edit Entry, Delete Entry, Show Public, Refresh)
+    const mgmtRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`sb:panel:editentry:${board.id}`)
-        .setLabel("Edit Entry")
+        .setLabel("Edit")
         .setStyle(ButtonStyle.Primary)
         .setEmoji("🧾"),
       new ButtonBuilder()
         .setCustomId(`sb:panel:deleteentry:${board.id}`)
-        .setLabel("Delete Entry")
+        .setLabel("Delete")
         .setStyle(ButtonStyle.Danger)
         .setEmoji("🗑️"),
-    );
-    rows.push(entryRow);
-
-    // Management buttons row 1
-    const mgmtRow1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`sb:panel:public:${board.id}`)
-        .setLabel("Show Public")
+        .setLabel("Public")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("📢"),
       new ButtonBuilder()
@@ -186,16 +181,16 @@ function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
         .setLabel("Refresh")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("🔄"),
+    );
+    rows.push(mgmtRow);
+
+    // Navigation row
+    const navRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`sb:panel:customize:${board.id}`)
         .setLabel("Customize")
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("🎨"),
-    );
-    rows.push(mgmtRow1);
-
-    // Management buttons row 2
-    const mgmtRow2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`sb:panel:advanced:${board.id}`)
         .setLabel("Advanced")
@@ -207,7 +202,7 @@ function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
         .setStyle(ButtonStyle.Secondary)
         .setEmoji("⬅️"),
     );
-    rows.push(mgmtRow2);
+    rows.push(navRow);
   } else {
     const viewRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
