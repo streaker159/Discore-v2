@@ -9,44 +9,15 @@ const prisma = require("../../../lib/prisma");
 const { requireBotOwner } = require("../../../lib/ownerGuard");
 
 module.exports = {
+  scope: "PRIVATE",
   data: new SlashCommandBuilder()
     .setName("bot")
     .setDescription("Bot owner tools")
     .addSubcommand((s) =>
       s
         .setName("announce")
-        .setDescription("Send an announcement to all Discore servers.")
-        .addStringOption((o) =>
-          o
-            .setName("title")
-            .setDescription("Announcement title")
-            .setRequired(true),
-        )
-        .addStringOption((o) =>
-          o
-            .setName("description")
-            .setDescription("Announcement body")
-            .setRequired(true),
-        )
-        .addAttachmentOption((o) =>
-          o.setName("image").setDescription("Optional image to include"),
-        )
-        .addBooleanOption((o) =>
-          o
-            .setName("ping_role")
-            .setDescription("Ping @Discore Official role? (default: false)"),
-        )
-        .addBooleanOption((o) =>
-          o
-            .setName("dry_run")
-            .setDescription(
-              "Preview only, don't send globally (default: true)",
-            ),
-        )
-        .addStringOption((o) =>
-          o
-            .setName("server_id")
-            .setDescription("Send only to this server ID (for testing)"),
+        .setDescription(
+          "Create and send an announcement to all Discore servers.",
         ),
     )
     .addSubcommand((s) =>
@@ -61,83 +32,214 @@ module.exports = {
     if (!(await requireBotOwner(interaction))) return;
 
     if (sub === "announce") {
-      await handleAnnounce(interaction);
+      return handleAnnounce(interaction);
     } else if (sub === "status") {
-      await handleStatus(interaction);
+      await interaction.deferReply({ flags: 64 });
+      return handleStatus(interaction);
     }
   },
 };
 
-// ── handleAnnounce (unchanged) ─────────────────────────────────────────────
+// ── Announce: Open modal ─────────────────────────────────────────────────────
 
 async function handleAnnounce(interaction) {
-  const title = interaction.options.getString("title", true);
-  const description = interaction.options.getString("description", true);
-  const imageAttachment = interaction.options.getAttachment("image");
-  const pingRole = interaction.options.getBoolean("ping_role") ?? false;
-  const dryRun = interaction.options.getBoolean("dry_run") ?? true;
-  const serverId = interaction.options.getString("server_id");
+  const {
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ActionRowBuilder,
+    LabelBuilder,
+    FileUploadBuilder,
+  } = require("discord.js");
 
-  if (imageAttachment && !imageAttachment.contentType?.startsWith("image/")) {
-    return interaction.reply({
-      content: "❌ The attachment must be an image file.",
-      flags: 64,
-    });
+  const modal = new ModalBuilder()
+    .setCustomId("bot:modal:announce")
+    .setTitle("Create Global Announcement")
+    .addComponents(
+      // Title input
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("title")
+          .setLabel("Title")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(256)
+          .setPlaceholder("📢 Announcement title..."),
+      ),
+      // Description
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(4000)
+          .setPlaceholder(
+            "Write your announcement here.\n\nUse blank lines to separate sections.\n\n•••",
+          ),
+      ),
+      // Color
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("color")
+          .setLabel("Embed Color (hex, optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(7)
+          .setPlaceholder("#d4af37"),
+      ),
+      // File upload via Label + FileUpload
+      new ActionRowBuilder().addComponents(
+        new LabelBuilder()
+          .setLabel("Image / File")
+          .setDescription(
+            "Upload an image to include in the announcement (optional).",
+          )
+          .setFileUploadComponent(
+            new FileUploadBuilder()
+              .setCustomId("announce_image")
+              .setRequired(false)
+              .setMinValues(0)
+              .setMaxValues(1),
+          ),
+      ),
+      // Ping role toggle
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("ping_role")
+          .setLabel("Ping @Discore Official? (yes or no)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(3)
+          .setPlaceholder("yes")
+          .setValue("no"),
+      ),
+    );
+
+  return interaction.showModal(modal);
+}
+
+// ── Modal submit handler ──────────────────────────────────────────────────────
+
+async function handleAnnounceModalSubmit(interaction) {
+  const title = interaction.fields.getTextInputValue("title").trim();
+  const description = interaction.fields
+    .getTextInputValue("description")
+    .trim();
+  const colorInput =
+    interaction.fields.getTextInputValue("color")?.trim() || "";
+  const pingRoleInput =
+    interaction.fields.getTextInputValue("ping_role")?.trim().toLowerCase() ||
+    "no";
+
+  const pingRole = pingRoleInput === "yes" || pingRoleInput === "true";
+
+  // Validate color
+  let color = 0xd4af37; // default gold
+  if (colorInput && /^#[0-9A-Fa-f]{6}$/.test(colorInput)) {
+    color = parseInt(colorInput.replace("#", ""), 16);
   }
 
-  // Normalise: collapse 3+ blank lines into 2, trim outer whitespace
-  const normalised = description.replace(/\n{3,}/g, "\n\n").trim();
+  // Extract uploaded file
+  const attachment =
+    interaction.files?.first?.() ||
+    (interaction.data?.resolved?.attachments &&
+      Object.values(interaction.data.resolved.attachments)[0]);
 
-  const embed = new EmbedBuilder()
-    .setTitle(title)
-    .setDescription(normalised)
-    .setColor(0xd4af37)
-    .setFooter({ text: "Discore Official • Update Broadcast" })
-    .setTimestamp();
-
-  if (imageAttachment) {
-    embed.setImage(`attachment://${imageAttachment.name}`);
-  }
-
-  const payload = { embeds: [embed] };
-  if (imageAttachment) {
-    const response = await fetch(imageAttachment.url);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    payload.files = [
-      new AttachmentBuilder(buffer, { name: imageAttachment.name }),
-    ];
-  }
-
-  if (dryRun) {
-    const content = pingRole
-      ? "📢 **Ping Role: ON** (preview mode)\n"
-      : "📢 **Preview Mode** (dry run)\n";
-    return interaction.reply({
-      content: content + "_This is a preview. No servers received this._",
-      ...payload,
-      flags: 64,
-    });
-  }
+  const imageUrl = attachment?.url || null;
+  const imageName = attachment?.name || null;
+  const isImage = attachment?.contentType?.startsWith("image/");
 
   await interaction.deferReply({ flags: 64 });
 
-  let guilds;
-  if (serverId) {
-    const g = interaction.client.guilds.cache.get(serverId);
-    guilds = g ? [g] : [];
-    if (!guilds.length) {
-      return interaction.editReply({
-        content: `❌ Server ID ${serverId} not found in bot cache.`,
-      });
-    }
-  } else {
-    guilds = [...interaction.client.guilds.cache.values()];
+  // Build preview embed
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(color)
+    .setFooter({ text: "Discore Official • Global Announcement" })
+    .setTimestamp();
+
+  if (isImage && imageUrl) {
+    embed.setImage(imageUrl);
   }
 
-  let sent = 0;
-  let skipped = 0;
-  let failed = 0;
+  // Store announcement data in a simple state for the buttons
+  const { set } = require("../../../modules/events/wizardState");
+  set(
+    interaction.user.id,
+    "announce",
+    {
+      title,
+      description,
+      color,
+      imageUrl,
+      imageName,
+      isImage,
+      pingRole,
+    },
+    60 * 60 * 1000,
+  ); // 1 hour TTL
+
+  const {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+  } = require("discord.js");
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("bot:announce:send")
+      .setLabel("📢 Send to All Servers")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("bot:announce:edit")
+      .setLabel("✏️ Edit")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("bot:announce:cancel")
+      .setLabel("❌ Cancel")
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  return interaction.editReply({
+    content:
+      "## 📢 Announcement Preview\n_This is a preview. Click **Send to All Servers** to broadcast, or **Edit** to change._",
+    embeds: [embed],
+    components: [row],
+  });
+}
+
+// ── Button: Send ──────────────────────────────────────────────────────────────
+
+async function handleAnnounceSend(interaction) {
+  const { get, del } = require("../../../modules/events/wizardState");
+  const data = get(interaction.user.id, "announce");
+  if (!data) {
+    return interaction.update({
+      content: "⚠️ Announcement data expired. Run /bot announce again.",
+      embeds: [],
+      components: [],
+    });
+  }
+
+  const { title, description, color, imageUrl, imageName, isImage, pingRole } =
+    data;
+
+  await interaction.deferReply({ flags: 64 });
+
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(color)
+    .setFooter({ text: "Discore Official • Update Broadcast" })
+    .setTimestamp();
+
+  const guilds = [...interaction.client.guilds.cache.values()];
+  let sent = 0,
+    skipped = 0,
+    failed = 0;
   const failedDetails = [];
+  const missingChannelServers = [];
 
   for (const g of guilds) {
     try {
@@ -171,6 +273,7 @@ async function handleAnnounce(interaction) {
 
       if (!channel || !channel.isTextBased()) {
         skipped++;
+        missingChannelServers.push(g);
         continue;
       }
 
@@ -184,21 +287,23 @@ async function handleAnnounce(interaction) {
       let content = "";
       if (pingRole) {
         const role = g.roles.cache.find((r) => r.name === "Discore Official");
-        if (role && role.mentionable) {
-          content = `${role} `;
-        }
+        if (role && role.mentionable) content = `${role} `;
       }
 
-      const serverPayload = { content: content || undefined, embeds: [embed] };
-      if (payload.files) {
-        const response = await fetch(imageAttachment.url);
-        const buffer = Buffer.from(await response.arrayBuffer());
-        serverPayload.files = [
-          new AttachmentBuilder(buffer, { name: imageAttachment.name }),
+      const payload = { content: content || undefined, embeds: [embed] };
+      if (isImage && imageUrl) {
+        const resp = await fetch(imageUrl);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        payload.files = [
+          new AttachmentBuilder(buffer, {
+            name: imageName || "announcement.png",
+          }),
         ];
+        embed.setImage(`attachment://${imageName || "announcement.png"}`);
+        payload.embeds = [embed];
       }
 
-      await channel.send(serverPayload);
+      await channel.send(payload);
       sent++;
       await new Promise((r) => setTimeout(r, 1500));
     } catch (err) {
@@ -207,40 +312,172 @@ async function handleAnnounce(interaction) {
     }
   }
 
+  // Send setup instructions to servers missing announcement channels
+  let setupSent = 0;
+  for (const g of missingChannelServers) {
+    try {
+      const {
+        findBestChannel,
+      } = require("../../../modules/onboarding/service");
+      const ch = findBestChannel(g);
+      if (!ch || !ch.isTextBased()) continue;
+
+      const me = g.members.me;
+      const perms = ch.permissionsFor(me);
+      if (!perms?.has(["SendMessages", "EmbedLinks"])) continue;
+
+      const setupEmbed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("📢 Discore Announcement Channel Setup")
+        .setDescription(
+          [
+            "**Your server does not have a dedicated announcement channel configured.**",
+            "",
+            "Discore sends important bot updates, feature announcements, and maintenance notices through a configured announcement channel.",
+            "",
+            "### 🛠️ How to set it up",
+            "Use the **`/server channels`** command to assign an announcement channel, or simply create a channel named **`📢・discore-announcements`** and we'll use it automatically.",
+            "",
+            "This ensures you never miss important Discore updates!",
+          ].join("\n"),
+        )
+        .setFooter({ text: "Discore Official • Server Setup" });
+
+      await ch.send({ embeds: [setupEmbed] }).catch(() => {});
+      setupSent++;
+    } catch {}
+  }
+
+  del(interaction.user.id, "announce");
+
   const report = [
-    `## 📢 Announcement Report`,
+    `## 📢 Announcement Sent`,
     ``,
     `**Sent:** ${sent}`,
     `**Skipped:** ${skipped}`,
     `**Failed:** ${failed}`,
-  ];
+    setupSent > 0 ? `**Setup instructions sent to:** ${setupSent} servers` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  if (failedDetails.length) {
-    report.push("");
-    report.push("### Failures");
-    for (const f of failedDetails.slice(0, 10)) {
-      report.push(`• **${f.guild}** (${f.id}): ${f.error}`);
-    }
-    if (failedDetails.length > 10) {
-      report.push(`+${failedDetails.length - 10} more`);
-    }
+  if (failedDetails.length > 0) {
+    const details = failedDetails
+      .slice(0, 5)
+      .map((f) => `• **${f.guild}**: ${f.error}`)
+      .join("\n");
+    return interaction.editReply({
+      content: report + "\n\n### Failures\n" + details,
+    });
   }
 
-  return interaction.editReply({ content: report.join("\n") });
+  return interaction.editReply({ content: report, embeds: [], components: [] });
 }
 
-// ── handleStatus — expanded dashboard ────────────────────────────────────────
+// ── Button: Edit ──────────────────────────────────────────────────────────────
+
+async function handleAnnounceEdit(interaction) {
+  const { get } = require("../../../modules/events/wizardState");
+  const data = get(interaction.user.id, "announce");
+  if (!data) {
+    return interaction.update({
+      content: "⚠️ Announcement data expired. Run /bot announce again.",
+      embeds: [],
+      components: [],
+    });
+  }
+
+  const {
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ActionRowBuilder,
+    LabelBuilder,
+    FileUploadBuilder,
+  } = require("discord.js");
+
+  const modal = new ModalBuilder()
+    .setCustomId("bot:modal:announce")
+    .setTitle("Edit Announcement")
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("title")
+          .setLabel("Title")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(256)
+          .setValue(data.title || ""),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(4000)
+          .setValue(data.description || ""),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("color")
+          .setLabel("Embed Color (hex)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(7)
+          .setValue(
+            "#" + (data.color?.toString(16).padStart(6, "0") || "d4af37"),
+          ),
+      ),
+      new ActionRowBuilder().addComponents(
+        new LabelBuilder()
+          .setLabel("Image / File")
+          .setDescription(
+            "Upload a new image to replace the current one (optional).",
+          )
+          .setFileUploadComponent(
+            new FileUploadBuilder()
+              .setCustomId("announce_image")
+              .setRequired(false)
+              .setMinValues(0)
+              .setMaxValues(1),
+          ),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("ping_role")
+          .setLabel("Ping @Discore Official? (yes/no)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(3)
+          .setValue(data.pingRole ? "yes" : "no"),
+      ),
+    );
+
+  return interaction.showModal(modal);
+}
+
+// ── Button: Cancel ────────────────────────────────────────────────────────────
+
+async function handleAnnounceCancel(interaction) {
+  const { del } = require("../../../modules/events/wizardState");
+  del(interaction.user.id, "announce");
+  return interaction.update({
+    content: "✅ Announcement cancelled.",
+    embeds: [],
+    components: [],
+  });
+}
+
+// ── handleStatus (unchanged) ──────────────────────────────────────────────────
 
 async function handleStatus(interaction) {
-  await interaction.deferReply({ flags: 64 });
-
   const client = interaction.client;
   const uptime = Math.floor(process.uptime());
   const uptimeH = Math.floor(uptime / 3600);
   const uptimeM = Math.floor((uptime % 3600) / 60);
   const memMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
 
-  // ── Guild stats ──────────────────────────────────────────────────────
   const totalGuilds = client.guilds.cache.size;
   let totalMembers = 0;
   let largestGuild = null;
@@ -258,7 +495,6 @@ async function handleStatus(interaction) {
   const dayAgo = new Date(now - 24 * 3600 * 1000);
   const weekAgo = new Date(now - 7 * 24 * 3600 * 1000);
 
-  // ── All queries ───────────────────────────────────────────────────────
   const [
     cmds24,
     cmds7,
@@ -282,16 +518,13 @@ async function handleStatus(interaction) {
     totalPremServers,
     joins24,
     leaves24,
-    // Announcement channel stats
     configChannels,
     totalGuildsDb,
     onboardedCount,
     topCmds24Rows,
     topSrv24Rows,
     avgCmdDuration,
-    // Failed AI
     aiFailedAll,
-    // Guild install alert check
     lastInstall,
   ] = await Promise.all([
     prisma.botCommandUsage
@@ -321,7 +554,7 @@ async function handleStatus(interaction) {
     prisma.scoreboard.count({ where: { isArchived: false } }).catch(() => 0),
     prisma.scoreboard
       .count({ where: { isArchived: false, entries: { some: {} } } })
-      .catch(() => 0), // approximate "active"
+      .catch(() => 0),
     prisma.scoreboard.count().catch(() => 0),
     prisma.scoreboard.count({ where: { isArchived: true } }).catch(() => 0),
     prisma.scoreboardEntry.count().catch(() => 0),
@@ -348,7 +581,6 @@ async function handleStatus(interaction) {
     prisma.botGuildInstallEvent
       .count({ where: { eventType: "LEAVE", createdAt: { gte: dayAgo } } })
       .catch(() => 0),
-    // announcement channels
     prisma.guild
       .count({ where: { announcementChannelId: { not: null } } })
       .catch(() => 0),
@@ -356,7 +588,6 @@ async function handleStatus(interaction) {
     prisma.guild
       .count({ where: { onboardingSentAt: { not: null } } })
       .catch(() => 0),
-    // Top commands
     prisma.botCommandUsage
       .groupBy({
         by: ["commandName"],
@@ -375,7 +606,6 @@ async function handleStatus(interaction) {
         take: 5,
       })
       .catch(() => []),
-    // Avg duration
     prisma.botCommandUsage
       .aggregate({
         where: { createdAt: { gte: dayAgo } },
@@ -406,7 +636,6 @@ async function handleStatus(interaction) {
         .join("\n")
     : "No server activity tracked yet";
 
-  // Top 5 AI servers
   const topAiServers = await prisma.botAiUsage
     .groupBy({
       by: ["guildId"],
@@ -426,20 +655,15 @@ async function handleStatus(interaction) {
         .join("\n")
     : "No AI data yet";
 
-  // AI Image Gen stats
   const imgGen24 = await prisma.botAiUsage
     .count({
-      where: {
-        createdAt: { gte: dayAgo },
-        requestType: "IMAGE_GENERATION",
-      },
+      where: { createdAt: { gte: dayAgo }, requestType: "IMAGE_GENERATION" },
     })
     .catch(() => 0);
   const imgGenEnabled = await prisma.guildPremium
     .count({ where: { aiImageGenEnabled: true } })
     .catch(() => 0);
 
-  // alert checks
   const alerts = [];
   if (!process.env.DISCORD_PREMIUM_SKU_ID)
     alerts.push("⚠️ Premium SKU missing");
@@ -466,7 +690,6 @@ async function handleStatus(interaction) {
     )
     .setColor(0x5865f2)
     .addFields(
-      // ── Service Health ───────────────────────────────────────────────
       {
         name: "🟢 Service Health",
         value: [
@@ -478,7 +701,6 @@ async function handleStatus(interaction) {
         ].join("\n"),
         inline: true,
       },
-      // ── Network Reach ─────────────────────────────────────────────────
       {
         name: "🌍 Network Reach",
         value: [
@@ -491,7 +713,6 @@ async function handleStatus(interaction) {
         ].join("\n"),
         inline: true,
       },
-      // ── Commands ──────────────────────────────────────────────────────
       {
         name: "⚙️ Command Usage",
         value: [
@@ -504,18 +725,15 @@ async function handleStatus(interaction) {
         ].join("\n"),
         inline: false,
       },
-      // ── AI ────────────────────────────────────────────────────────────
       {
         name: "🤖 AI Usage",
         value: [
           `24h: ${ai24} · 7d: ${ai7} · All: ${aiAll}`,
           `Success 24h: ${aiSuccess24} · Failed 24h: ${aiFailed24}`,
           `Failed all time: ${aiFailedAll}`,
-          aiAll === 0 ? `Tracking from now` : ``,
         ].join("\n"),
         inline: false,
       },
-      // ── Scoreboards ───────────────────────────────────────────────────
       {
         name: "🏆 Scoreboard System",
         value: [
@@ -526,7 +744,6 @@ async function handleStatus(interaction) {
         ].join("\n"),
         inline: false,
       },
-      // ── Premium ───────────────────────────────────────────────────────
       {
         name: "💎 Premium",
         value: [
@@ -538,7 +755,6 @@ async function handleStatus(interaction) {
         ].join("\n"),
         inline: false,
       },
-      // ── Announcements ─────────────────────────────────────────────────
       {
         name: "📢 Announcements",
         value: [
@@ -552,7 +768,6 @@ async function handleStatus(interaction) {
         ].join("\n"),
         inline: false,
       },
-      // ── Top Activity ──────────────────────────────────────────────────
       {
         name: "🎨 AI Image Gen",
         value: `24h: ${imgGen24} · Servers enabled: ${imgGenEnabled}`,
@@ -563,21 +778,17 @@ async function handleStatus(interaction) {
         value: topSrvStr || "Not enough data yet",
         inline: false,
       },
-      {
-        name: "🤖 Top AI Servers 24h",
-        value: topAiSrvStr,
-        inline: false,
-      },
-      // ── Alerts ────────────────────────────────────────────────────────
-      {
-        name: "⚠️ Alerts",
-        value: alertsStr,
-        inline: false,
-      },
+      { name: "🤖 Top AI Servers 24h", value: topAiSrvStr, inline: false },
+      { name: "⚠️ Alerts", value: alertsStr, inline: false },
     )
     .setTimestamp()
     .setFooter({ text: "Discore Official · Bot Analytics" });
 
+  const {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+  } = require("discord.js");
   const buttons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("analytics:server_lookup:")
@@ -591,3 +802,9 @@ async function handleStatus(interaction) {
 
   return interaction.editReply({ embeds: [embed], components: [buttons] });
 }
+
+// Export handlers for component loader
+module.exports.handleAnnounceModalSubmit = handleAnnounceModalSubmit;
+module.exports.handleAnnounceSend = handleAnnounceSend;
+module.exports.handleAnnounceEdit = handleAnnounceEdit;
+module.exports.handleAnnounceCancel = handleAnnounceCancel;
