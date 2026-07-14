@@ -633,6 +633,8 @@ function buildSuggestionButtons(suggestion) {
 }
 
 // ─── Admin buttons ────────────────────────────────────────────────────────────
+// IMPORTANT: Total rows (user + admin) must stay ≤ 5 (Discord limit).
+// User buttons use 2 rows max, so admin gets at most 3 rows.
 
 function buildAdminButtons(suggestion) {
   const pid = suggestion.publicId;
@@ -643,30 +645,35 @@ function buildAdminButtons(suggestion) {
   const rows = [];
 
   if (isActive) {
-    // Row 1: Thread management (admin only)
+    // Row 1: Thread + Delete (consolidated)
+    const topRow = [];
     if (suggestion.threadId) {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`sug:admin:close_thread:${pid}`)
-            .setLabel("Close Thread")
-            .setEmoji("🔒")
-            .setStyle(ButtonStyle.Danger),
-        ),
+      topRow.push(
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:close_thread:${pid}`)
+          .setLabel("Close Thread")
+          .setEmoji("🔒")
+          .setStyle(ButtonStyle.Danger),
       );
     } else {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`sug:admin:open_thread:${pid}`)
-            .setLabel("Open Discussion Thread")
-            .setEmoji("💬")
-            .setStyle(ButtonStyle.Primary),
-        ),
+      topRow.push(
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:open_thread:${pid}`)
+          .setLabel("Open Thread")
+          .setEmoji("💬")
+          .setStyle(ButtonStyle.Primary),
       );
     }
+    topRow.push(
+      new ButtonBuilder()
+        .setCustomId(`sug:admin:delete:${pid}`)
+        .setLabel("Delete")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger),
+    );
+    rows.push(new ActionRowBuilder().addComponents(topRow));
 
-    // Row 2: Status changes
+    // Row 2: Status changes (Approve, Deny, Review)
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -681,12 +688,13 @@ function buildAdminButtons(suggestion) {
           .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId(`sug:admin:review:${pid}`)
-          .setLabel("Under Review")
+          .setLabel("Review")
           .setEmoji("🔍")
           .setStyle(ButtonStyle.Primary),
       ),
     );
 
+    // Row 3: Planned, Implemented, Close Voting
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -701,53 +709,39 @@ function buildAdminButtons(suggestion) {
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`sug:admin:close_voting:${pid}`)
-          .setLabel("Close Voting")
+          .setLabel("Close")
           .setEmoji("🔒")
           .setStyle(ButtonStyle.Danger),
       ),
     );
-
-    rows.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`sug:admin:delete:${pid}`)
-          .setLabel("Delete")
-          .setEmoji("🗑️")
-          .setStyle(ButtonStyle.Danger),
-      ),
-    );
   } else {
-    // Closed - thread management still available
+    // Closed — just 1 row: Thread + Delete
+    const topRow = [];
     if (suggestion.threadId) {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`sug:admin:close_thread:${pid}`)
-            .setLabel("Close Thread")
-            .setEmoji("🔒")
-            .setStyle(ButtonStyle.Danger),
-        ),
+      topRow.push(
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:close_thread:${pid}`)
+          .setLabel("Close Thread")
+          .setEmoji("🔒")
+          .setStyle(ButtonStyle.Danger),
       );
     } else {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`sug:admin:open_thread:${pid}`)
-            .setLabel("Open Discussion Thread")
-            .setEmoji("💬")
-            .setStyle(ButtonStyle.Primary),
-        ),
+      topRow.push(
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:open_thread:${pid}`)
+          .setLabel("Open Thread")
+          .setEmoji("💬")
+          .setStyle(ButtonStyle.Primary),
       );
     }
-    rows.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`sug:admin:delete:${pid}`)
-          .setLabel("Delete")
-          .setEmoji("🗑️")
-          .setStyle(ButtonStyle.Danger),
-      ),
+    topRow.push(
+      new ButtonBuilder()
+        .setCustomId(`sug:admin:delete:${pid}`)
+        .setLabel("Delete")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger),
     );
+    rows.push(new ActionRowBuilder().addComponents(topRow));
   }
 
   return rows;

@@ -135,8 +135,14 @@ async function refreshAllEmbedsOnStartup(client) {
 function startSuggestionCleanupJob(client) {
   const intervalMs = 1 * 60 * 60 * 1000; // Every 1 hour
 
-  // Run startup refresh first, then start interval
-  refreshAllEmbedsOnStartup(client).catch(() => {});
+  // Refresh embeds 10s after start — client is already logged in
+  // but guild/channel caches need time to populate.
+  setTimeout(() => {
+    console.log("[SuggestionRefresh] Starting embed refresh...");
+    refreshAllEmbedsOnStartup(client).catch((e) =>
+      console.error("[SuggestionRefresh] Startup failed:", e.message),
+    );
+  }, 10000);
 
   setInterval(
     () =>
