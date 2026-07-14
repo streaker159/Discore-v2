@@ -109,66 +109,39 @@ module.exports = [
           flags: 64,
         });
 
-      // File upload returns attachments in the message
-      const attachment = interaction.fields?.getAttachment?.(
-        "suggestion_image_upload",
+      const attachment = interaction.fields
+        .getUploadedFiles("suggestion_image_upload")
+        ?.first();
+
+      if (!attachment) {
+        return interaction.reply({
+          content:
+            "⚠️ No image received. Please upload a PNG, JPG, JPEG, or WEBP image.",
+          flags: 64,
+        });
+      }
+
+      const filename = (attachment.name || "upload").toLowerCase();
+      const contentType = attachment.contentType || "";
+      const validExt = [".png", ".jpg", ".jpeg", ".webp"].some((ext) =>
+        filename.endsWith(ext),
       );
+      const validType = ALLOWED_IMAGE_TYPES.includes(contentType);
 
-      // Fallback: check interaction attachments (Discord File Upload returns as resolved attachment)
-      let fileUrl = null;
-      let fileError = null;
-
-      // Try direct field first
-      if (attachment) {
-        // Validate type
-        if (ALLOWED_IMAGE_TYPES.includes(attachment.contentType)) {
-          // Validate size
-          if (attachment.size <= IMAGE_MAX_MB * 1024 * 1024) {
-            fileUrl = attachment.url;
-          } else {
-            fileError = `File too large. Maximum size is ${IMAGE_MAX_MB} MB.`;
-          }
-        } else {
-          fileError = "Invalid file type. Allowed: PNG, JPG, JPEG, WEBP.";
-        }
-      }
-
-      // Fallback: try from message attachments if FileUpload component didn't map into fields
-      if (!fileUrl && !fileError) {
-        // discord.js FileUpload puts attachments in interaction.fields.components
-        // or in interaction.attachments (for message attachments)
-        // We'll check interaction.fields to see if it's a raw message attachment
-        try {
-          const msgAttachment = interaction.attachments?.first?.();
-          if (msgAttachment) {
-            if (ALLOWED_IMAGE_TYPES.includes(msgAttachment.contentType)) {
-              if (msgAttachment.size <= IMAGE_MAX_MB * 1024 * 1024) {
-                fileUrl = msgAttachment.url;
-              } else {
-                fileError = `File too large. Maximum size is ${IMAGE_MAX_MB} MB.`;
-              }
-            } else {
-              fileError = "Invalid file type. Allowed: PNG, JPG, JPEG, WEBP.";
-            }
-          }
-        } catch {}
-      }
-
-      if (fileError) {
+      if (!validExt && !validType) {
         return interaction.reply({
-          content: `⚠️ ${fileError}`,
+          content: "⚠️ Unsupported file type. Use PNG, JPG, JPEG, or WEBP.",
+          flags: 64,
+        });
+      }
+      if (attachment.size > IMAGE_MAX_MB * 1024 * 1024) {
+        return interaction.reply({
+          content: `⚠️ Image too large. Maximum size is ${IMAGE_MAX_MB} MB.`,
           flags: 64,
         });
       }
 
-      if (!fileUrl) {
-        return interaction.reply({
-          content: "⚠️ No image received. Please try again.",
-          flags: 64,
-        });
-      }
-
-      data.imageUrl = fileUrl;
+      data.imageUrl = attachment.url;
       wizardState.set(interaction.user.id, interaction.guildId, data);
 
       const embed = buildWizardStepEmbed(WIZARD_STEPS.IMAGE, data);
