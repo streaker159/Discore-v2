@@ -888,47 +888,10 @@ module.exports = [
       // Update messageId
       await updateSuggestion(suggestion.id, { messageId: message.id });
 
-      // Create discussion thread if enabled
-      let threadId = null;
-      if (settings?.suggestionCreateThreads !== false) {
-        const threadPerms = ["CreatePublicThreads", "SendMessagesInThreads"];
-        const missingThreadPerms = threadPerms.filter(
-          (p) => !channel.permissionsFor(botMember).has(p),
-        );
-        if (missingThreadPerms.length) {
-          console.warn(
-            `[Suggestions] Missing thread permissions in ${channel.name}: ${missingThreadPerms.join(", ")}`,
-          );
-        } else {
-          threadId = await createDiscussionThread(interaction.client, {
-            ...suggestion,
-            messageId: message.id,
-          });
-        }
-      }
-
-      if (threadId) {
-        await updateSuggestion(suggestion.id, { threadId });
-
-        // Refresh public embed with thread link
-        const updated = await getSuggestion(suggestion.publicId);
-        const freshEmbed = await buildSuggestionEmbed(updated);
-        const freshComponents = buildSuggestionButtons(updated);
-        await message
-          .edit({ embeds: [freshEmbed], components: freshComponents })
-          .catch(() => {});
-      }
-
       wizardState.del(interaction.user.id, interaction.guildId);
 
-      const threadNote = threadId
-        ? `\n💬 Discussion thread: <#${threadId}>`
-        : !settings?.suggestionCreateThreads
-          ? ""
-          : "\n⚠️ Discussion thread could not be created.";
-
       return interaction.editReply({
-        content: `✅ Suggestion submitted.\nPosted in ${channel}\nSuggestion ID: \`${suggestion.publicId}\`${threadNote}`,
+        content: `✅ Suggestion submitted.\nPosted in ${channel}\nSuggestion ID: \`${suggestion.publicId}\``,
         embeds: [],
         components: [],
       });
@@ -1116,6 +1079,118 @@ module.exports = [
   // ═══════════════════════════════════════════════════════════════════════
 
   {
+    customIdPrefix: "sug:admin:open_thread:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":")[3];
+      const settings = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, settings))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+
+      const suggestion = await getSuggestion(publicId);
+      if (!suggestion)
+        return interaction.reply({ content: STALE_MESSAGE, flags: 64 });
+
+      await interaction.deferUpdate().catch(() => {});
+
+      // Check thread permissions
+      const channel = await interaction.guild.channels
+        .fetch(suggestion.channelId)
+        .catch(() => null);
+      if (!channel || !channel.isTextBased()) {
+        return interaction.editReply({
+          content: "⚠️ Suggestion channel not accessible.",
+          embeds: [],
+          components: [],
+        });
+      }
+
+      const botMember = interaction.guild.members.me;
+      const threadPerms = ["CreatePublicThreads", "SendMessagesInThreads"];
+      const missing = threadPerms.filter(
+        (p) => !channel.permissionsFor(botMember).has(p),
+      );
+      if (missing.length) {
+        return interaction.editReply({
+          content: `⚠️ Missing permissions: ${missing.join(", ")}.`,
+          embeds: [],
+          components: [],
+        });
+      }
+
+      const threadId = await createDiscussionThread(
+        interaction.client,
+        suggestion,
+      );
+      if (!threadId) {
+        return interaction.editReply({
+          content: "⚠️ Could not create discussion thread.",
+          embeds: [],
+          components: [],
+        });
+      }
+
+      await updateSuggestion(suggestion.id, { threadId });
+      const updated = await getSuggestion(publicId);
+      const embed = await buildSuggestionEmbed(updated);
+      const components = buildSuggestionButtons(updated);
+      await tryUpdatePublicEmbed(interaction.client, updated);
+
+      return interaction.editReply({
+        content: `✅ Discussion thread opened: <#${threadId}>`,
+        embeds: [],
+        components: [],
+      });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin:close_thread:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":")[3];
+      const settings = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, settings))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+
+      const suggestion = await getSuggestion(publicId);
+      if (!suggestion || !suggestion.threadId)
+        return interaction.reply({
+          content: "No active thread to close.",
+          flags: 64,
+        });
+
+      await interaction.deferUpdate().catch(() => {});
+
+      try {
+        const thread = await interaction.client.channels
+          .fetch(suggestion.threadId)
+          .catch(() => null);
+        if (thread?.isThread?.()) {
+          await thread.setLocked(true).catch(() => {});
+          await thread.setArchived(true).catch(() => {});
+        }
+      } catch {}
+
+      await updateSuggestion(suggestion.id, { threadId: null });
+      const updated = await getSuggestion(publicId);
+      const embed = await buildSuggestionEmbed(updated);
+      const components = buildSuggestionButtons(updated);
+      await tryUpdatePublicEmbed(interaction.client, updated);
+
+      return interaction.editReply({
+        content: "✅ Discussion thread has been closed and locked.",
+        embeds: [],
+        components: [],
+      });
+    },
+  },
+
+  {
     customIdPrefix: "sug:admin:approve:",
     async execute(interaction) {
       const publicId = interaction.customId.split(":")[3];
@@ -1278,7 +1353,7 @@ module.exports = [
   },
 
   {
-    customIdPrefix: "sug:admin:close:",
+    customIdPrefix: "sug:admin:close_voting:",
     async execute(interaction) {
       const publicId = interaction.customId.split(":")[3];
       const settings = await getGuildSuggestionSettings(interaction.guildId);

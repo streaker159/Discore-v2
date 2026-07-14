@@ -594,7 +594,30 @@ function buildAdminButtons(suggestion) {
   const rows = [];
 
   if (isActive) {
-    // Row: Status changes
+    // Row 1: Thread management (admin only)
+    if (suggestion.threadId) {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin:close_thread:${pid}`)
+            .setLabel("Close Thread")
+            .setEmoji("🔒")
+            .setStyle(ButtonStyle.Danger),
+        ),
+      );
+    } else {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin:open_thread:${pid}`)
+            .setLabel("Open Discussion Thread")
+            .setEmoji("💬")
+            .setStyle(ButtonStyle.Primary),
+        ),
+      );
+    }
+
+    // Row 2: Status changes
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -628,7 +651,7 @@ function buildAdminButtons(suggestion) {
           .setEmoji("🚀")
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
-          .setCustomId(`sug:admin:close:${pid}`)
+          .setCustomId(`sug:admin:close_voting:${pid}`)
           .setLabel("Close Voting")
           .setEmoji("🔒")
           .setStyle(ButtonStyle.Danger),
@@ -645,7 +668,28 @@ function buildAdminButtons(suggestion) {
       ),
     );
   } else {
-    // Only delete remains for non-active suggestions
+    // Closed - thread management still available
+    if (suggestion.threadId) {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin:close_thread:${pid}`)
+            .setLabel("Close Thread")
+            .setEmoji("🔒")
+            .setStyle(ButtonStyle.Danger),
+        ),
+      );
+    } else {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin:open_thread:${pid}`)
+            .setLabel("Open Discussion Thread")
+            .setEmoji("💬")
+            .setStyle(ButtonStyle.Primary),
+        ),
+      );
+    }
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -718,9 +762,13 @@ async function createDiscussionThread(client, suggestion) {
     }
 
     if (thread) {
+      const preview =
+        suggestion.content.length > 500
+          ? suggestion.content.slice(0, 500) + "..."
+          : suggestion.content;
       await thread
         .send({
-          content: `💡 **Discuss this suggestion here.** Keep it useful, don't turn it into a goblin courtroom.\n\n📎 Suggestion: \`${suggestion.publicId}\``,
+          content: `💡 **${suggestion.title || "Suggestion"}**\n\n${preview}\n\n━━━━━━━━━━━━\n💬 **Discuss this suggestion here.** Keep it useful, don't turn it into a goblin courtroom.\n\n📎 Suggestion: \`${suggestion.publicId}\``,
         })
         .catch(() => {});
 
