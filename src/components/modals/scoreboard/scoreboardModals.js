@@ -155,7 +155,7 @@ module.exports = [
         });
         const {
           openBoardPanel,
-        } = require("../../commands/public/scoreboard/scoreboard");
+        } = require("../../../commands/public/scoreboard/scoreboard");
         return openBoardPanel(
           interaction,
           freshBoard,
