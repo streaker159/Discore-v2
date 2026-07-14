@@ -383,7 +383,7 @@ model Event {
   createdBy             String
   tagOnCreate           Boolean                @default(false)
   tagOnStart            Boolean                @default(false)
-  status                EventStatus            @default(UPCOMING)
+  status                EventStatus            @default(DRAFT)
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   publicId              String?                @unique
@@ -397,6 +397,8 @@ model Event {
   color                 String?
   tagRoleIds            String[]               @default([])
   eventNumber           Int?                   @unique
+  draftedAt             DateTime?              @db.Timestamptz(6)
+  dataDeleteAt          DateTime?              @db.Timestamptz(6)
   guild                 Guild                  @relation(fields: [guildId], references: [id])
   notificationLogs      EventNotificationLog[]
   reminders             EventReminder[]
@@ -406,6 +408,7 @@ model Event {
   @@index([scheduledAt])
   @@index([status])
   @@index([cleanupAfter])
+  @@index([dataDeleteAt])
 }
 
 model EventRsvp {
@@ -1306,6 +1309,7 @@ enum ParticipantStatus {
 }
 
 enum EventStatus {
+  DRAFT
   UPCOMING
   LIVE
   COMPLETED
