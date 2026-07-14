@@ -981,6 +981,217 @@ module.exports = [
     },
   },
 
+  // ── Board panel: edit entry modal ─────────────────────────────────────
+  {
+    customIdPrefix: "sb:panel:editentry:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      const state = panelState.get(interaction.user.id, interaction.guildId);
+      if (!state?.selectedTargetId) {
+        return interaction.reply({
+          content:
+            "⚠️ Please select a target (user or role) first using the dropdown above.",
+          flags: 64,
+        });
+      }
+
+      // Find the current entry to pre-fill
+      const board = await prisma.scoreboard.findUnique({
+        where: { id: boardId },
+        include: { entries: true },
+      });
+      if (!board) {
+        return interaction.reply({
+          content: "⚠️ This scoreboard no longer exists.",
+          flags: 64,
+        });
+      }
+
+      const entry = board.entries.find(
+        (e) => e.targetId === state.selectedTargetId,
+      );
+
+      const modal = new ModalBuilder()
+        .setCustomId(`sb:modal:editentry:${boardId}`)
+        .setTitle("Edit Score Entry")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("wins")
+              .setLabel("Wins")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setValue(String(entry?.wins ?? 0)),
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("losses")
+              .setLabel("Losses")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setValue(String(entry?.losses ?? 0)),
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("points")
+              .setLabel("Points")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setValue(String(entry?.points ?? 0)),
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("win_streak")
+              .setLabel("Win Streak")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+              .setValue(String(entry?.winStreak ?? 0)),
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("loss_streak")
+              .setLabel("Loss Streak")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+              .setValue(String(entry?.lossStreak ?? 0)),
+          ),
+        );
+      return interaction.showModal(modal);
+    },
+  },
+
+  // ── Board panel: delete entry confirmation ────────────────────────────
+  {
+    customIdPrefix: "sb:panel:deleteentry:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      const state = panelState.get(interaction.user.id, interaction.guildId);
+      if (!state?.selectedTargetId) {
+        return interaction.reply({
+          content:
+            "⚠️ Please select a target (user or role) first using the dropdown above.",
+          flags: 64,
+        });
+      }
+
+      const board = await prisma.scoreboard.findUnique({
+        where: { id: boardId },
+        include: { entries: true },
+      });
+      if (!board) {
+        return interaction.reply({
+          content: "⚠️ This scoreboard no longer exists.",
+          flags: 64,
+        });
+      }
+
+      const entry = board.entries.find(
+        (e) => e.targetId === state.selectedTargetId,
+      );
+      if (!entry) {
+        return interaction.reply({
+          content: `⚠️ No entry found for ${state.selectedTargetLabel} on this scoreboard.`,
+          flags: 64,
+        });
+      }
+
+      const embed = buildConfirmationEmbed({
+        title: "🗑️ Delete Entry?",
+        description: `Are you sure you want to remove **${state.selectedTargetLabel || entry.targetId}** from **${board.liveTitle || board.name}**?`,
+        warning: `Current stats: ${entry.wins}W / ${entry.losses}L / ${entry.points}pts · This cannot be undone.`,
+      });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`sb:panel:confirmdeleteentry:${boardId}`)
+          .setLabel("Confirm Delete")
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji("🗑️"),
+        new ButtonBuilder()
+          .setCustomId(`sb:panel:back:${boardId}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      return interaction.update({ embeds: [embed], components: [row] });
+    },
+  },
+
+  // ── Board panel: confirm delete entry ─────────────────────────────────
+  {
+    customIdPrefix: "sb:panel:confirmdeleteentry:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      const state = panelState.get(interaction.user.id, interaction.guildId);
+      if (!state?.selectedTargetId) {
+        return interaction.update({
+          content: "⚠️ Session expired. Please reopen the scoreboard panel.",
+          embeds: [],
+          components: [],
+        });
+      }
+
+      await interaction.deferUpdate();
+
+      try {
+        const board = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+        });
+        if (!board) {
+          return interaction.editReply({
+            content: "⚠️ Scoreboard no longer exists.",
+          });
+        }
+
+        const {
+          deleteEntry: deleteEntryService,
+        } = require("../../../modules/scoreboards/service");
+        const updatedBoard = await deleteEntryService({
+          guildId: interaction.guildId,
+          scoreboardName: board.name,
+          targetId: state.selectedTargetId,
+          adminId: interaction.user.id,
+        });
+
+        pushLiveEmbed(interaction.client, updatedBoard).catch(() => {});
+
+        // Clear target selection
+        panelState.patch(interaction.user.id, interaction.guildId, {
+          selectedTargetId: null,
+          selectedTargetType: null,
+          selectedTargetLabel: null,
+        });
+
+        await refreshBoardPanel(interaction, boardId);
+
+        return interaction.followUp({
+          content: `✅ Entry for ${state.selectedTargetLabel} removed from **${board.liveTitle || board.name}**.`,
+          flags: 64,
+        });
+      } catch (err) {
+        return interaction.followUp({
+          content: `❌ ${err.message}`,
+          flags: 64,
+        });
+      }
+    },
+  },
+
   // ── User select handler ────────────────────────────────────────────────
   {
     customIdPrefix: "sb:panel:usertarget:",

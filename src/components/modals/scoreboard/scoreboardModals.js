@@ -76,6 +76,101 @@ async function refreshBoardPanelFromModal(interaction, boardId) {
 // ─── modal handlers ───────────────────────────────────────────────────────────
 
 module.exports = [
+  // ── Edit Score Entry ────────────────────────────────────────────────
+  {
+    customIdPrefix: "sb:modal:editentry:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      const state = panelState.get(interaction.user.id, interaction.guildId);
+      if (!state?.selectedTargetId) {
+        return interaction.reply({
+          content: "⚠️ Session expired. Please reopen the scoreboard panel.",
+          flags: 64,
+        });
+      }
+
+      const winsVal = parseInt(
+        interaction.fields.getTextInputValue("wins").trim(),
+        10,
+      );
+      const lossesVal = parseInt(
+        interaction.fields.getTextInputValue("losses").trim(),
+        10,
+      );
+      const pointsVal = parseInt(
+        interaction.fields.getTextInputValue("points").trim(),
+        10,
+      );
+      const winStreakVal = parseInt(
+        interaction.fields.getTextInputValue("win_streak")?.trim() || "0",
+        10,
+      );
+      const lossStreakVal = parseInt(
+        interaction.fields.getTextInputValue("loss_streak")?.trim() || "0",
+        10,
+      );
+
+      if (
+        isNaN(winsVal) ||
+        isNaN(lossesVal) ||
+        isNaN(pointsVal) ||
+        winsVal < 0 ||
+        lossesVal < 0
+      ) {
+        return interaction.reply({
+          content: "❌ Wins, losses, and points must be non-negative numbers.",
+          flags: 64,
+        });
+      }
+
+      await interaction.deferUpdate();
+
+      try {
+        const board = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+        });
+        if (!board) {
+          return interaction.editReply({
+            content: "⚠️ Scoreboard no longer exists.",
+          });
+        }
+
+        const { editEntry } = require("../../../modules/scoreboards/service");
+        const result = await editEntry({
+          guildId: interaction.guildId,
+          scoreboardName: board.name,
+          targetId: state.selectedTargetId,
+          targetType: state.selectedTargetType,
+          wins: winsVal,
+          losses: lossesVal,
+          points: pointsVal,
+          winStreak: isNaN(winStreakVal) ? undefined : winStreakVal,
+          lossStreak: isNaN(lossStreakVal) ? undefined : lossStreakVal,
+          adminId: interaction.user.id,
+        });
+
+        pushLiveEmbed(interaction.client, result.board).catch(() => {});
+
+        await refreshBoardPanelFromModal(interaction, boardId);
+
+        return interaction.followUp({
+          content: `✅ Entry for ${state.selectedTargetLabel} updated: \`${winsVal}W / ${lossesVal}L / ${pointsVal}pts\`.`,
+          flags: 64,
+        });
+      } catch (err) {
+        return interaction.followUp({
+          content: `❌ ${err.message}`,
+          flags: 64,
+        });
+      }
+    },
+  },
+
   // ── Create Scoreboard ────────────────────────────────────────────────
   {
     customIdPrefix: "sb:modal:create",

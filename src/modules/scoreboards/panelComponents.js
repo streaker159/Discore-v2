@@ -139,7 +139,7 @@ function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
   }
 
   if (canManage) {
-    // Score action buttons
+    // Score action buttons row 1
     const actionRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`sb:panel:addwin:${board.id}`)
@@ -158,6 +158,21 @@ function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
         .setEmoji("✏️"),
     );
     rows.push(actionRow);
+
+    // Edit / Delete entry buttons row
+    const entryRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`sb:panel:editentry:${board.id}`)
+        .setLabel("Edit Entry")
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji("🧾"),
+      new ButtonBuilder()
+        .setCustomId(`sb:panel:deleteentry:${board.id}`)
+        .setLabel("Delete Entry")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🗑️"),
+    );
+    rows.push(entryRow);
 
     // Management buttons row 1
     const mgmtRow1 = new ActionRowBuilder().addComponents(
