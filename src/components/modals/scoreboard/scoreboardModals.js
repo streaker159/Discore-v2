@@ -519,7 +519,118 @@ module.exports = [
     },
   },
 
-  // ── Set Image ───────────────────────────────────────────────────────
+  // ── Upload Image (file upload modal) ──────────────────────────────
+  {
+    customIdPrefix: "sb:modal:uploadimage:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      // Extract uploaded file
+      const attachment =
+        interaction.files?.first?.() ||
+        (interaction.data?.resolved?.attachments &&
+          Object.values(interaction.data.resolved.attachments)[0]);
+
+      if (!attachment) {
+        return interaction.reply({
+          content:
+            "❌ No file uploaded. Please upload a PNG, JPG, JPEG, or WEBP image.",
+          flags: 64,
+        });
+      }
+
+      const filename = (
+        attachment.name ||
+        attachment.filename ||
+        "upload"
+      ).toLowerCase();
+      const contentType =
+        attachment.contentType || attachment.content_type || "";
+
+      // Validate file extension
+      const allowedExts = [".png", ".jpg", ".jpeg", ".webp"];
+      const hasValidExt = allowedExts.some((ext) => filename.endsWith(ext));
+      const hasValidType = ["image/png", "image/jpeg", "image/webp"].includes(
+        contentType,
+      );
+
+      if (!hasValidExt && !hasValidType) {
+        return interaction.reply({
+          content:
+            "❌ That file type is not supported. Please upload PNG, JPG, JPEG, or WEBP.",
+          flags: 64,
+        });
+      }
+
+      const maxSizeMB = parseInt(process.env.SCOREBOARD_IMAGE_MAX_MB, 10) || 5;
+      const maxSizeBytes = maxSizeMB * 1024 * 1024;
+      const fileSize = attachment.size || 0;
+
+      if (fileSize > maxSizeBytes) {
+        return interaction.reply({
+          content: `❌ That image is too large. Maximum size is ${maxSizeMB} MB.`,
+          flags: 64,
+        });
+      }
+
+      await interaction.deferUpdate();
+
+      try {
+        const board = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+        });
+        if (!board) {
+          return interaction.editReply({
+            content: "⚠️ Scoreboard no longer exists.",
+          });
+        }
+
+        const imageUrl = attachment.url || attachment.proxy_url;
+        if (!imageUrl) {
+          return interaction.editReply({
+            content:
+              "❌ Could not read the upload URL. Please try another image.",
+          });
+        }
+
+        // Store the image URL on the scoreboard
+        const {
+          setRoleImage,
+        } = require("../../../modules/scoreboards/service");
+        await setRoleImage({
+          guildId: interaction.guildId,
+          name: board.name,
+          imageUrl,
+        });
+
+        // Push live embed update
+        const freshBoard = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+          include: { entries: true },
+        });
+        pushLiveEmbed(interaction.client, freshBoard).catch(() => {});
+
+        // Refresh customize panel
+        await refreshBoardPanelFromModal(interaction, boardId);
+
+        return interaction.followUp({
+          content: `✅ Image **${filename}** set as scoreboard thumbnail.`,
+          flags: 64,
+        });
+      } catch (err) {
+        return interaction.followUp({
+          content: `❌ ${err.message}`,
+          flags: 64,
+        });
+      }
+    },
+  },
+
+  // ── Set Image URL (legacy, kept for backward compat) ───────────────
   {
     customIdPrefix: "sb:modal:setimage:",
     async execute(interaction) {

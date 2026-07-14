@@ -890,7 +890,7 @@ module.exports = [
     },
   },
 
-  // ── Customize: set image modal ─────────────────────────────────────────
+  // ── Customize: set image (file upload) ────────────────────────────────
   {
     customIdPrefix: "sb:customize:setimage:",
     async execute(interaction) {
@@ -900,20 +900,82 @@ module.exports = [
       const parts = interaction.customId.split(":");
       const boardId = parts[3];
 
-      const modal = new ModalBuilder()
-        .setCustomId(`sb:modal:setimage:${boardId}`)
-        .setTitle("Set Image URL")
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("url")
-              .setLabel("Image URL (https://...) or 'remove' to clear")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setPlaceholder("https://example.com/image.png"),
-          ),
+      const { FileUploadBuilder, LabelBuilder } = require("discord.js");
+
+      const label = new LabelBuilder()
+        .setCustomId("scoreboard_image_upload_label")
+        .setLabel("Scoreboard Image")
+        .setDescription(
+          "Upload a PNG, JPG, JPEG, or WEBP image to use as this scoreboard thumbnail. Max 5 MB.",
+        )
+        .setComponents(
+          new FileUploadBuilder()
+            .setCustomId("scoreboard_image_upload")
+            .setRequired(true)
+            .setMinValues(1)
+            .setMaxValues(1),
         );
+
+      const modal = new ModalBuilder()
+        .setCustomId(`sb:modal:uploadimage:${boardId}`)
+        .setTitle("Upload Scoreboard Image")
+        .addComponents(new ActionRowBuilder().addComponents(label));
+
       return interaction.showModal(modal);
+    },
+  },
+
+  // ── Customize: remove image ───────────────────────────────────────────
+  {
+    customIdPrefix: "sb:customize:removeimage:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+
+      await interaction.deferUpdate();
+
+      try {
+        const board = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+        });
+        if (!board) {
+          return interaction.editReply({
+            content: "⚠️ Scoreboard no longer exists.",
+          });
+        }
+
+        const {
+          setRoleImage,
+        } = require("../../../modules/scoreboards/service");
+        await setRoleImage({
+          guildId: interaction.guildId,
+          name: board.name,
+          imageUrl: null,
+        });
+
+        pushLiveEmbed(interaction.client, {
+          ...board,
+          roleImageUrl: null,
+          entries: await prisma.scoreboardEntry.findMany({
+            where: { scoreboardId: boardId },
+          }),
+        }).catch(() => {});
+
+        await refreshBoardPanel(interaction, boardId);
+
+        return interaction.followUp({
+          content: "✅ Image removed from scoreboard.",
+          flags: 64,
+        });
+      } catch (err) {
+        return interaction.followUp({
+          content: `❌ ${err.message}`,
+          flags: 64,
+        });
+      }
     },
   },
 
