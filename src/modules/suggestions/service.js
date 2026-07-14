@@ -765,7 +765,10 @@ async function tryUpdatePublicEmbed(client, suggestion) {
     const msg = await ch.messages.fetch(suggestion.messageId).catch(() => null);
     if (!msg) return;
     const embed = await buildSuggestionEmbed(suggestion);
-    const components = buildSuggestionButtons(suggestion);
+    const components = [
+      ...buildSuggestionButtons(suggestion),
+      ...buildAdminButtons(suggestion),
+    ];
     await msg.edit({ embeds: [embed], components }).catch(() => {});
   } catch {
     /* non-fatal */

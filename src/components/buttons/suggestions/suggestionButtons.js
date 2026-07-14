@@ -872,7 +872,10 @@ module.exports = [
       }
 
       const embed = await buildSuggestionEmbed(suggestion);
-      const components = buildSuggestionButtons(suggestion);
+      const components = [
+        ...buildSuggestionButtons(suggestion),
+        ...buildAdminButtons(suggestion),
+      ];
 
       let message;
       try {
@@ -913,7 +916,10 @@ module.exports = [
       const result = await toggleVote(suggestion.id, interaction.user.id, "UP");
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
       const messages = {
         added: "✅ Vote added.",
         changed: "🔄 Vote updated.",
@@ -947,7 +953,10 @@ module.exports = [
       );
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
       const messages = {
         added: "✅ Vote added.",
         changed: "🔄 Vote updated.",
@@ -1208,7 +1217,10 @@ module.exports = [
       await setSuggestionStatus(publicId, "APPROVED", interaction.user.id);
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
 
       // Update public embed
       await tryUpdatePublicEmbed(interaction.client, updated);
@@ -1277,7 +1289,10 @@ module.exports = [
       await setSuggestionStatus(publicId, "UNDER_REVIEW", interaction.user.id);
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
       return interaction.update({ embeds: [embed], components });
     },
   },
@@ -1296,7 +1311,10 @@ module.exports = [
       await setSuggestionStatus(publicId, "PLANNED", interaction.user.id);
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
 
       if (updated.threadId) {
         try {
@@ -1331,7 +1349,10 @@ module.exports = [
       await setSuggestionStatus(publicId, "IMPLEMENTED", interaction.user.id);
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
 
       if (updated.threadId) {
         try {
@@ -1366,7 +1387,10 @@ module.exports = [
       await setSuggestionStatus(publicId, "CLOSED", interaction.user.id);
       const updated = await getSuggestion(publicId);
       const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
+      const components = [
+        ...buildSuggestionButtons(updated),
+        ...buildAdminButtons(updated),
+      ];
 
       if (updated.threadId) {
         try {
