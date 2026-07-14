@@ -582,11 +582,23 @@ async function handleStatus(interaction) {
       .count({ where: { eventType: "LEAVE", createdAt: { gte: dayAgo } } })
       .catch(() => 0),
     prisma.guild
-      .count({ where: { announcementChannelId: { not: null } } })
+      .count({
+        where: {
+          announcementChannelId: { not: null },
+          id: { in: [...client.guilds.cache.keys()] },
+        },
+      })
       .catch(() => 0),
-    prisma.guild.count().catch(() => 0),
     prisma.guild
-      .count({ where: { onboardingSentAt: { not: null } } })
+      .count({ where: { id: { in: [...client.guilds.cache.keys()] } } })
+      .catch(() => 0),
+    prisma.guild
+      .count({
+        where: {
+          onboardingSentAt: { not: null },
+          id: { in: [...client.guilds.cache.keys()] },
+        },
+      })
       .catch(() => 0),
     prisma.botCommandUsage
       .groupBy({

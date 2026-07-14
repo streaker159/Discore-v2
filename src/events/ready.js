@@ -138,6 +138,62 @@ module.exports = {
       }
     });
 
+    // ── Reconcile guilds removed while the bot was offline ──────
+    // If the bot was kicked/left a guild while its process was down/restarting,
+    // discord.js never fires guildDelete for it. Compare DB guild rows against
+    // the live guild cache on every startup and clean up any that are gone.
+    setImmediate(async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 8000));
+
+        const { handleGuildGone } = require("../lib/guildLifecycle");
+        const liveIds = new Set(client.guilds.cache.keys());
+        const dbGuilds = await prisma.guild.findMany({
+          select: { id: true, allianceName: true },
+        });
+        const goneGuilds = dbGuilds.filter((g) => !liveIds.has(g.id));
+
+        if (goneGuilds.length) {
+          logger.info(
+            `ready: found ${goneGuilds.length} DB guild(s) bot is no longer in, reconciling`,
+          );
+        }
+
+        for (const g of goneGuilds) {
+          try {
+            await prisma.botGuildInstallEvent.create({
+              data: {
+                guildId: g.id,
+                guildName: g.allianceName || "Unknown",
+                eventType: "LEAVE",
+              },
+            });
+          } catch {
+            // non-critical
+          }
+          try {
+            const result = await handleGuildGone(g.id, {
+              guildName: g.allianceName,
+            });
+            logger.info("ready: reconciled gone guild", {
+              guildId: g.id,
+              purged: result.purged,
+              kept: result.kept,
+            });
+          } catch (err) {
+            logger.error("ready: reconcile gone guild failed", {
+              guildId: g.id,
+              error: err.message,
+            });
+          }
+        }
+      } catch (err) {
+        logger.error("ready: guild reconciliation sweep failed", {
+          error: err.message,
+        });
+      }
+    });
+
     // ── Safe Vault: ensure one active safe exists on startup ────
     setImmediate(async () => {
       try {

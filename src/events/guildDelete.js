@@ -3,6 +3,7 @@
 const { EmbedBuilder } = require("discord.js");
 const prisma = require("../lib/prisma");
 const logger = require("../lib/logger");
+const { handleGuildGone } = require("../lib/guildLifecycle");
 
 const OFFICIAL_CHANNEL = "1367326139109871738";
 
@@ -22,6 +23,18 @@ module.exports = {
       });
     } catch {
       // non-critical
+    }
+
+    // If this guild was never actually set up (drive-by add), purge its DB
+    // row entirely instead of leaving a permanent ghost record. Configured
+    // guilds are kept so settings/premium survive a future re-invite.
+    try {
+      await handleGuildGone(guild.id, { guildName: guild.name });
+    } catch (err) {
+      logger.error("guildDelete: handleGuildGone failed", {
+        guildId: guild.id,
+        error: err.message,
+      });
     }
 
     // Send leave alert to official channel
