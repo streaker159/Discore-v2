@@ -8,9 +8,6 @@ const {
 } = require("discord.js");
 const prisma = require("../../lib/prisma");
 
-const DURATION_REGEX = /^(\d+)\s*(h|d|hour|hours|day|days)$/i;
-const MAX_DURATION_DAYS = 7;
-
 const CATEGORY_LABELS = {
   GAME: "🎮 Game",
   SERVER: "🏰 Server",
@@ -21,11 +18,62 @@ const CATEGORY_LABELS = {
   GENERAL: "💬 General",
 };
 
+const CATEGORY_CHOICES = Object.entries(CATEGORY_LABELS).map(
+  ([value, name]) => ({
+    name,
+    value,
+  }),
+);
+
+const STATUS_LABELS = {
+  OPEN: "🔵 Open",
+  PENDING: "⏳ Pending",
+  APPROVED: "✅ Approved",
+  DENIED: "❌ Denied",
+  UNDER_REVIEW: "🔍 Under Review",
+  PLANNED: "📋 Planned",
+  IMPLEMENTED: "🚀 Implemented",
+  CLOSED: "🔒 Closed",
+  EXPIRED: "⌛ Expired",
+  DELETED: "🗑️ Deleted",
+  REJECTED: "❌ Rejected",
+};
+
+const MAX_DURATION_DAYS = 30;
+const MAX_RETENTION_DAYS = 30;
+const DEFAULT_DURATION_DAYS = 7;
+
+// ─── Permission helpers ───────────────────────────────────────────────────────
+
+function isAdminOrManager(member, guildSettings) {
+  if (!member) return false;
+  if (member.permissions?.has("ManageGuild")) return true;
+  if (member.id === member.guild?.ownerId) return true;
+  if (
+    guildSettings?.discoreManagerRoleId &&
+    member.roles?.cache?.has(guildSettings.discoreManagerRoleId)
+  )
+    return true;
+  if (
+    guildSettings?.disAdminRoleId &&
+    member.roles?.cache?.has(guildSettings.disAdminRoleId)
+  )
+    return true;
+  if (
+    guildSettings?.suggestionManagerRoleId &&
+    member.roles?.cache?.has(guildSettings.suggestionManagerRoleId)
+  )
+    return true;
+  return false;
+}
+
 // ─── Duration parser ──────────────────────────────────────────────────────────
 
 function parseDuration(raw) {
-  if (!raw) return { days: MAX_DURATION_DAYS };
-  const match = String(raw).trim().match(DURATION_REGEX);
+  if (!raw) return { days: DEFAULT_DURATION_DAYS };
+  const match = String(raw)
+    .trim()
+    .match(/^(\d+)\s*(h|d|hour|hours|day|days)$/i);
   if (!match)
     return { error: "Invalid duration format. Use e.g. 1h, 12h, 1d, 7d." };
   const num = parseInt(match[1], 10);
@@ -57,31 +105,41 @@ async function generatePublicId(guildId) {
   return `SUG-${String(next).padStart(3, "0")}`;
 }
 
-// ─── Permission helpers ───────────────────────────────────────────────────────
-
-function isAdminOrManager(member, guildSettings) {
-  if (member.permissions?.has("ManageGuild")) return true;
-  if (
-    guildSettings?.discoreManagerRoleId &&
-    member.roles.cache.has(guildSettings.discoreManagerRoleId)
-  )
-    return true;
-  if (
-    guildSettings?.disAdminRoleId &&
-    member.roles.cache.has(guildSettings.disAdminRoleId)
-  )
-    return true;
-  return false;
-}
-
-// ─── CRUD ─────────────────────────────────────────────────────────────────────
+// ─── Guild settings ───────────────────────────────────────────────────────────
 
 async function getGuildSuggestionSettings(guildId) {
   return prisma.guild.findUnique({
     where: { id: guildId },
-    select: { suggestionChannelId: true },
+    select: {
+      suggestionChannelId: true,
+      suggestionDefaultDuration: true,
+      suggestionShowVoters: true,
+      suggestionRequireReview: true,
+      suggestionAllowImages: true,
+      suggestionCreateThreads: true,
+      suggestionManagerRoleId: true,
+      suggestionMaxPerUser: true,
+    },
   });
 }
+
+async function ensureGuild(guildId) {
+  let guild = await prisma.guild.findUnique({ where: { id: guildId } });
+  if (!guild) {
+    guild = await prisma.guild.create({ data: { id: guildId } });
+  }
+  return guild;
+}
+
+async function updateGuildSuggestionSettings(guildId, data) {
+  await ensureGuild(guildId);
+  return prisma.guild.update({
+    where: { id: guildId },
+    data,
+  });
+}
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 async function createSuggestion({
   guildId,
@@ -90,12 +148,18 @@ async function createSuggestion({
   content,
   imageUrl,
   channelId,
-  messageId,
   expiresAt,
   category,
   showVoters,
 }) {
   let attempts = 0;
+  const closesAt =
+    expiresAt ||
+    new Date(Date.now() + DEFAULT_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const dataDeleteAt = new Date(
+    closesAt.getTime() + MAX_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  );
+
   while (attempts < 5) {
     const publicId = await generatePublicId(guildId);
     try {
@@ -108,12 +172,14 @@ async function createSuggestion({
           content,
           imageUrl: imageUrl || null,
           channelId,
-          messageId: messageId || null,
-          expiresAt:
-            expiresAt ||
-            new Date(Date.now() + MAX_DURATION_DAYS * 24 * 60 * 60 * 1000),
+          messageId: null,
+          threadId: null,
+          expiresAt: closesAt,
+          closesAt,
+          dataDeleteAt,
           category: category || "GENERAL",
           showVoters: showVoters || false,
+          status: "OPEN",
         },
         include: { votes: true },
       });
@@ -142,12 +208,27 @@ async function getSuggestionById(id) {
   });
 }
 
-async function updateSuggestion(publicId, data) {
-  await prisma.suggestion.update({
+async function getSuggestionByMessage(guildId, channelId, messageId) {
+  return prisma.suggestion.findFirst({
+    where: { guildId, channelId, messageId },
+    include: { votes: true },
+  });
+}
+
+async function updateSuggestion(id, data) {
+  return prisma.suggestion.update({
+    where: { id },
+    data: { ...data, updatedAt: new Date() },
+    include: { votes: true },
+  });
+}
+
+async function updateSuggestionByPublicId(publicId, data) {
+  return prisma.suggestion.update({
     where: { publicId },
     data: { ...data, updatedAt: new Date() },
+    include: { votes: true },
   });
-  return getSuggestion(publicId);
 }
 
 async function listPendingSuggestions(
@@ -156,7 +237,11 @@ async function listPendingSuggestions(
   perPage = 10,
   categoryFilter = null,
 ) {
-  const where = { guildId, status: "PENDING", expiresAt: { gte: new Date() } };
+  const where = {
+    guildId,
+    status: { in: ["OPEN", "PENDING", "UNDER_REVIEW"] },
+    expiresAt: { gte: new Date() },
+  };
   if (categoryFilter) where.category = categoryFilter;
   return prisma.suggestion.findMany({
     where,
@@ -164,6 +249,39 @@ async function listPendingSuggestions(
     orderBy: { createdAt: "desc" },
     skip: (page - 1) * perPage,
     take: perPage,
+  });
+}
+
+async function listMySuggestions(guildId, userId, page = 1, perPage = 10) {
+  return prisma.suggestion.findMany({
+    where: { guildId, authorId: userId },
+    include: { votes: true },
+    orderBy: { createdAt: "desc" },
+    skip: (page - 1) * perPage,
+    take: perPage,
+  });
+}
+
+async function listAdminQueueSuggestions(guildId, page = 1, perPage = 10) {
+  return prisma.suggestion.findMany({
+    where: {
+      guildId,
+      status: { in: ["OPEN", "PENDING", "UNDER_REVIEW"] },
+    },
+    include: { votes: true },
+    orderBy: { createdAt: "asc" },
+    skip: (page - 1) * perPage,
+    take: perPage,
+  });
+}
+
+async function getUserActiveSuggestionCount(guildId, userId) {
+  return prisma.suggestion.count({
+    where: {
+      guildId,
+      authorId: userId,
+      status: { in: ["OPEN", "PENDING", "UNDER_REVIEW"] },
+    },
   });
 }
 
@@ -237,6 +355,23 @@ async function denySuggestion(publicId, adminId, note) {
   });
 }
 
+async function setSuggestionStatus(publicId, status, adminId) {
+  return prisma.suggestion.update({
+    where: { publicId },
+    data: {
+      status,
+      updatedAt: new Date(),
+      ...(status === "APPROVED"
+        ? { approvedBy: adminId, approvedAt: new Date() }
+        : {}),
+      ...(status === "DENIED"
+        ? { deniedBy: adminId, deniedAt: new Date() }
+        : {}),
+    },
+    include: { votes: true },
+  });
+}
+
 async function deleteSuggestion(publicId) {
   const s = await getSuggestion(publicId);
   if (!s) return null;
@@ -248,11 +383,32 @@ async function deleteSuggestion(publicId) {
   });
 }
 
+async function purgeSuggestion(id) {
+  await prisma.suggestionVote
+    .deleteMany({ where: { suggestionId: id } })
+    .catch(() => {});
+  await prisma.suggestion.delete({ where: { id } }).catch(() => {});
+}
+
 // ─── Embed builder ────────────────────────────────────────────────────────────
 
-async function buildSuggestionEmbed(guildId, suggestion) {
+async function buildSuggestionEmbed(guildIdOrSuggestion, overrideSuggestion) {
+  let guildId;
+  let suggestion;
+
+  if (
+    typeof guildIdOrSuggestion === "object" &&
+    guildIdOrSuggestion?.publicId
+  ) {
+    suggestion = guildIdOrSuggestion;
+    guildId = suggestion.guildId;
+  } else {
+    guildId = guildIdOrSuggestion;
+    suggestion = overrideSuggestion;
+  }
+
   const settings = await prisma.guild.findUnique({
-    where: { id: guildId || suggestion.guildId },
+    where: { id: guildId },
     select: { themeColor: true },
   });
   const votes = countVotes(suggestion);
@@ -260,45 +416,63 @@ async function buildSuggestionEmbed(guildId, suggestion) {
     (settings?.themeColor ?? "#1a7a9e").replace("#", ""),
     16,
   );
-  const statusLabels = {
-    PENDING: "⏳ Pending",
-    APPROVED: "✅ Approved",
-    DENIED: "❌ Denied",
-    DELETED: "🗑️ Deleted",
-    EXPIRED: "⌛ Expired",
-  };
-  const statusLabel = statusLabels[suggestion.status] || suggestion.status;
+  const statusLabel = STATUS_LABELS[suggestion.status] || suggestion.status;
   const catLabel =
     CATEGORY_LABELS[suggestion.category] || CATEGORY_LABELS.GENERAL;
 
-  const fields = [
-    { name: "Category", value: catLabel, inline: true },
-    { name: "Status", value: statusLabel, inline: true },
-  ];
+  const embed = new EmbedBuilder()
+    .setTitle(`💡 ${suggestion.title || "Suggestion"}`)
+    .setColor(color)
+    .setFooter({ text: `Discore Suggestions • ${suggestion.publicId}` })
+    .setTimestamp(new Date(suggestion.createdAt))
+    .addFields(
+      { name: "Category", value: catLabel, inline: true },
+      { name: "Status", value: statusLabel, inline: true },
+      {
+        name: "Submitted by",
+        value: `<@${suggestion.authorId}>`,
+        inline: true,
+      },
+    );
 
-  // Short preview
+  // Content preview
   const preview =
-    suggestion.content.length > 150
-      ? suggestion.content.slice(0, 150) + "..."
+    suggestion.content.length > 256
+      ? suggestion.content.slice(0, 256) + "..."
       : suggestion.content;
-  fields.push({ name: "Suggestion", value: preview, inline: false });
+  embed.addFields({ name: "Suggestion", value: preview, inline: false });
 
-  if (suggestion.content.length > 150) {
-    fields.push({
-      name: "Description",
-      value: suggestion.content,
+  // Duration
+  if (
+    suggestion.closesAt &&
+    ["OPEN", "PENDING", "UNDER_REVIEW"].includes(suggestion.status)
+  ) {
+    embed.addFields({
+      name: "Voting closes",
+      value: `<t:${Math.floor(new Date(suggestion.closesAt).getTime() / 1000)}:R>`,
+      inline: true,
+    });
+  }
+
+  // Votes
+  embed.addFields({
+    name: "Votes",
+    value: `👍 ${votes.up} | 👎 ${votes.down}`,
+    inline: true,
+  });
+
+  // Thread link
+  if (suggestion.threadId) {
+    embed.addFields({
+      name: "💬 Discussion Thread",
+      value: `<#${suggestion.threadId}>`,
       inline: false,
     });
   }
 
-  fields.push({
-    name: "Submitted by",
-    value: `<@${suggestion.authorId}>`,
-    inline: true,
-  });
-
+  // Admin info
   if (suggestion.status === "APPROVED" && suggestion.approvedBy) {
-    fields.push({
+    embed.addFields({
       name: "Approved by",
       value: `<@${suggestion.approvedBy}>`,
       inline: true,
@@ -306,40 +480,20 @@ async function buildSuggestionEmbed(guildId, suggestion) {
   }
   if (suggestion.status === "DENIED") {
     if (suggestion.deniedBy)
-      fields.push({
+      embed.addFields({
         name: "Denied by",
         value: `<@${suggestion.deniedBy}>`,
         inline: true,
       });
     if (suggestion.adminNote)
-      fields.push({
+      embed.addFields({
         name: "Reason",
         value: suggestion.adminNote,
         inline: false,
       });
   }
 
-  if (suggestion.expiresAt && suggestion.status === "PENDING") {
-    fields.push({
-      name: "Voting closes",
-      value: `<t:${Math.floor(new Date(suggestion.expiresAt).getTime() / 1000)}:R>`,
-      inline: true,
-    });
-  }
-
-  fields.push({
-    name: "Votes",
-    value: `👍 ${votes.up} | 👎 ${votes.down}`,
-    inline: true,
-  });
-
-  const embed = new EmbedBuilder()
-    .setTitle(`💡 ${suggestion.title}`)
-    .setColor(color)
-    .setFooter({ text: `Discore Suggestions • ${suggestion.publicId}` })
-    .setTimestamp(new Date(suggestion.createdAt))
-    .addFields(fields);
-
+  // Image
   if (suggestion.imageUrl) embed.setImage(suggestion.imageUrl);
 
   return embed;
@@ -350,33 +504,47 @@ async function buildSuggestionEmbed(guildId, suggestion) {
 function buildSuggestionButtons(suggestion) {
   const rows = [];
   const pid = suggestion.publicId;
+  const isActive = ["OPEN", "PENDING", "UNDER_REVIEW"].includes(
+    suggestion.status,
+  );
 
-  if (suggestion.status === "PENDING") {
-    // Row 1: votes + optional see voters
-    const voteButtons = [
+  if (isActive) {
+    // Row 1: Vote buttons + thread
+    const voteRow = [
       new ButtonBuilder()
         .setCustomId(`sug:up:${pid}`)
-        .setLabel("Upvote")
-        .setEmoji("👍")
+        .setLabel("👍 Support")
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`sug:down:${pid}`)
-        .setLabel("Downvote")
-        .setEmoji("👎")
+        .setLabel("👎 Against")
         .setStyle(ButtonStyle.Danger),
     ];
+
     if (suggestion.showVoters) {
-      voteButtons.push(
+      voteRow.push(
         new ButtonBuilder()
           .setCustomId(`sug:voters:${pid}:0`)
-          .setLabel("See Voters")
+          .setLabel("Voters")
           .setEmoji("👥")
           .setStyle(ButtonStyle.Primary),
       );
     }
-    rows.push(new ActionRowBuilder().addComponents(voteButtons));
 
-    // Row 2: edit
+    if (suggestion.threadId) {
+      voteRow.push(
+        new ButtonBuilder()
+          .setLabel("Open Discussion")
+          .setStyle(ButtonStyle.Link)
+          .setURL(
+            `https://discord.com/channels/${suggestion.guildId}/${suggestion.threadId}`,
+          ),
+      );
+    }
+
+    rows.push(new ActionRowBuilder().addComponents(voteRow));
+
+    // Row 2: Edit (author only)
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -386,44 +554,102 @@ function buildSuggestionButtons(suggestion) {
           .setStyle(ButtonStyle.Secondary),
       ),
     );
+  } else {
+    // Closed - show voters if public, stale note
+    const closedRow = [];
+    if (suggestion.showVoters) {
+      closedRow.push(
+        new ButtonBuilder()
+          .setCustomId(`sug:voters:${pid}:0`)
+          .setLabel("Voters")
+          .setEmoji("👥")
+          .setStyle(ButtonStyle.Primary),
+      );
+    }
+    if (suggestion.threadId) {
+      closedRow.push(
+        new ButtonBuilder()
+          .setLabel("Open Discussion")
+          .setStyle(ButtonStyle.Link)
+          .setURL(
+            `https://discord.com/channels/${suggestion.guildId}/${suggestion.threadId}`,
+          ),
+      );
+    }
+    if (closedRow.length)
+      rows.push(new ActionRowBuilder().addComponents(closedRow));
+  }
 
-    // Row 3: admin
+  return rows;
+}
+
+// ─── Admin buttons ────────────────────────────────────────────────────────────
+
+function buildAdminButtons(suggestion) {
+  const pid = suggestion.publicId;
+  const isActive = ["OPEN", "PENDING", "UNDER_REVIEW"].includes(
+    suggestion.status,
+  );
+
+  const rows = [];
+
+  if (isActive) {
+    // Row: Status changes
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`sug:approve:${pid}`)
+          .setCustomId(`sug:admin:approve:${pid}`)
           .setLabel("Approve")
           .setEmoji("✅")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
-          .setCustomId(`sug:deny:${pid}`)
+          .setCustomId(`sug:admin:deny:${pid}`)
           .setLabel("Deny")
           .setEmoji("❌")
           .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
-          .setCustomId(`sug:delete:${pid}`)
+          .setCustomId(`sug:admin:review:${pid}`)
+          .setLabel("Under Review")
+          .setEmoji("🔍")
+          .setStyle(ButtonStyle.Primary),
+      ),
+    );
+
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:planned:${pid}`)
+          .setLabel("Planned")
+          .setEmoji("📋")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:implemented:${pid}`)
+          .setLabel("Implemented")
+          .setEmoji("🚀")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:close:${pid}`)
+          .setLabel("Close Voting")
+          .setEmoji("🔒")
+          .setStyle(ButtonStyle.Danger),
+      ),
+    );
+
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`sug:admin:delete:${pid}`)
           .setLabel("Delete")
           .setEmoji("🗑️")
           .setStyle(ButtonStyle.Danger),
       ),
     );
   } else {
-    // Closed: only show See Voters if public, and delete for cleanup
-    if (suggestion.showVoters) {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`sug:voters:${pid}:0`)
-            .setLabel("See Voters")
-            .setEmoji("👥")
-            .setStyle(ButtonStyle.Primary),
-        ),
-      );
-    }
+    // Only delete remains for non-active suggestions
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`sug:delete:${pid}`)
+          .setCustomId(`sug:admin:delete:${pid}`)
           .setLabel("Delete")
           .setEmoji("🗑️")
           .setStyle(ButtonStyle.Danger),
@@ -445,7 +671,7 @@ async function tryUpdatePublicEmbed(client, suggestion) {
     if (!ch) return;
     const msg = await ch.messages.fetch(suggestion.messageId).catch(() => null);
     if (!msg) return;
-    const embed = await buildSuggestionEmbed(suggestion.guildId, suggestion);
+    const embed = await buildSuggestionEmbed(suggestion);
     const components = buildSuggestionButtons(suggestion);
     await msg.edit({ embeds: [embed], components }).catch(() => {});
   } catch {
@@ -453,24 +679,103 @@ async function tryUpdatePublicEmbed(client, suggestion) {
   }
 }
 
+// ─── Thread management ────────────────────────────────────────────────────────
+
+async function createDiscussionThread(client, suggestion) {
+  try {
+    const ch = await client.channels
+      .fetch(suggestion.channelId)
+      .catch(() => null);
+    if (!ch || !ch.isTextBased()) return null;
+
+    const shortTitle = (suggestion.title || suggestion.content).slice(0, 80);
+    const threadName = `Suggestion — ${shortTitle}`;
+
+    let thread;
+    if (ch.threads?.create) {
+      // If it's a forum/media channel, use create
+      thread = await ch.threads
+        .create({
+          name: threadName,
+          autoArchiveDuration: 10080, // 7 days
+          reason: `Discussion thread for ${suggestion.publicId}`,
+        })
+        .catch(() => null);
+    } else if (suggestion.messageId) {
+      // If we already have a message, create thread from it
+      const msg = await ch.messages
+        .fetch(suggestion.messageId)
+        .catch(() => null);
+      if (msg) {
+        thread = await msg
+          .startThread({
+            name: threadName,
+            autoArchiveDuration: 10080,
+            reason: `Discussion thread for ${suggestion.publicId}`,
+          })
+          .catch(() => null);
+      }
+    }
+
+    if (thread) {
+      await thread
+        .send({
+          content: `💡 **Discuss this suggestion here.** Keep it useful, don't turn it into a goblin courtroom.\n\n📎 Suggestion: \`${suggestion.publicId}\``,
+        })
+        .catch(() => {});
+
+      return thread.id;
+    }
+    return null;
+  } catch (err) {
+    console.error(
+      `[Suggestions] Thread creation failed for ${suggestion.publicId}:`,
+      err.message,
+    );
+    return null;
+  }
+}
+
+// ─── Stale message ────────────────────────────────────────────────────────────
+
+const STALE_MESSAGE =
+  "This suggestion is no longer managed by Discore. The server may have kept the old post for history, but the suggestion data has been cleaned up.";
+
 module.exports = {
+  CATEGORY_LABELS,
+  CATEGORY_CHOICES,
+  STATUS_LABELS,
+  MAX_DURATION_DAYS,
+  MAX_RETENTION_DAYS,
+  DEFAULT_DURATION_DAYS,
+  STALE_MESSAGE,
   parseDuration,
   generatePublicId,
   isAdminOrManager,
   getGuildSuggestionSettings,
+  ensureGuild,
+  updateGuildSuggestionSettings,
   createSuggestion,
   getSuggestion,
   getSuggestionById,
+  getSuggestionByMessage,
   updateSuggestion,
+  updateSuggestionByPublicId,
   listPendingSuggestions,
+  listMySuggestions,
+  listAdminQueueSuggestions,
+  getUserActiveSuggestionCount,
   toggleVote,
   getVoters,
   countVotes,
   approveSuggestion,
   denySuggestion,
+  setSuggestionStatus,
   deleteSuggestion,
+  purgeSuggestion,
   buildSuggestionEmbed,
   buildSuggestionButtons,
+  buildAdminButtons,
   tryUpdatePublicEmbed,
-  CATEGORY_LABELS,
+  createDiscussionThread,
 };

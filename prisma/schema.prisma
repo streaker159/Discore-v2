@@ -36,8 +36,15 @@ model Guild {
   appealChannelId          String?
   appealCategoryId         String?
   eventChannelId           String?
-  suggestionChannelId      String?
-  supportChannelId         String?
+  suggestionChannelId         String?
+  suggestionDefaultDuration   Int               @default(7)
+  suggestionShowVoters        Boolean           @default(false)
+  suggestionRequireReview     Boolean           @default(false)
+  suggestionAllowImages       Boolean           @default(true)
+  suggestionCreateThreads     Boolean           @default(true)
+  suggestionManagerRoleId     String?
+  suggestionMaxPerUser        Int               @default(5)
+  supportChannelId            String?
   adminReportsChannelId    String?
   publicSuggestionVoters   Boolean          @default(false)
   onboardingSentAt         DateTime?        @db.Timestamptz(6)
@@ -459,30 +466,35 @@ model EventReminder {
 }
 
 model Suggestion {
-  id         String           @id @default(cuid())
-  guildId    String
-  authorId   String
-  content    String
-  imageUrl   String?
-  status     SuggestionStatus @default(OPEN)
-  channelId  String
-  messageId  String?
-  expiresAt  DateTime?
-  createdAt  DateTime         @default(now())
-  publicId   String?          @unique
-  title      String           @default("")
-  updatedAt  DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
-  approvedBy String?
-  approvedAt DateTime?        @db.Timestamptz(6)
-  deniedBy   String?
-  deniedAt   DateTime?        @db.Timestamptz(6)
-  adminNote  String?
-  showVoters Boolean          @default(false)
-  category   String           @default("GENERAL")
-  guild      Guild            @relation(fields: [guildId], references: [id])
-  votes      SuggestionVote[]
+  id           String           @id @default(cuid())
+  guildId      String
+  authorId     String
+  content      String
+  imageUrl     String?
+  status       SuggestionStatus @default(OPEN)
+  channelId    String
+  messageId    String?
+  threadId     String?
+  expiresAt    DateTime?
+  closesAt     DateTime?
+  dataDeleteAt DateTime?
+  createdAt    DateTime         @default(now())
+  publicId     String?          @unique
+  title        String           @default("")
+  updatedAt    DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  approvedBy   String?
+  approvedAt   DateTime?        @db.Timestamptz(6)
+  deniedBy     String?
+  deniedAt     DateTime?        @db.Timestamptz(6)
+  adminNote    String?
+  showVoters   Boolean          @default(false)
+  category     String           @default("GENERAL")
+  guild        Guild            @relation(fields: [guildId], references: [id])
+  votes        SuggestionVote[]
 
   @@index([guildId])
+  @@index([dataDeleteAt])
+  @@index([closesAt])
 }
 
 model SuggestionVote {
@@ -1331,6 +1343,10 @@ enum SuggestionStatus {
   PENDING
   DENIED
   DELETED
+  UNDER_REVIEW
+  PLANNED
+  IMPLEMENTED
+  CLOSED
 }
 
 enum VoteType {
