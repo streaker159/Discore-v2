@@ -162,28 +162,30 @@ model Scoreboard {
 }
 
 model ScoreboardScoreType {
-  id             String   @id @default(cuid())
-  guildId        String
-  scoreboardId   String
-  name           String
+  id          String                     @id @default(cuid())
+  guildId     String
+  scoreboardId String
+  name        String
   normalizedName String
-  createdAt      DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  createdAt   DateTime                   @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime                   @default(now()) @updatedAt @db.Timestamptz(6)
+  entryStats  ScoreboardEntryTypeStats[]
 
   @@unique([scoreboardId, normalizedName])
 }
 
 model ScoreboardEntryTypeStats {
-  id                String   @id @default(cuid())
+  id                String              @id @default(cuid())
   guildId           String
   scoreboardId      String
   scoreboardEntryId String
   scoreTypeId       String
-  wins              Int      @default(0)
-  losses            Int      @default(0)
-  points            Int      @default(0)
-  createdAt         DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  wins              Int                 @default(0)
+  losses            Int                 @default(0)
+  points            Int                 @default(0)
+  createdAt         DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime            @default(now()) @updatedAt @db.Timestamptz(6)
+  scoreType         ScoreboardScoreType @relation(fields: [scoreTypeId], references: [id])
 
   @@unique([scoreboardEntryId, scoreTypeId], map: "ScoreboardEntryTypeStats_entryId_typeId_key")
 }
