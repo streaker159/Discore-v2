@@ -4,10 +4,12 @@ ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'PLANNED';
 ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'IMPLEMENTED';
 ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'CLOSED';
 
--- Alter Suggestion table: add threadId, closesAt, dataDeleteAt
+-- Alter Suggestion table: add threadId, closesAt, dataDeleteAt, closedBy, closedAt
 ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "threadId" TEXT;
 ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "closesAt" TIMESTAMP(3);
 ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "dataDeleteAt" TIMESTAMP(3);
+ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "closedBy" TEXT;
+ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMP(3);
 
 -- Set initial dataDeleteAt for existing suggestions: 30 days from now max
 UPDATE "Suggestion" SET "dataDeleteAt" = NOW() + INTERVAL '30 days' WHERE "dataDeleteAt" IS NULL;

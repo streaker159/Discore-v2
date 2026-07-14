@@ -486,6 +486,8 @@ model Suggestion {
   approvedAt   DateTime?        @db.Timestamptz(6)
   deniedBy     String?
   deniedAt     DateTime?        @db.Timestamptz(6)
+  closedBy     String?
+  closedAt     DateTime?        @db.Timestamptz(6)
   adminNote    String?
   showVoters   Boolean          @default(false)
   category     String           @default("GENERAL")

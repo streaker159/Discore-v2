@@ -367,6 +367,9 @@ async function setSuggestionStatus(publicId, status, adminId) {
       ...(status === "DENIED"
         ? { deniedBy: adminId, deniedAt: new Date() }
         : {}),
+      ...(status === "CLOSED"
+        ? { closedBy: adminId, closedAt: new Date() }
+        : {}),
     },
     include: { votes: true },
   });
@@ -470,6 +473,41 @@ async function buildSuggestionEmbed(guildIdOrSuggestion, overrideSuggestion) {
     });
   }
 
+  // Closed info
+  if (suggestion.status === "CLOSED") {
+    if (suggestion.closedBy) {
+      embed.addFields({
+        name: "Closed by",
+        value: `<@${suggestion.closedBy}>`,
+        inline: true,
+      });
+      embed.addFields({
+        name: "Closed at",
+        value: `<t:${Math.floor(new Date(suggestion.closedAt).getTime() / 1000)}:F>`,
+        inline: true,
+      });
+    } else {
+      embed.addFields({
+        name: "Closed",
+        value: "⌛ Time expired",
+        inline: true,
+      });
+    }
+    // Vote result
+    const v = countVotes(suggestion);
+    const result =
+      v.up > v.down
+        ? "✅ 👍 Supporters win"
+        : v.down > v.up
+          ? "❌ 👎 Against wins"
+          : "🤝 Tie vote";
+    embed.addFields({
+      name: "Result",
+      value: `${result} (👍 ${v.up} | 👎 ${v.down})`,
+      inline: false,
+    });
+  }
+
   // Admin info
   if (suggestion.status === "APPROVED" && suggestion.approvedBy) {
     embed.addFields({
@@ -477,14 +515,25 @@ async function buildSuggestionEmbed(guildIdOrSuggestion, overrideSuggestion) {
       value: `<@${suggestion.approvedBy}>`,
       inline: true,
     });
+    embed.addFields({
+      name: "Approved at",
+      value: `<t:${Math.floor(new Date(suggestion.approvedAt).getTime() / 1000)}:F>`,
+      inline: true,
+    });
   }
   if (suggestion.status === "DENIED") {
-    if (suggestion.deniedBy)
+    if (suggestion.deniedBy) {
       embed.addFields({
         name: "Denied by",
         value: `<@${suggestion.deniedBy}>`,
         inline: true,
       });
+      embed.addFields({
+        name: "Denied at",
+        value: `<t:${Math.floor(new Date(suggestion.deniedAt).getTime() / 1000)}:F>`,
+        inline: true,
+      });
+    }
     if (suggestion.adminNote)
       embed.addFields({
         name: "Reason",
