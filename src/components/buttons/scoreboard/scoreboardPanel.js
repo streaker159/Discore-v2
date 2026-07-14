@@ -48,20 +48,20 @@ function getIconUrls(interaction) {
 }
 
 async function refreshBoardPanel(interaction, boardId) {
-  const perms = await assertCanManage(interaction);
-  if (perms) {
-    return interaction.reply({ ...perms, flags: 64 });
-  }
   const board = await prisma.scoreboard.findUnique({
     where: { id: boardId },
     include: { entries: true },
   });
   if (!board) {
-    return interaction.update({
+    const gonePayload = {
       content: "⚠️ This scoreboard no longer exists.",
       embeds: [],
       components: [],
-    });
+    };
+    if (interaction.deferred || interaction.replied) {
+      return interaction.editReply(gonePayload).catch(() => {});
+    }
+    return interaction.update(gonePayload).catch(() => {});
   }
 
   const { guildIconUrl, discoreIconUrl } = getIconUrls(interaction);
@@ -81,7 +81,11 @@ async function refreshBoardPanel(interaction, boardId) {
   });
 
   const components = buildBoardPanelComponents(board, true, scoreTypes);
-  return interaction.update({ embeds: [embed], components });
+  const payload = { embeds: [embed], components };
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply(payload).catch(() => {});
+  }
+  return interaction.update(payload).catch(() => {});
 }
 
 // ─── dashboard button handlers ────────────────────────────────────────────────

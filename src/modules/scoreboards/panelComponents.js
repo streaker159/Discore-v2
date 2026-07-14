@@ -95,16 +95,16 @@ function buildDashboardButtons(hasBoards) {
 function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
   const rows = [];
 
-  // Score type dropdown (if any)
-  if (scoreTypes.length > 0) {
+  // Score type dropdown — always visible
+  {
     const options = [
       new StringSelectMenuOptionBuilder()
-        .setLabel("Overall")
-        .setDescription("Combined leaderboard across all score types")
+        .setLabel("Overall (no category)")
+        .setDescription("Add wins/losses without a category")
         .setValue("overall")
         .setDefault(true),
     ];
-    for (const t of scoreTypes.slice(0, 24)) {
+    for (const t of scoreTypes.slice(0, 23)) {
       options.push(
         new StringSelectMenuOptionBuilder()
           .setLabel(t.name.substring(0, 25))
@@ -115,7 +115,7 @@ function buildBoardPanelComponents(board, canManage, scoreTypes = []) {
     const typeRow = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(`sb:panel:scoretype:${board.id}`)
-        .setPlaceholder("Select score type/category...")
+        .setPlaceholder("Score type (e.g. 4x, 1x, Apocalypse)...")
         .addOptions(options),
     );
     rows.push(typeRow);
