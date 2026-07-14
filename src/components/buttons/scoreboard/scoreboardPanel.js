@@ -921,12 +921,11 @@ module.exports = [
       const { FileUploadBuilder, LabelBuilder } = require("discord.js");
 
       const label = new LabelBuilder()
-        .setCustomId("scoreboard_image_upload_label")
         .setLabel("Scoreboard Image")
         .setDescription(
           "Upload a PNG, JPG, JPEG, or WEBP image to use as this scoreboard thumbnail. Max 5 MB.",
         )
-        .setComponents(
+        .setFileUploadComponent(
           new FileUploadBuilder()
             .setCustomId("scoreboard_image_upload")
             .setRequired(true)
@@ -1037,20 +1036,83 @@ module.exports = [
 
       await interaction.deferUpdate();
 
-      const status = await repairLiveEmbed(interaction.client, boardId);
-      const msgs = {
-        REPAIRED: "✅ Live message repaired — recreated.",
-        OK: "✅ Scoreboard is healthy. Nothing to repair.",
-        NO_CHANNEL: "⚠️ No live channel configured.",
-        CHANNEL_MISSING: "❌ The configured channel no longer exists.",
-        NO_PERMS: "❌ Missing Send Messages permission in the channel.",
-      };
+      try {
+        // Step 1: Repair the main board-level live embed
+        const boardStatus = await repairLiveEmbed(interaction.client, boardId);
 
-      return interaction.editReply({
-        content: msgs[status] || `Repair result: ${status}`,
-        embeds: [],
-        components: [],
-      });
+        // Step 2: Fetch fresh board data with entries for per-entry repairs
+        const board = await prisma.scoreboard.findUnique({
+          where: { id: boardId },
+          include: { entries: true },
+        });
+        if (!board) {
+          return interaction.editReply({
+            content: "⚠️ Scoreboard no longer exists.",
+            embeds: [],
+            components: [],
+          });
+        }
+
+        // Step 3: Repair per-entry live embeds (role boards etc)
+        let entryRepairs = 0;
+        let entryFailures = 0;
+        for (const entry of board.entries) {
+          try {
+            if (entry.liveChannelId && entry.liveMessageId) {
+              // Try to update existing entry embed, if it fails, recreate it
+              const ch = await interaction.client.channels
+                .fetch(entry.liveChannelId)
+                .catch(() => null);
+              if (ch) {
+                let msg = await ch.messages
+                  .fetch(entry.liveMessageId)
+                  .catch(() => null);
+                if (!msg) {
+                  // Message deleted/missing — recreate via pushEntryLiveEmbed
+                  await pushEntryLiveEmbed(
+                    interaction.client,
+                    interaction.guild,
+                    board,
+                    entry,
+                  );
+                  entryRepairs++;
+                }
+              }
+            }
+          } catch {
+            entryFailures++;
+          }
+        }
+
+        // Build result message
+        const msgs = {
+          REPAIRED: "✅ Live message repaired — recreated.",
+          OK: "✅ Scoreboard is healthy. Nothing to repair.",
+          NO_CHANNEL: "⚠️ No live channel configured.",
+          CHANNEL_MISSING: "❌ The configured channel no longer exists.",
+          NO_PERMS: "❌ Missing Send Messages permission in the channel.",
+        };
+
+        const boardResult = msgs[boardStatus] || `Board repair: ${boardStatus}`;
+        const entryResult =
+          entryRepairs > 0
+            ? `\n✅ ${entryRepairs} per-entry embeds repaired.`
+            : entryFailures > 0
+              ? `\n⚠️ ${entryFailures} per-entry embeds failed to repair.`
+              : "";
+
+        return interaction.editReply({
+          content: boardResult + entryResult,
+          embeds: [],
+          components: [],
+        });
+      } catch (err) {
+        return interaction.editReply({
+          content: `❌ Repair failed: ${err.message}`,
+          embeds: [],
+          components: [],
+        });
+      }
     },
   },
 
