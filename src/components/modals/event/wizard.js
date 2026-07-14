@@ -34,6 +34,7 @@ function getWizardData(interaction) {
       when: null,
       description: null,
       location: null,
+      locationChannelId: null,
       game: null,
       teamSize: null,
       customTypeName: null,
@@ -65,8 +66,9 @@ module.exports = [
       const whenRaw = interaction.fields.getTextInputValue("when").trim();
       const description =
         interaction.fields.getTextInputValue("description")?.trim() || null;
-      const location =
-        interaction.fields.getTextInputValue("location")?.trim() || null;
+      const locationChannel = interaction.fields
+        .getSelectedChannels("location_channel", false)
+        ?.first();
       const game = interaction.fields.getTextInputValue("game")?.trim() || null;
 
       if (!title)
@@ -96,7 +98,8 @@ module.exports = [
       const data = getWizardData(interaction);
       data.title = title;
       data.description = description;
-      data.location = location;
+      data.location = locationChannel ? `<#${locationChannel.id}>` : null;
+      data.locationChannelId = locationChannel?.id || null;
       data.game = game;
       data.when = parsed.date.toISOString(); // Resolved absolute timestamp
       data.whenRaw = whenRaw; // Original text, for re-editing
@@ -173,10 +176,9 @@ module.exports = [
   {
     customIdPrefix: "event:modal:upload_thumb",
     async execute(interaction) {
-      const attachment =
-        interaction.files?.first?.() ||
-        (interaction.data?.resolved?.attachments &&
-          Object.values(interaction.data.resolved.attachments)[0]);
+      const attachment = interaction.fields
+        .getUploadedFiles("event_thumb_upload")
+        ?.first();
 
       if (!attachment) {
         return interaction.reply({
@@ -227,10 +229,9 @@ module.exports = [
   {
     customIdPrefix: "event:modal:upload_banner",
     async execute(interaction) {
-      const attachment =
-        interaction.files?.first?.() ||
-        (interaction.data?.resolved?.attachments &&
-          Object.values(interaction.data.resolved.attachments)[0]);
+      const attachment = interaction.fields
+        .getUploadedFiles("event_banner_upload")
+        ?.first();
 
       if (!attachment) {
         return interaction.reply({

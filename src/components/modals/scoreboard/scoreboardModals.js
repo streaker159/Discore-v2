@@ -590,10 +590,9 @@ module.exports = [
       const boardId = parts[3];
 
       // Extract uploaded file
-      const attachment =
-        interaction.files?.first?.() ||
-        (interaction.data?.resolved?.attachments &&
-          Object.values(interaction.data.resolved.attachments)[0]);
+      const attachment = interaction.fields
+        .getUploadedFiles("scoreboard_image_upload")
+        ?.first();
 
       if (!attachment) {
         return interaction.reply({

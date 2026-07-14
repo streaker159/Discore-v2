@@ -936,7 +936,7 @@ module.exports = [
       const modal = new ModalBuilder()
         .setCustomId(`sb:modal:uploadimage:${boardId}`)
         .setTitle("Upload Scoreboard Image")
-        .addComponents(new ActionRowBuilder().addComponents(label));
+        .addComponents(label);
 
       return interaction.showModal(modal);
     },

@@ -10,6 +10,9 @@ const {
   TextInputStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  LabelBuilder,
+  ChannelSelectMenuBuilder,
+  ChannelType,
 } = require("discord.js");
 const prisma = require("../../../lib/prisma");
 const {
@@ -43,6 +46,7 @@ function getWizardData(interaction) {
       when: null,
       description: null,
       location: null,
+      locationChannelId: null,
       game: null,
       teamSize: null,
       customTypeName: null,
@@ -236,14 +240,26 @@ module.exports = [
               .setMaxLength(1000)
               .setValue(data.description || ""),
           ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId("location")
-              .setLabel("Location (optional)")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(false)
-              .setValue(data.location || ""),
-          ),
+          new LabelBuilder()
+            .setLabel("Location (optional)")
+            .setDescription("Pick a channel or thread for this event.")
+            .setChannelSelectMenuComponent(
+              new ChannelSelectMenuBuilder()
+                .setCustomId("location_channel")
+                .setRequired(false)
+                .setChannelTypes(
+                  ChannelType.GuildText,
+                  ChannelType.GuildAnnouncement,
+                  ChannelType.PublicThread,
+                  ChannelType.PrivateThread,
+                  ChannelType.AnnouncementThread,
+                  ChannelType.GuildVoice,
+                  ChannelType.GuildStageVoice,
+                )
+                .setDefaultChannels(
+                  ...(data.locationChannelId ? [data.locationChannelId] : []),
+                ),
+            ),
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
               .setCustomId("game")
@@ -834,7 +850,7 @@ module.exports = [
       const modal = new ModalBuilder()
         .setCustomId("event:modal:upload_thumb")
         .setTitle("Upload Event Thumbnail")
-        .addComponents(new ActionRowBuilder().addComponents(label));
+        .addComponents(label);
       return interaction.showModal(modal);
     },
   },
@@ -857,7 +873,7 @@ module.exports = [
       const modal = new ModalBuilder()
         .setCustomId("event:modal:upload_banner")
         .setTitle("Upload Event Banner")
-        .addComponents(new ActionRowBuilder().addComponents(label));
+        .addComponents(label);
       return interaction.showModal(modal);
     },
   },
