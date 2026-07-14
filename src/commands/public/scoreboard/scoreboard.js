@@ -75,36 +75,9 @@ async function openBoardPanel(
   return interaction.reply({ ...payload, flags: 64 });
 }
 
-// ─── autocomplete ─────────────────────────────────────────────────────────────
+// ─── autocomplete (no autocomplete options — kept as no-op for compatibility) ──
 
 async function autocomplete(interaction) {
-  const focusedOpt = interaction.options.getFocused(true);
-  const focused = (focusedOpt?.value || "").toLowerCase();
-
-  if (focusedOpt?.name === "name") {
-    const boards = await prisma.scoreboard.findMany({
-      where: { guildId: interaction.guildId, isArchived: false },
-      include: { entries: true },
-      orderBy: { name: "asc" },
-    });
-
-    const filtered = boards
-      .filter((b) => b.name.toLowerCase().includes(focused))
-      .slice(0, 25);
-
-    const choices = filtered.map((b) => {
-      const modeLabel = b.metric === "POINTS" ? "Points" : "Win/Loss";
-      const typeLabel =
-        b.type === "ROLE" ? "Roles" : b.type === "CUSTOM" ? "Custom" : "Users";
-      return {
-        name: `${b.liveTitle || b.name}  (${modeLabel} · ${typeLabel} · ${b.entries.length} entries)`,
-        value: b.name,
-      };
-    });
-
-    return interaction.respond(choices).catch(() => {});
-  }
-
   await interaction.respond([]).catch(() => {});
 }
 
@@ -117,48 +90,12 @@ module.exports = {
     .setName("scoreboard")
     .setDescription(
       "Open the Scoreboard Control Centre to manage your server's scoreboards.",
-    )
-    .addStringOption((o) =>
-      o
-        .setName("name")
-        .setDescription("Jump directly to a specific scoreboard")
-        .setRequired(false)
-        .setAutocomplete(true),
     ),
 
   async execute(interaction) {
-    const boardName = interaction.options.getString("name");
     const { guildIconUrl, discoreIconUrl } = getIconUrls(interaction);
 
-    // If name provided, open that board directly
-    if (boardName) {
-      const canManage = !(await assertCanManage(interaction));
-      const board = await prisma.scoreboard.findFirst({
-        where: {
-          guildId: interaction.guildId,
-          name: { equals: boardName, mode: "insensitive" },
-          isArchived: false,
-        },
-        include: { entries: true },
-      });
-
-      if (!board) {
-        return interaction.reply({
-          content: `❌ No active scoreboard named **${boardName}** found.`,
-          flags: 64,
-        });
-      }
-
-      return openBoardPanel(
-        interaction,
-        board,
-        canManage,
-        guildIconUrl,
-        discoreIconUrl,
-      );
-    }
-
-    // Otherwise show dashboard
+    // Show dashboard
     const boards = await listActiveScoreboards(interaction.guildId);
     const archivedCount = await prisma.scoreboard.count({
       where: { guildId: interaction.guildId, isArchived: true },

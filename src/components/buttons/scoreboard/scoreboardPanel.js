@@ -423,6 +423,9 @@ module.exports = [
   {
     customIdPrefix: "sb:panel:public:",
     async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
       const parts = interaction.customId.split(":");
       const boardId = parts[3];
 
@@ -434,44 +437,160 @@ module.exports = [
         });
       }
 
-      await interaction.deferReply();
-
-      const { guildIconUrl, discoreIconUrl } = getIconUrls(interaction);
-      const scoreTypes = await getScoreTypes(board.id).catch(() => []);
-      const hasScoreTypes = scoreTypes.length > 0;
-
-      const viewMode = hasScoreTypes
-        ? "flat"
-        : board.hasCategories
-          ? "combined"
-          : "flat";
-
-      const {
-        embed,
-        page,
-        totalPages,
-        scoreTypes: resultScoreTypes,
-        hasScoreTypes: resultHasScoreTypes,
-      } = await buildInteractiveShowEmbed(board, viewMode, 1, "WINS", {
-        guildIconUrl,
-        discoreIconUrl,
-      });
-
-      const components = buildShowComponents(
-        board.id,
-        page,
-        totalPages,
-        board.metric,
-        "WINS",
-        viewMode,
-        board,
-        {
-          scoreTypes: resultScoreTypes || scoreTypes,
-          hasScoreTypes: resultHasScoreTypes ?? hasScoreTypes,
-        },
+      // Show a channel select to choose where to post the scoreboard
+      const { ChannelSelectMenuBuilder, ChannelType } = require("discord.js");
+      const channelRow = new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(`sb:panel:public_channel:${boardId}`)
+          .setPlaceholder(
+            "Select a channel or thread to post the scoreboard...",
+          )
+          .setChannelTypes(
+            ChannelType.GuildText,
+            ChannelType.GuildAnnouncement,
+            ChannelType.PublicThread,
+            ChannelType.PrivateThread,
+          ),
       );
 
-      return interaction.editReply({ embeds: [embed], components });
+      const cancelRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`sb:panel:back:${boardId}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji("⬅️"),
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x1a7a9e)
+        .setTitle("📢 Post Scoreboard")
+        .setDescription(
+          `Select a **channel or thread** below to post the **${board.liveTitle || board.name}** scoreboard.`,
+        )
+        .setFooter({
+          text: "The scoreboard embed with interactive controls will be posted there.",
+        });
+
+      return interaction.update({
+        embeds: [embed],
+        components: [channelRow, cancelRow],
+      });
+    },
+  },
+
+  // ── Board panel: public channel selected ───────────────────────────────
+  {
+    customIdPrefix: "sb:panel:public_channel:",
+    async execute(interaction) {
+      const perms = await assertCanManage(interaction);
+      if (perms) return interaction.reply({ ...perms, flags: 64 });
+
+      const parts = interaction.customId.split(":");
+      const boardId = parts[3];
+      const targetChannel = interaction.channels?.first();
+      if (!targetChannel) {
+        return interaction.update({
+          content: "⚠️ No channel selected.",
+          embeds: [],
+          components: [],
+        });
+      }
+
+      const board = await getScoreboardById(boardId);
+      if (!board) {
+        return interaction.update({
+          content: "⚠️ This scoreboard no longer exists.",
+          embeds: [],
+          components: [],
+        });
+      }
+
+      // Check bot permissions in the target channel
+      const botMember = interaction.guild?.members?.me;
+      const permsInChannel = targetChannel.permissionsFor(
+        botMember ?? interaction.client.user,
+      );
+      if (
+        !permsInChannel?.has("SendMessages") ||
+        !permsInChannel?.has("EmbedLinks")
+      ) {
+        return interaction.update({
+          content: `❌ Missing permissions in ${targetChannel}. I need **Send Messages** and **Embed Links** permissions.`,
+          embeds: [],
+          components: [],
+        });
+      }
+
+      await interaction.deferUpdate();
+
+      try {
+        const { guildIconUrl, discoreIconUrl } = getIconUrls(interaction);
+        const scoreTypes = await getScoreTypes(board.id).catch(() => []);
+        const hasScoreTypes = scoreTypes.length > 0;
+
+        const viewMode = hasScoreTypes
+          ? "flat"
+          : board.hasCategories
+            ? "combined"
+            : "flat";
+
+        const {
+          embed: scoreboardEmbed,
+          page,
+          totalPages,
+          scoreTypes: resultScoreTypes,
+          hasScoreTypes: resultHasScoreTypes,
+        } = await buildInteractiveShowEmbed(board, viewMode, 1, "WINS", {
+          guildIconUrl,
+          discoreIconUrl,
+        });
+
+        const components = buildShowComponents(
+          board.id,
+          page,
+          totalPages,
+          board.metric,
+          "WINS",
+          viewMode,
+          board,
+          {
+            scoreTypes: resultScoreTypes || scoreTypes,
+            hasScoreTypes: resultHasScoreTypes ?? hasScoreTypes,
+          },
+        );
+
+        const msg = await targetChannel
+          .send({ embeds: [scoreboardEmbed], components })
+          .catch((err) => {
+            throw new Error(`Failed to send message: ${err.message}`);
+          });
+
+        // Update board's channelId and messageId so repair/push works
+        await prisma.scoreboard
+          .update({
+            where: { id: board.id },
+            data: { channelId: targetChannel.id, messageId: msg.id },
+          })
+          .catch(() => {});
+
+        const successEmbed = new EmbedBuilder()
+          .setColor(0x00ff00)
+          .setTitle("✅ Scoreboard Posted")
+          .setDescription(
+            `Scoreboard **${board.liveTitle || board.name}** has been posted in ${targetChannel}.\n\n[🔗 Jump to message](${msg.url})`,
+          );
+
+        return interaction.editReply({
+          embeds: [successEmbed],
+          components: [],
+        });
+      } catch (err) {
+        return interaction.editReply({
+          content: `❌ Failed to post scoreboard: ${err.message}`,
+          embeds: [],
+          components: [],
+        });
+      }
     },
   },
 
