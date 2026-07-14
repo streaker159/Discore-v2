@@ -1,3 +1,9 @@
+-- Add new enum values to SuggestionStatus
+ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'UNDER_REVIEW';
+ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'PLANNED';
+ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'IMPLEMENTED';
+ALTER TYPE "SuggestionStatus" ADD VALUE IF NOT EXISTS 'CLOSED';
+
 -- Alter Suggestion table: add threadId, closesAt, dataDeleteAt
 ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "threadId" TEXT;
 ALTER TABLE "Suggestion" ADD COLUMN IF NOT EXISTS "closesAt" TIMESTAMP(3);
