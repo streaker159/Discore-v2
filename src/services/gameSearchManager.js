@@ -9,8 +9,11 @@ const {
 const logger = require("../lib/logger");
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MAX_SEARCH_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_SEARCH_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 const MIN_DELAY_MS = 1500; // never below 1.5s
+const COOLDOWN_INTERVAL = 25; // every N polls, insert a longer human-like pause
+const COOLDOWN_MIN_MS = 5000; // 5 seconds
+const COOLDOWN_MAX_MS = 7000; // 7 seconds
 
 // ── Search criteria used for deduplication ──────────────────────────────────
 const TARGET_TITLE = "WORLD WAR 3 (4X SPEED)";
@@ -114,6 +117,8 @@ class GameSearchManager {
       startedAt: Date.now(),
       timeoutTimer: null,
       baselineIds,
+      pollCount: 0,
+      gamesCache: null,
     };
 
     // ── Timeout guard ──────────────────────────────────────────────
@@ -210,6 +215,20 @@ class GameSearchManager {
         continue;
       }
 
+      // ── Cooldown every N polls to mimic human behaviour ──────────
+      state.pollCount++;
+      if (state.pollCount > 0 && state.pollCount % COOLDOWN_INTERVAL === 0) {
+        const cooldown =
+          COOLDOWN_MIN_MS +
+          Math.floor(Math.random() * (COOLDOWN_MAX_MS - COOLDOWN_MIN_MS));
+        logger.debug("Game finder: human-like cooldown", {
+          userId,
+          pollCount: state.pollCount,
+          cooldownMs: cooldown,
+        });
+        await sleep(cooldown);
+      }
+
       if (!state || state.cancelled) break;
 
       // ── Detect new games ─────────────────────────────────────────
@@ -237,6 +256,9 @@ class GameSearchManager {
         });
         return;
       }
+
+      // ── Keep only the current batch in memory, wipe old data ────
+      state.gamesCache = games;
     }
 
     // ── If we exited the loop without finding a match, it may be timeout ──
@@ -293,6 +315,11 @@ class GameSearchManager {
       clearTimeout(state.timeoutTimer);
       state.timeoutTimer = null;
     }
+
+    // Wipe all stored game data
+    state.baselineIds = null;
+    state.gamesCache = null;
+    state.interaction = null;
 
     this.activeSearches.delete(userId);
   }

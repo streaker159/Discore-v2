@@ -16,7 +16,7 @@ function buildSearchingEmbed() {
       { name: "🌍 Scenario", value: "World War 3", inline: true },
       { name: "⚡ Speed", value: "4×", inline: true },
       { name: "📡 Status", value: "Searching…", inline: true },
-      { name: "⏱️ Maximum Duration", value: "10 minutes", inline: false },
+      { name: "⏱️ Maximum Duration", value: "30 minutes", inline: false },
     )
     .setFooter({
       text: "Discore is checking at controlled, randomized intervals.",
@@ -96,7 +96,7 @@ function buildTimeoutEmbed() {
     .setTitle("⏰ Search Expired")
     .setDescription(
       [
-        "No new **WORLD WAR 3 (4X SPEED)** match appeared within the 10‑minute search window.",
+        "No new **WORLD WAR 3 (4X SPEED)** match appeared within the 30‑minute search window.",
         "",
         "You can run `/findgame` again to restart the search.",
       ].join("\n"),
