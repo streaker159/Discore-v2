@@ -423,6 +423,23 @@ module.exports = [
             .setEmoji("❌")
             .setStyle(ButtonStyle.Danger),
           new ButtonBuilder()
+            .setCustomId(`sug:admin_action:planned:${publicId}`)
+            .setLabel("Planned")
+            .setEmoji("📋")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:implemented:${publicId}`)
+            .setLabel("Implemented")
+            .setEmoji("🚀")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:close_voting:${publicId}`)
+            .setLabel("Close Voting")
+            .setEmoji("🔒")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
             .setCustomId(`sug:admin_action:delete:${publicId}`)
             .setLabel("Delete")
             .setEmoji("🗑️")
@@ -500,6 +517,66 @@ module.exports = [
   },
 
   {
+    customIdPrefix: "sug:admin_action:planned:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      await setSuggestionStatus(publicId, "PLANNED", interaction.user.id);
+      const updated = await getSuggestion(publicId);
+      if (updated) await tryUpdatePublicEmbed(interaction.client, updated);
+      return interaction.reply({
+        content: `✅ \`${publicId}\` marked as Planned.`,
+        flags: 64,
+      });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:implemented:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      await setSuggestionStatus(publicId, "IMPLEMENTED", interaction.user.id);
+      const updated = await getSuggestion(publicId);
+      if (updated) await tryUpdatePublicEmbed(interaction.client, updated);
+      return interaction.reply({
+        content: `✅ \`${publicId}\` marked as Implemented.`,
+        flags: 64,
+      });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:close_voting:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      await setSuggestionStatus(publicId, "CLOSED", interaction.user.id);
+      const updated = await getSuggestion(publicId);
+      if (updated) await tryUpdatePublicEmbed(interaction.client, updated);
+      return interaction.reply({
+        content: `✅ \`${publicId}\` voting closed.`,
+        flags: 64,
+      });
+    },
+  },
+
+  {
     customIdPrefix: "sug:admin_action:delete:",
     async execute(interaction) {
       const publicId = interaction.customId.split(":").pop();
@@ -540,6 +617,29 @@ module.exports = [
       const sug = await getSuggestion(publicId);
       if (!sug) return interaction.reply({ content: STALE_MESSAGE, flags: 64 });
       await interaction.deferReply({ flags: 64 }).catch(() => {});
+
+      // Check if a thread already exists and is just locked/archived
+      if (sug.threadId) {
+        try {
+          const existing = await interaction.client.channels
+            .fetch(sug.threadId)
+            .catch(() => null);
+          if (existing?.isThread?.()) {
+            // Unlock and unarchive the existing thread
+            await existing.setLocked(false).catch(() => {});
+            await existing.setArchived(false).catch(() => {});
+            await updateSuggestion(sug.id, { threadId: sug.threadId });
+            const updated = await getSuggestion(publicId);
+            if (updated)
+              await tryUpdatePublicEmbed(interaction.client, updated);
+            return interaction.editReply({
+              content: `✅ Thread reopened: <#${sug.threadId}>`,
+            });
+          }
+        } catch {}
+      }
+
+      // No existing thread — create a new one
       const threadId = await createDiscussionThread(interaction.client, sug);
       if (!threadId)
         return interaction.editReply({
