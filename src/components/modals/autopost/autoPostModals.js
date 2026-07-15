@@ -1055,16 +1055,124 @@ const memberJoinSettingButtons = [
       const current = session.memberJoinEnabled !== false;
       setSession(interaction.user.id, { memberJoinEnabled: !current });
 
-      await interaction.update({});
-      await showMemberJoinSettings(interaction);
+      const enabled = !current;
+      const embed = new EmbedBuilder()
+        .setTitle("👋 Member Join Settings")
+        .setDescription(
+          "**Send member join message to new arrival?**\n\n" +
+            `Current: ${enabled ? "✅ Yes — Send this welcome message when a member joins" : "❌ No — Keep this saved but do not send it automatically"}`,
+        )
+        .setColor("#5865F2")
+        .addFields(
+          { name: "Name", value: session.name || "N/A", inline: true },
+          {
+            name: "Channel",
+            value: session.channelId ? `<#${session.channelId}>` : "N/A",
+            inline: true,
+          },
+        );
+
+      const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("autopost:mjem:toggle")
+          .setLabel(enabled ? "Disable" : "Enable")
+          .setEmoji(enabled ? "❌" : "✅")
+          .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId("autopost:mjem:preview")
+          .setLabel("Preview")
+          .setEmoji("📋")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("autopost:mjem:edit_content")
+          .setLabel("Edit Content")
+          .setEmoji("📝")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId("autopost:refresh")
+          .setLabel("Cancel")
+          .setEmoji("⬅️")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      await interaction.update({
+        embeds: [embed],
+        components: [buttons],
+      });
     },
   },
   {
     customIdPrefix: "autopost:mjem:preview",
     async execute(interaction) {
       if (!(await requireAccess(interaction))) return;
-      await interaction.deferUpdate().catch(() => {});
-      await showPreview(interaction);
+      const session = getSession(interaction.user.id);
+
+      const embed = new EmbedBuilder()
+        .setTitle("📋 Review Your Auto Post")
+        .setDescription(
+          "Review the details before saving.\n\n**Use the buttons below:**",
+        )
+        .setColor("#5865F2")
+        .addFields(
+          { name: "Name", value: session.name || "N/A", inline: true },
+          {
+            name: "Trigger",
+            value: TRIGGER_LABELS[session.triggerType] || "N/A",
+            inline: true,
+          },
+          {
+            name: "Channel",
+            value: session.channelId ? `<#${session.channelId}>` : "N/A",
+            inline: true,
+          },
+          {
+            name: "Message Mode",
+            value: session.messageMode || "PLAIN",
+            inline: true,
+          },
+        );
+
+      if (session.content) {
+        embed.addFields({
+          name: "Content Preview",
+          value:
+            session.content.length > 300
+              ? session.content.substring(0, 300) + "..."
+              : session.content,
+          inline: false,
+        });
+      }
+
+      if (session.embedTitle) {
+        embed.addFields({
+          name: "Embed Title",
+          value: session.embedTitle,
+          inline: false,
+        });
+      }
+
+      const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("autopost:save")
+          .setLabel("Save")
+          .setEmoji("💾")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId("autopost:save_and_test")
+          .setLabel("Save & Test")
+          .setEmoji("🧪")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("autopost:refresh")
+          .setLabel("Cancel")
+          .setEmoji("❌")
+          .setStyle(ButtonStyle.Secondary),
+      );
+
+      await interaction.update({
+        embeds: [embed],
+        components: [buttons],
+      });
     },
   },
   {
