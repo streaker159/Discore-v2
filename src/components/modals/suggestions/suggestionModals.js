@@ -17,6 +17,9 @@ const {
   buildSuggestionEmbed,
   buildSuggestionButtons,
   tryUpdatePublicEmbed,
+  countVotes,
+  STATUS_LABELS,
+  CATEGORY_LABELS,
   STALE_MESSAGE,
 } = require("../../../modules/suggestions/service");
 const {
@@ -266,6 +269,190 @@ module.exports = [
 
       return interaction.reply({
         content: `✅ Default suggestion duration set to **${days} days**.`,
+        flags: 64,
+      });
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Admin: Search Suggestions Modal
+  // ═══════════════════════════════════════════════════════════════════════
+
+  {
+    customId: "sug:modal:admin_search",
+    async execute(interaction) {
+      const settings = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, settings))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+
+      const query = interaction.fields
+        .getTextInputValue("query")
+        .trim()
+        .toUpperCase();
+
+      // Search by publicId exact match first
+      let suggestion = await getSuggestion(query);
+      if (!suggestion) {
+        // Search by title/content partial match
+        const matches = await prisma.suggestion.findMany({
+          where: {
+            guildId: interaction.guildId,
+            status: { not: "DELETED" },
+            publicId: { not: null },
+            OR: [
+              { title: { contains: query, mode: "insensitive" } },
+              { content: { contains: query, mode: "insensitive" } },
+            ],
+          },
+          take: 5,
+          include: { votes: true },
+        });
+
+        if (!matches.length) {
+          return interaction.reply({
+            content: `🔍 No suggestions found matching \`${query}\`.`,
+            flags: 64,
+          });
+        }
+
+        if (matches.length === 1) {
+          suggestion = matches[0];
+        } else {
+          // Multiple matches — show a select menu
+          const {
+            StringSelectMenuBuilder,
+            StringSelectMenuOptionBuilder,
+            EmbedBuilder,
+            ActionRowBuilder,
+          } = require("discord.js");
+
+          const embed = new EmbedBuilder()
+            .setColor(0xf39c12)
+            .setTitle(`🔍 Search Results — "${query}"`)
+            .setDescription(
+              matches
+                .map(
+                  (s) =>
+                    `**${s.publicId}** — ${s.title || s.content.slice(0, 60)}`,
+                )
+                .join("\n"),
+            )
+            .setFooter({ text: "Select a suggestion below to manage it." });
+
+          const options = matches.map((s) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel(`${s.publicId}: ${(s.title || s.content).slice(0, 50)}`)
+              .setValue(s.publicId)
+              .setDescription(`${STATUS_LABELS[s.status] || s.status}`),
+          );
+
+          const row = new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId("sug:admin_select:suggestion")
+              .setPlaceholder("Select a suggestion...")
+              .addOptions(options),
+          );
+
+          return interaction.reply({
+            embeds: [embed],
+            components: [row],
+            flags: 64,
+          });
+        }
+      }
+
+      // Single result — show action panel
+      const v = countVotes(suggestion);
+      const embed = new (require("discord.js").EmbedBuilder)()
+        .setColor(0xf39c12)
+        .setTitle(`🔧 Admin Settings — ${suggestion.publicId}`)
+        .setDescription(
+          `**${suggestion.title}**\n${suggestion.content.slice(0, 300)}`,
+        )
+        .addFields(
+          {
+            name: "Status",
+            value: STATUS_LABELS[suggestion.status] || suggestion.status,
+            inline: true,
+          },
+          {
+            name: "Category",
+            value: CATEGORY_LABELS[suggestion.category] || "General",
+            inline: true,
+          },
+          { name: "Votes", value: `👍 ${v.up} 👎 ${v.down}`, inline: true },
+          {
+            name: "Action",
+            value: "Use buttons below to manage this suggestion.",
+            inline: false,
+          },
+        );
+
+      const {
+        ActionRowBuilder,
+        ButtonBuilder,
+        ButtonStyle,
+      } = require("discord.js");
+      const rows = [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:approve:${suggestion.publicId}`)
+            .setLabel("Approve")
+            .setEmoji("✅")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:deny:${suggestion.publicId}`)
+            .setLabel("Deny")
+            .setEmoji("❌")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:planned:${suggestion.publicId}`)
+            .setLabel("Planned")
+            .setEmoji("📋")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:implemented:${suggestion.publicId}`)
+            .setLabel("Implemented")
+            .setEmoji("🚀")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:close_voting:${suggestion.publicId}`)
+            .setLabel("Close Voting")
+            .setEmoji("🔒")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:delete:${suggestion.publicId}`)
+            .setLabel("Delete")
+            .setEmoji("🗑️")
+            .setStyle(ButtonStyle.Danger),
+        ),
+        new ActionRowBuilder().addComponents(
+          suggestion.threadId
+            ? new ButtonBuilder()
+                .setCustomId(
+                  `sug:admin_action:close_thread:${suggestion.publicId}`,
+                )
+                .setLabel("Close Thread")
+                .setEmoji("🔒")
+                .setStyle(ButtonStyle.Danger)
+            : new ButtonBuilder()
+                .setCustomId(
+                  `sug:admin_action:open_thread:${suggestion.publicId}`,
+                )
+                .setLabel("Open Thread")
+                .setEmoji("💬")
+                .setStyle(ButtonStyle.Primary),
+        ),
+      ];
+
+      return interaction.reply({
+        embeds: [embed],
+        components: rows,
         flags: 64,
       });
     },

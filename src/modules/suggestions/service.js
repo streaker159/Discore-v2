@@ -553,9 +553,13 @@ async function buildSuggestionEmbed(guildIdOrSuggestion, overrideSuggestion) {
 function buildSuggestionButtons(suggestion) {
   const rows = [];
   const pid = suggestion.publicId;
-  const isActive = ["OPEN", "PENDING", "UNDER_REVIEW"].includes(
-    suggestion.status,
-  );
+  const isActive = [
+    "OPEN",
+    "PENDING",
+    "UNDER_REVIEW",
+    "PLANNED",
+    "IMPLEMENTED",
+  ].includes(suggestion.status);
 
   if (isActive) {
     // Row 1: Vote buttons + thread

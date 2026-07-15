@@ -332,6 +332,10 @@ module.exports = [
       rows.push(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
+            .setCustomId("sug:admin_search_modal")
+            .setLabel("🔍 Search")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
             .setCustomId("sug:dashboard:refresh")
             .setLabel("Back")
             .setStyle(ButtonStyle.Secondary),
@@ -339,6 +343,34 @@ module.exports = [
       );
 
       return interaction.update({ embeds: [embed], components: rows });
+    },
+  },
+
+  {
+    customId: "sug:admin_search_modal",
+    async execute(interaction) {
+      const settings = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, settings))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+
+      const modal = new ModalBuilder()
+        .setCustomId("sug:modal:admin_search")
+        .setTitle("Search Suggestions")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("query")
+              .setLabel("Suggestion ID or title")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMaxLength(100)
+              .setPlaceholder("e.g. SUG-001 or part of title"),
+          ),
+        );
+      return interaction.showModal(modal);
     },
   },
 
