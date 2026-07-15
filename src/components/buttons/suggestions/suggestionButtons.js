@@ -284,6 +284,7 @@ module.exports = [
         where: {
           guildId: interaction.guildId,
           status: { not: "DELETED" },
+          publicId: { not: null },
         },
         orderBy: { createdAt: "desc" },
         take: 25,
@@ -383,7 +384,11 @@ module.exports = [
         );
 
       const suggestions = await prisma.suggestion.findMany({
-        where: { guildId: interaction.guildId, status: { not: "DELETED" } },
+        where: {
+          guildId: interaction.guildId,
+          status: { not: "DELETED" },
+          publicId: { not: null },
+        },
         orderBy: { createdAt: "desc" },
         take: 25,
       });
