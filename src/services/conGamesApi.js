@@ -10,7 +10,6 @@ const REQUIRED_ENV_VARS = [
   "CON_AUTH_TIMESTAMP",
   "CON_AUTH_USER_ID",
   "CON_SESSION_COOKIE",
-  "CON_ENCODED_PAYLOAD_FIELD",
 ];
 
 /**
@@ -21,29 +20,42 @@ function getMissingEnvVars() {
 }
 
 /**
- * Build the Base64-encoded search payload for World War 3 4×.
+ * Build the decoded (plaintext) search payload matching the captured
+ * browser request exactly.  Spaces are encoded as %20, not +.
  */
-function buildEncodedPayload() {
-  const decodedPayload = [
-    "global=1",
-    "withoutMyGames=1",
-    "numEntriesPerPage=9",
-    "page=1",
-    "loadUserLoginData=1",
-    "lang=en",
-    "isFilterSearch=true",
-    "openSlots=1",
-    "search=world war 3 (4X Speed)",
-    `authTstamp=${process.env.CON_AUTH_TIMESTAMP}`,
-    `authUserID=${process.env.CON_AUTH_USER_ID}`,
-    "source=browser-desktop",
-  ].join("&");
+function buildDecodedPayload() {
+  const values = [
+    ["global", "1"],
+    ["withoutMyGames", "1"],
+    ["numEntriesPerPage", "9"],
+    ["page", "1"],
+    ["loadUserLoginData", "1"],
+    ["lang", "en"],
+    ["isFilterSearch", "true"],
+    ["openSlots", "1"],
+    ["search", "world war 3 (4X Speed)"],
+    ["authTstamp", process.env.CON_AUTH_TIMESTAMP],
+    ["authUserID", process.env.CON_AUTH_USER_ID],
+    ["source", "browser-desktop"],
+  ];
 
-  return Buffer.from(decodedPayload, "utf8").toString("base64");
+  return values
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join("&");
 }
 
 /**
- * Build the full request URL.
+ * Build the Base64-encoded payload sent as the raw POST body.
+ */
+function buildEncodedPayload() {
+  return Buffer.from(buildDecodedPayload(), "utf8").toString("base64");
+}
+
+/**
+ * Build the full request URL with query-string parameters.
  */
 function buildEndpoint() {
   const url = new URL("https://www.conflictnations.com/index.php");
@@ -63,8 +75,12 @@ function buildEndpoint() {
 }
 
 /**
- * Fetch the current Conflict of Nations game list using the authenticated
- * POST endpoint. Returns the parsed games array from result.games.
+ * Fetch the current Conflict of Nations game list.
+ *
+ * Sends a POST to the authenticated game-browser endpoint with the
+ * Base64-encoded search payload as the raw body.
+ *
+ * Returns the parsed games array from response.result.games.
  */
 async function fetchGames() {
   // ── Validate configuration ───────────────────────────────────────
@@ -77,19 +93,6 @@ async function fetchGames() {
   // ── Build request components ─────────────────────────────────────
   const endpoint = buildEndpoint();
   const encodedPayload = buildEncodedPayload();
-
-  const body = new URLSearchParams({
-    ingameConaction: "getGames",
-    eID: "api",
-    key: "ingameCon",
-    hash: process.env.CON_GAMES_HASH,
-    outputFormat: "json",
-    apiVersion: "20141208",
-    L: "0",
-    source: "browser-desktop",
-  });
-
-  body.set(process.env.CON_ENCODED_PAYLOAD_FIELD, encodedPayload);
 
   // ── Abort controller for timeout ─────────────────────────────────
   const controller = new AbortController();
@@ -107,7 +110,7 @@ async function fetchGames() {
         "x-requested-with": "XMLHttpRequest",
         cookie: process.env.CON_SESSION_COOKIE,
       },
-      body: body.toString(),
+      body: encodedPayload,
       signal: controller.signal,
     });
   } catch (err) {
@@ -119,6 +122,12 @@ async function fetchGames() {
   } finally {
     clearTimeout(timeout);
   }
+
+  // ── Log only safe metadata ──────────────────────────────────────
+  logger.debug("Game finder: API response received", {
+    status: response.status,
+    ok: response.ok,
+  });
 
   // ── Explicit HTTP error handling ─────────────────────────────────
   if (response.status === 401 || response.status === 403) {
@@ -154,6 +163,10 @@ async function fetchGames() {
   if (bodyData == null || typeof bodyData !== "object") {
     throw new Error("API returned a non-object response");
   }
+
+  logger.debug("Game finder: API result code", {
+    resultCode: bodyData.resultCode,
+  });
 
   if (bodyData.resultCode !== 0) {
     throw new Error(
