@@ -270,47 +270,312 @@ module.exports = [
   },
 
   {
-    customId: "sug:dashboard:admin_queue",
+    customId: "sug:dashboard:admin_settings",
     async execute(interaction) {
       const settings = await getGuildSuggestionSettings(interaction.guildId);
       if (!isAdminOrManager(interaction.member, settings)) {
         return interaction.reply({
-          content: "🚫 Missing permissions. Admin queue is for staff only.",
+          content: "🚫 Missing permissions.",
           flags: 64,
         });
       }
 
-      const suggestions = await listAdminQueueSuggestions(
-        interaction.guildId,
-        1,
-        25,
-      );
-      if (!suggestions.length) {
-        return interaction.reply({
-          content: "📭 No suggestions in the admin queue.",
-          flags: 64,
-        });
-      }
-
-      const lines = suggestions.map((s) => {
-        const v = countVotes(s);
-        const cat = CATEGORY_LABELS[s.category] || "💬 General";
-        return `\`${s.publicId}\` | ${cat} | ${s.title || s.content.slice(0, 50)} | 👍 ${v.up} 👎 ${v.down}`;
+      const suggestions = await prisma.suggestion.findMany({
+        where: {
+          guildId: interaction.guildId,
+          status: { not: "DELETED" },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 25,
       });
 
       const embed = new EmbedBuilder()
-        .setTitle("🔧 Admin Queue")
-        .setDescription(lines.join("\n"))
         .setColor(0xf39c12)
+        .setTitle("🔧 Admin Settings")
+        .setDescription(
+          "Select a suggestion from the dropdown, then use the action buttons.",
+        )
         .addFields({
-          name: "Quick Help",
-          value:
-            "Click a button with a suggestion ID to expand it. Use the admin buttons on public suggestion embeds to approve/deny/manage.",
+          name: "Manage Suggestions",
+          value: suggestions.length
+            ? `${suggestions.length} suggestion(s) available.`
+            : "No suggestions found.",
           inline: false,
-        })
-        .setTimestamp();
+        });
 
-      return interaction.reply({ embeds: [embed], flags: 64 });
+      const rows = [];
+
+      if (suggestions.length) {
+        const {
+          StringSelectMenuBuilder,
+          StringSelectMenuOptionBuilder,
+        } = require("discord.js");
+        const options = suggestions.map((s) =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${s.publicId}: ${(s.title || s.content).slice(0, 50)}`)
+            .setValue(s.publicId)
+            .setDescription(
+              `${STATUS_LABELS[s.status] || s.status} • ${CATEGORY_LABELS[s.category] || "General"}`,
+            ),
+        );
+        rows.push(
+          new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId("sug:admin_select:suggestion")
+              .setPlaceholder("Search suggestions...")
+              .addOptions(options.slice(0, 25)),
+          ),
+        );
+      }
+
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("sug:dashboard:refresh")
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      );
+
+      return interaction.update({ embeds: [embed], components: rows });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_select:suggestion",
+    async execute(interaction) {
+      const publicId = interaction.values[0];
+      const settings = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, settings))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+
+      const suggestion = await getSuggestion(publicId);
+      if (!suggestion)
+        return interaction.reply({ content: STALE_MESSAGE, flags: 64 });
+
+      const v = countVotes(suggestion);
+      const embed = new EmbedBuilder()
+        .setColor(0xf39c12)
+        .setTitle(`🔧 Admin Settings — ${publicId}`)
+        .setDescription(
+          `**${suggestion.title}**\n${suggestion.content.slice(0, 300)}`,
+        )
+        .addFields(
+          {
+            name: "Status",
+            value: STATUS_LABELS[suggestion.status] || suggestion.status,
+            inline: true,
+          },
+          {
+            name: "Category",
+            value: CATEGORY_LABELS[suggestion.category] || "General",
+            inline: true,
+          },
+          { name: "Votes", value: `👍 ${v.up} 👎 ${v.down}`, inline: true },
+          {
+            name: "Action",
+            value: "Use buttons below to manage this suggestion.",
+            inline: false,
+          },
+        );
+
+      const suggestions = await prisma.suggestion.findMany({
+        where: { guildId: interaction.guildId, status: { not: "DELETED" } },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+      });
+      const {
+        StringSelectMenuBuilder,
+        StringSelectMenuOptionBuilder,
+      } = require("discord.js");
+      const options = suggestions.map((s) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(`${s.publicId}: ${(s.title || s.content).slice(0, 50)}`)
+          .setValue(s.publicId)
+          .setDescription(`${STATUS_LABELS[s.status] || s.status}`)
+          .setDefault(s.publicId === publicId),
+      );
+
+      const rows = [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("sug:admin_select:suggestion")
+            .setPlaceholder("Select another suggestion...")
+            .addOptions(options.slice(0, 25)),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:approve:${publicId}`)
+            .setLabel("Approve")
+            .setEmoji("✅")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:deny:${publicId}`)
+            .setLabel("Deny")
+            .setEmoji("❌")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`sug:admin_action:delete:${publicId}`)
+            .setLabel("Delete")
+            .setEmoji("🗑️")
+            .setStyle(ButtonStyle.Danger),
+        ),
+        new ActionRowBuilder().addComponents(
+          suggestion.threadId
+            ? new ButtonBuilder()
+                .setCustomId(`sug:admin_action:close_thread:${publicId}`)
+                .setLabel("Close Thread")
+                .setEmoji("🔒")
+                .setStyle(ButtonStyle.Danger)
+            : new ButtonBuilder()
+                .setCustomId(`sug:admin_action:open_thread:${publicId}`)
+                .setLabel("Open Thread")
+                .setEmoji("💬")
+                .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId("sug:dashboard:refresh")
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      ];
+
+      return interaction.update({ embeds: [embed], components: rows });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:approve:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      await setSuggestionStatus(publicId, "APPROVED", interaction.user.id);
+      const updated = await getSuggestion(publicId);
+      if (updated) await tryUpdatePublicEmbed(interaction.client, updated);
+      return interaction.reply({
+        content: `✅ \`${publicId}\` approved.`,
+        flags: 64,
+      });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:deny:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      const modal = new ModalBuilder()
+        .setCustomId(`sug:modal:deny_reason:${publicId}`)
+        .setTitle("Deny Suggestion")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("reason")
+              .setLabel("Reason (optional)")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(false)
+              .setMaxLength(500)
+              .setPlaceholder("Why is this suggestion being denied?"),
+          ),
+        );
+      return interaction.showModal(modal);
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:delete:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      const sug = await getSuggestion(publicId);
+      if (!sug) return interaction.reply({ content: STALE_MESSAGE, flags: 64 });
+      if (sug.channelId && sug.messageId) {
+        try {
+          const ch = await interaction.client.channels
+            .fetch(sug.channelId)
+            .catch(() => null);
+          if (ch) await ch.messages.delete(sug.messageId).catch(() => {});
+        } catch {}
+      }
+      await purgeSuggestion(sug.id);
+      return interaction.reply({
+        content: `✅ \`${publicId}\` deleted from DB.`,
+        flags: 64,
+      });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:open_thread:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      const sug = await getSuggestion(publicId);
+      if (!sug) return interaction.reply({ content: STALE_MESSAGE, flags: 64 });
+      await interaction.deferReply({ flags: 64 }).catch(() => {});
+      const threadId = await createDiscussionThread(interaction.client, sug);
+      if (!threadId)
+        return interaction.editReply({
+          content: "⚠️ Could not create thread.",
+        });
+      await updateSuggestion(sug.id, { threadId });
+      const updated = await getSuggestion(publicId);
+      if (updated) await tryUpdatePublicEmbed(interaction.client, updated);
+      return interaction.editReply({
+        content: `✅ Thread opened: <#${threadId}>`,
+      });
+    },
+  },
+
+  {
+    customIdPrefix: "sug:admin_action:close_thread:",
+    async execute(interaction) {
+      const publicId = interaction.customId.split(":").pop();
+      const s = await getGuildSuggestionSettings(interaction.guildId);
+      if (!isAdminOrManager(interaction.member, s))
+        return interaction.reply({
+          content: "🚫 Missing permissions.",
+          flags: 64,
+        });
+      const sug = await getSuggestion(publicId);
+      if (!sug || !sug.threadId)
+        return interaction.reply({ content: "No active thread.", flags: 64 });
+      await interaction.deferReply({ flags: 64 }).catch(() => {});
+      try {
+        const thread = await interaction.client.channels
+          .fetch(sug.threadId)
+          .catch(() => null);
+        if (thread?.isThread?.()) {
+          await thread.setLocked(true).catch(() => {});
+          await thread.setArchived(true).catch(() => {});
+        }
+      } catch {}
+      await updateSuggestion(sug.id, { threadId: null });
+      const updated = await getSuggestion(publicId);
+      if (updated) await tryUpdatePublicEmbed(interaction.client, updated);
+      return interaction.editReply({ content: "✅ Thread closed and locked." });
     },
   },
 
@@ -1102,7 +1367,7 @@ module.exports = [
       if (!suggestion)
         return interaction.reply({ content: STALE_MESSAGE, flags: 64 });
 
-      await interaction.deferUpdate().catch(() => {});
+      await interaction.deferReply({ flags: 64 }).catch(() => {});
 
       // Check thread permissions
       const channel = await interaction.guild.channels
@@ -1111,8 +1376,6 @@ module.exports = [
       if (!channel || !channel.isTextBased()) {
         return interaction.editReply({
           content: "⚠️ Suggestion channel not accessible.",
-          embeds: [],
-          components: [],
         });
       }
 
@@ -1124,8 +1387,6 @@ module.exports = [
       if (missing.length) {
         return interaction.editReply({
           content: `⚠️ Missing permissions: ${missing.join(", ")}.`,
-          embeds: [],
-          components: [],
         });
       }
 
@@ -1136,21 +1397,15 @@ module.exports = [
       if (!threadId) {
         return interaction.editReply({
           content: "⚠️ Could not create discussion thread.",
-          embeds: [],
-          components: [],
         });
       }
 
       await updateSuggestion(suggestion.id, { threadId });
       const updated = await getSuggestion(publicId);
-      const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
       await tryUpdatePublicEmbed(interaction.client, updated);
 
       return interaction.editReply({
         content: `✅ Discussion thread opened: <#${threadId}>`,
-        embeds: [],
-        components: [],
       });
     },
   },
@@ -1173,7 +1428,7 @@ module.exports = [
           flags: 64,
         });
 
-      await interaction.deferUpdate().catch(() => {});
+      await interaction.deferReply({ flags: 64 }).catch(() => {});
 
       try {
         const thread = await interaction.client.channels
@@ -1187,14 +1442,10 @@ module.exports = [
 
       await updateSuggestion(suggestion.id, { threadId: null });
       const updated = await getSuggestion(publicId);
-      const embed = await buildSuggestionEmbed(updated);
-      const components = buildSuggestionButtons(updated);
       await tryUpdatePublicEmbed(interaction.client, updated);
 
       return interaction.editReply({
         content: "✅ Discussion thread has been closed and locked.",
-        embeds: [],
-        components: [],
       });
     },
   },

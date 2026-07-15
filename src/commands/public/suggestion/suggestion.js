@@ -87,8 +87,8 @@ function buildDashboardButtons(guildSettings, isAdmin, suggestionChannelSet) {
   // Secondary
   const secRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId("sug:dashboard:admin_queue")
-      .setLabel("Admin Queue")
+      .setCustomId("sug:dashboard:admin_settings")
+      .setLabel("Admin Settings")
       .setStyle(ButtonStyle.Secondary)
       .setEmoji("🔧"),
     new ButtonBuilder()
