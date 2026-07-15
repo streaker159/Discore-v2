@@ -44,6 +44,7 @@ const {
   buildPremiumLockedEmbed,
   buildPostListEmbed,
   buildStepEmbed,
+  buildPlaceholderHelpEmbed,
   TRIGGER_LABELS,
   TRIGGER_EMOJIS,
 } = require("../../../modules/autopost/autoPostEmbeds");
@@ -402,6 +403,20 @@ module.exports = [
             .setColor("#5865F2"),
         ],
         components: [selectRow],
+      });
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // View Placeholders
+  // ═══════════════════════════════════════════════════════════════════════
+  {
+    customIdPrefix: "autopost:placeholders",
+    async execute(interaction) {
+      const embed = buildPlaceholderHelpEmbed();
+      await interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral,
       });
     },
   },

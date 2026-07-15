@@ -159,8 +159,9 @@ const modalHandlers = [
       const triggerType = session.triggerType;
 
       if (triggerType === "MEMBER_JOIN") {
-        // No extra config needed → go straight to preview
-        return showPreview(interaction);
+        // Show member join settings panel before preview
+        setSession(interaction.user.id, { memberJoinEnabled: true });
+        return showMemberJoinSettings(interaction);
       }
 
       // For SCHEDULED, MENTION, KEYWORD → reply with a button to open config modal
@@ -870,6 +871,7 @@ const saveButtonsModule = [
           timezone: session.timezone || "UTC",
           nextRunAt: nextRun,
           cooldownSeconds: session.cooldownSeconds || 300,
+          memberJoinEnabled: session.memberJoinEnabled ?? true,
           createdById: interaction.user.id,
         });
 
@@ -946,6 +948,7 @@ const saveButtonsModule = [
           timezone: session.timezone || "UTC",
           nextRunAt: nextRun,
           cooldownSeconds: session.cooldownSeconds || 300,
+          memberJoinEnabled: session.memberJoinEnabled ?? true,
           createdById: interaction.user.id,
         });
 
@@ -989,5 +992,171 @@ const saveButtonsModule = [
   },
 ];
 
+// ── Member Join settings panel ──────────────────────────────────────────
+
+async function showMemberJoinSettings(interaction) {
+  const session = getSession(interaction.user.id);
+  const enabled = session.memberJoinEnabled !== false;
+
+  const embed = new EmbedBuilder()
+    .setTitle("👋 Member Join Settings")
+    .setDescription(
+      "**Send member join message to new arrival?**\n\n" +
+        `Current: ${enabled ? "✅ Yes — Send this welcome message when a member joins" : "❌ No — Keep this saved but do not send it automatically"}`,
+    )
+    .setColor("#5865F2")
+    .addFields(
+      { name: "Name", value: session.name || "N/A", inline: true },
+      {
+        name: "Channel",
+        value: session.channelId ? `<#${session.channelId}>` : "N/A",
+        inline: true,
+      },
+    );
+
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("autopost:mjem:toggle")
+      .setLabel(enabled ? "Disable" : "Enable")
+      .setEmoji(enabled ? "❌" : "✅")
+      .setStyle(enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("autopost:mjem:preview")
+      .setLabel("Preview")
+      .setEmoji("📋")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("autopost:mjem:edit_content")
+      .setLabel("Edit Content")
+      .setEmoji("📝")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("autopost:refresh")
+      .setLabel("Cancel")
+      .setEmoji("⬅️")
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [buttons],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+// ── Member Join settings toggle buttons ─────────────────────────────────
+
+const memberJoinSettingButtons = [
+  {
+    customIdPrefix: "autopost:mjem:toggle",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      const session = getSession(interaction.user.id);
+      const current = session.memberJoinEnabled !== false;
+      setSession(interaction.user.id, { memberJoinEnabled: !current });
+
+      await interaction.update({});
+      await showMemberJoinSettings(interaction);
+    },
+  },
+  {
+    customIdPrefix: "autopost:mjem:preview",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      await interaction.deferUpdate().catch(() => {});
+      await showPreview(interaction);
+    },
+  },
+  {
+    customIdPrefix: "autopost:mjem:edit_content",
+    async execute(interaction) {
+      if (!(await requireAccess(interaction))) return;
+      const session = getSession(interaction.user.id);
+      const post = {
+        name: session.name || "",
+        messageMode: session.messageMode || "PLAIN",
+        content: session.content || "",
+        embedTitle: session.embedTitle || "",
+        embedDescription: session.embedDescription || "",
+        embedFooter: session.embedFooter || "",
+      };
+
+      const modal = new ModalBuilder()
+        .setCustomId("autopost:modal:edit:content")
+        .setTitle("Edit Auto Post Content");
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("name")
+            .setLabel("Auto Post Name (1-50 chars)")
+            .setMaxLength(50)
+            .setMinLength(1)
+            .setStyle(TextInputStyle.Short)
+            .setValue(post.name)
+            .setRequired(true),
+        ),
+      );
+
+      if (post.messageMode === "PLAIN" || post.messageMode === "BOTH") {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("content")
+              .setLabel("Message Content")
+              .setMaxLength(1900)
+              .setStyle(TextInputStyle.Paragraph)
+              .setValue(post.content)
+              .setRequired(post.messageMode === "PLAIN"),
+          ),
+        );
+      }
+
+      if (post.messageMode === "EMBED" || post.messageMode === "BOTH") {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("embedTitle")
+              .setLabel("Embed Title (max 256 chars)")
+              .setMaxLength(256)
+              .setStyle(TextInputStyle.Short)
+              .setValue(post.embedTitle)
+              .setRequired(false),
+          ),
+        );
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("embedDescription")
+              .setLabel("Embed Description (max 4000)")
+              .setMaxLength(4000)
+              .setStyle(TextInputStyle.Paragraph)
+              .setValue(post.embedDescription)
+              .setRequired(false),
+          ),
+        );
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("embedFooter")
+              .setLabel("Embed Footer (max 2048, optional)")
+              .setMaxLength(2048)
+              .setStyle(TextInputStyle.Short)
+              .setValue(post.embedFooter)
+              .setRequired(false),
+          ),
+        );
+      }
+
+      await interaction.showModal(modal);
+    },
+  },
+];
+
 // Combine all
-module.exports = [...modalHandlers, ...configOpeners, ...saveButtonsModule];
+module.exports = [
+  ...modalHandlers,
+  ...configOpeners,
+  ...saveButtonsModule,
+  ...memberJoinSettingButtons,
+];

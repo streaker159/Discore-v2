@@ -21,6 +21,52 @@ const NAME_MAX = 50;
 const KEYWORD_MIN = 2;
 const KEYWORD_MAX = 100;
 
+// ── Placeholder definitions ───────────────────────────────────────────────
+
+const PLACEHOLDER_HELP = [
+  { placeholder: "user_mention", desc: "Pings the new member (e.g. @User)" },
+  { placeholder: "user", desc: "Alias for {user_mention}" },
+  { placeholder: "user_id", desc: "Joining user's Discord ID" },
+  { placeholder: "username", desc: "Discord username" },
+  {
+    placeholder: "display_name",
+    desc: "Display name / nickname in this server",
+  },
+  { placeholder: "server_name", desc: "Server name" },
+  { placeholder: "member_count", desc: "Current member count" },
+  { placeholder: "join_date", desc: "Formatted join date/time" },
+  { placeholder: "date", desc: "Current date" },
+  { placeholder: "time", desc: "Current time" },
+  { placeholder: "channel", desc: "Target channel mention" },
+  { placeholder: "trigger", desc: "Trigger type label" },
+];
+
+const MEMBER_JOIN_PLACEHOLDERS = [
+  "user_mention",
+  "user",
+  "user_id",
+  "username",
+  "display_name",
+  "server_name",
+  "member_count",
+  "join_date",
+];
+
+const PLACEHOLDER_PREVIEW_VALUES = {
+  user_mention: "@PreviewUser",
+  user: "@PreviewUser",
+  user_id: "123456789012345678",
+  username: "PreviewUser",
+  display_name: "PreviewUser",
+  server_name: "My Awesome Server",
+  member_count: "42",
+  join_date: new Date().toLocaleString(),
+  date: new Date().toLocaleDateString(),
+  time: new Date().toLocaleTimeString(),
+  channel: "#general",
+  trigger: "Member Join",
+};
+
 // ── Validation ───────────────────────────────────────────────────────────
 
 function validateTimezone(tz) {
@@ -159,6 +205,7 @@ async function createPost(guildId, data) {
       timezone: data.timezone || "UTC",
       nextRunAt: data.nextRunAt || null,
       cooldownSeconds: data.cooldownSeconds ?? 300,
+      memberJoinEnabled: data.memberJoinEnabled ?? true,
       createdById: data.createdById,
     },
   });
@@ -295,17 +342,35 @@ function replacePlaceholders(text, vars) {
 }
 
 function buildMessagePayload(post, triggerVars = {}) {
+  const displayName = triggerVars.displayName || "";
+  const username = triggerVars.username || "";
+  const serverName = triggerVars.serverName || "";
+  const memberCount = triggerVars.memberCount || "";
+  const userMention = triggerVars.userMention || "";
+  const userId = triggerVars.userId || "";
+  const joinDate = triggerVars.joinDate || "";
+
   const vars = {
-    serverName: triggerVars.serverName || "",
+    // camelCase (legacy)
+    serverName,
     date: triggerVars.date || new Date().toLocaleDateString(),
     time: triggerVars.time || new Date().toLocaleTimeString(),
-    memberCount: triggerVars.memberCount || "",
-    user: triggerVars.user || triggerVars.username || "",
-    userMention: triggerVars.userMention || "",
-    username: triggerVars.username || "",
-    displayName: triggerVars.displayName || "",
+    memberCount,
+    user: userMention || username,
+    userMention,
+    username,
+    displayName,
     channel: triggerVars.channel || "",
     trigger: triggerVars.trigger || "",
+
+    // snake_case (new placeholder standard)
+    server_name: serverName,
+    member_count: memberCount,
+    user_mention: userMention,
+    user_id: userId,
+    display_name: displayName,
+    join_date: joinDate,
+
     ...triggerVars,
   };
 
@@ -397,14 +462,21 @@ async function sendAutoPost(client, post, triggerVars = {}, testMode = false) {
   }
 
   // Safe allowed mentions - no @everyone/@here
-  const allowedMentions = {
-    parse: [],
-    users: [],
-    roles: [],
-  };
+  // In test mode, disable all mentions completely
+  const allowedMentions = testMode
+    ? { parse: [], users: [], roles: [] }
+    : {
+        parse: [],
+        users: [],
+        roles: [],
+      };
 
-  // If triggerVars has a specific user to mention
-  if (triggerVars.userMention && /^<@\d+>$/.test(triggerVars.userMention)) {
+  // If triggerVars has a specific user to mention (only in non-test mode)
+  if (
+    !testMode &&
+    triggerVars.userMention &&
+    /^<@\d+>$/.test(triggerVars.userMention)
+  ) {
     const userId = triggerVars.userMention.replace(/[<@!>]/g, "");
     if (userId) allowedMentions.users = [userId];
   }
@@ -496,6 +568,9 @@ module.exports = {
   MAX_FOOTER,
   MIN_COOLDOWN,
   MAX_COOLDOWN,
+  PLACEHOLDER_HELP,
+  MEMBER_JOIN_PLACEHOLDERS,
+  PLACEHOLDER_PREVIEW_VALUES,
   validateTimezone,
   validateName,
   validateContent,

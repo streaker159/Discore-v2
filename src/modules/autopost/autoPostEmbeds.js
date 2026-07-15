@@ -193,11 +193,18 @@ function buildPostDetailEmbed(post, guild) {
   }
 
   if (post.triggerType === "MEMBER_JOIN") {
-    embed.addFields({
-      name: "Trigger",
-      value: "When a member joins the server",
-      inline: false,
-    });
+    embed.addFields(
+      {
+        name: "Trigger",
+        value: "When a member joins the server",
+        inline: false,
+      },
+      {
+        name: "Send on Join",
+        value: post.memberJoinEnabled === false ? "❌ Disabled" : "✅ Enabled",
+        inline: true,
+      },
+    );
   }
 
   if (post.triggerType === "MENTION" || post.triggerType === "KEYWORD") {
@@ -327,10 +334,63 @@ function buildPostListEmbed(posts, guild) {
       post.status === "ACTIVE" ? "🟢" : post.status === "PAUSED" ? "🟡" : "🔴";
     const trigger = TRIGGER_EMOJIS[post.triggerType] || "📌";
     const chan = post.channelId ? `<#${post.channelId}>` : "No channel";
-    description += `${status} ${trigger} **${post.name}** — ${chan}\n`;
+    let line = `${status} ${trigger} **${post.name}** — ${chan}`;
+    if (post.triggerType === "MEMBER_JOIN") {
+      line +=
+        post.memberJoinEnabled === false
+          ? " | Join: ❌ Disabled"
+          : " | Join: ✅";
+    }
+    description += line + "\n";
   }
 
   embed.setDescription(description);
+  return embed;
+}
+
+// ── Placeholder help embed ──────────────────────────────────────────────
+
+function buildPlaceholderHelpEmbed() {
+  const placeholders = [
+    { placeholder: "user_mention", desc: "Pings the new member (e.g. @User)" },
+    { placeholder: "user", desc: "Alias for {user_mention}" },
+    { placeholder: "user_id", desc: "Joining user's Discord ID" },
+    { placeholder: "username", desc: "Discord username" },
+    {
+      placeholder: "display_name",
+      desc: "Display name / nickname in this server",
+    },
+    { placeholder: "server_name", desc: "Server name" },
+    { placeholder: "member_count", desc: "Current member count" },
+    { placeholder: "join_date", desc: "Formatted join date/time" },
+    { placeholder: "date", desc: "Current date" },
+    { placeholder: "time", desc: "Current time" },
+    { placeholder: "channel", desc: "Target channel mention" },
+    { placeholder: "trigger", desc: "Trigger type label" },
+  ];
+
+  const embed = new EmbedBuilder()
+    .setTitle("📝 Auto Post Placeholders")
+    .setDescription(
+      "Use these placeholders in your auto post content, embed title, embed description, and footer.\n" +
+        "They will be automatically replaced when the post is sent.\n\n" +
+        "**Channel mention format:** `<#channel_id>`\n" +
+        "**Role mention format:** `<@&role_id>`\n" +
+        "**User mention (member join):** `{user_mention}`",
+    )
+    .setColor("#5865F2");
+
+  for (const ph of placeholders) {
+    embed.addFields({
+      name: `{${ph.placeholder}}`,
+      value: ph.desc,
+      inline: true,
+    });
+  }
+
+  embed.setFooter({
+    text: "Discore Auto Posts • Placeholder Reference",
+  });
   return embed;
 }
 
@@ -397,4 +457,5 @@ module.exports = {
   buildPreviewEmbed,
   buildPostListEmbed,
   buildDashboardButtons,
+  buildPlaceholderHelpEmbed,
 };
