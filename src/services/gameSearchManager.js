@@ -85,7 +85,7 @@ class GameSearchManager {
    * Start a new search for a user.
    * @param {object} interaction — the ChatInputCommandInteraction
    */
-  async startSearch(interaction) {
+  async startSearch(interaction, mentionRoleId = null) {
     const userId = interaction.user.id;
 
     if (this.hasActiveSearch(userId)) {
@@ -121,6 +121,7 @@ class GameSearchManager {
       gamesCache: null,
       channelId: null,
       messageId: null,
+      mentionRoleId,
     };
 
     // ── Timeout guard ──────────────────────────────────────────────
@@ -248,11 +249,19 @@ class GameSearchManager {
         )[0];
 
         const gameId = String(foundGame.properties.gameID);
+
+        // Edit the original message to show "game found" embed (no code-block content)
         await this._updateMessage(
           userId,
           buildGameFoundEmbed(foundGame.properties),
-          `**Game ID:** \`${gameId}\`\n> *Tap and hold the number above to copy it on mobile, or triple-click the text below:*\n\`\`\`\n${gameId}\n\`\`\``,
         );
+
+        // Send a new message with just the plain game number for easy copying
+        await this._sendNewMessage(
+          state,
+          state.mentionRoleId ? `<@&${state.mentionRoleId}> ${gameId}` : gameId,
+        );
+
         this._cleanup(userId);
         logger.info("Game finder: match found", {
           userId,
@@ -335,6 +344,26 @@ class GameSearchManager {
       logger.error("Game finder: failed to edit message", {
         error: err.message,
         userId,
+      });
+    }
+  }
+
+  // ── Private: send a new message to the channel ───────────────────────────
+  async _sendNewMessage(state, content) {
+    if (!state.channelId || !state.interaction) return;
+
+    try {
+      const client = state.interaction.client;
+      const channel = await client.channels
+        .fetch(state.channelId)
+        .catch(() => null);
+      if (channel?.isTextBased()) {
+        await channel.send({ content, allowedMentions: { parse: ["roles"] } });
+      }
+    } catch (err) {
+      logger.error("Game finder: failed to send new message", {
+        error: err.message,
+        userId: state.userId,
       });
     }
   }

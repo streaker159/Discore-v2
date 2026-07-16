@@ -20,6 +20,12 @@ module.exports = {
     .setName("findgame")
     .setDescription(
       "Scan for a newly created WORLD WAR 3 (4X SPEED) Conflict of Nations match.",
+    )
+    .addRoleOption((opt) =>
+      opt
+        .setName("ping")
+        .setDescription("Role to mention when a game is found.")
+        .setRequired(false),
     ),
 
   async execute(interaction) {
@@ -38,11 +44,17 @@ module.exports = {
       });
     }
 
+    // ── Extract optional ping role ────────────────────────────────
+    const pingRole = interaction.options.getRole("ping");
+
     // ── Defer immediately ─────────────────────────────────────────
     await interaction.deferReply();
 
     // ── Start the search ──────────────────────────────────────────
-    const result = await gameSearchManager.startSearch(interaction);
+    const result = await gameSearchManager.startSearch(
+      interaction,
+      pingRole?.id,
+    );
 
     if (!result.ok) {
       if (result.reason === "baselineFailed") {
