@@ -1,13 +1,15 @@
 "use strict";
 
 const { SlashCommandBuilder, MessageFlags } = require("discord.js");
-const prisma = require("../../../lib/prisma");
 const { isSniperAdmin } = require("../../../modules/sniper/sniperPermissions");
 const {
   buildDashboardEmbed,
   buildPublicEmbed,
 } = require("../../../modules/sniper/sniperEmbeds");
-const { getConfig } = require("../../../modules/sniper/sniperService");
+const {
+  getConfig,
+  ensureConfig,
+} = require("../../../modules/sniper/sniperService");
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 module.exports = {
@@ -15,7 +17,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("sniper")
     .setDescription("Open the Sniper Challenge Control Centre.")
-    .setContexts([0]), // guild only
+    .setContexts([0]),
 
   async execute(interaction) {
     if (!interaction.guild) {
@@ -27,18 +29,12 @@ module.exports = {
 
     const guildId = interaction.guildId;
 
-    // Ensure config exists
-    let config = await getConfig(guildId);
-    if (!config) {
-      config = await prisma.sniperChallengeConfig.create({
-        data: { guildId },
-      });
-    }
+    // Ensure config exists (uses safe db layer)
+    const config = await ensureConfig(guildId);
 
     const admin = isSniperAdmin(interaction);
 
     if (admin) {
-      // Admin dashboard
       const embed = buildDashboardEmbed(config, interaction.guild);
       const components = buildAdminDashboardButtons(config);
 
@@ -48,7 +44,6 @@ module.exports = {
         flags: [MessageFlags.Ephemeral],
       });
     } else {
-      // Public read-only view
       const embed = buildPublicEmbed(config);
 
       return interaction.reply({
@@ -59,15 +54,12 @@ module.exports = {
   },
 };
 
-// ─── Admin dashboard buttons ────────────────────────────────────────────────────
-
 function buildAdminDashboardButtons(config) {
   const rows = [];
 
   const enabled = config?.enabled ?? false;
   const paused = config?.paused ?? false;
 
-  // Row 1: Main actions
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("sniper:dash:setup")
@@ -88,7 +80,6 @@ function buildAdminDashboardButtons(config) {
   );
   rows.push(row1);
 
-  // Row 2: Info / settings
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("sniper:dash:leaderboard")
@@ -108,7 +99,6 @@ function buildAdminDashboardButtons(config) {
   );
   rows.push(row2);
 
-  // Row 3: Close
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("sniper:dash:close")
@@ -121,5 +111,4 @@ function buildAdminDashboardButtons(config) {
   return rows;
 }
 
-// Also export for the dashboard buttons component to use
 module.exports.buildAdminDashboardButtons = buildAdminDashboardButtons;

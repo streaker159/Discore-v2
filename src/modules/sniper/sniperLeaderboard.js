@@ -1,17 +1,11 @@
 "use strict";
 
-const prisma = require("../../lib/prisma");
+const db = require("./sniperDb");
 const logger = require("../../lib/logger");
 const { buildLeaderboardEmbed } = require("./sniperEmbeds");
-const { getConfig, getTopPlayers } = require("./sniperService");
 
-/**
- * Update (or create) the leaderboard message for a guild.
- * Edits the stored leaderboardMessageId if it exists and is valid,
- * otherwise posts a new one.
- */
 async function updateLeaderboard(guildId, client) {
-  const config = await getConfig(guildId);
+  const config = await db.findConfig(guildId);
   if (!config || !config.leaderboardChannelId) return null;
 
   const guild = client.guilds.cache.get(guildId);
@@ -26,10 +20,9 @@ async function updateLeaderboard(guildId, client) {
     return null;
   }
 
-  const topPlayers = await getTopPlayers(guildId, 10);
+  const topPlayers = await db.findTopPlayers(guildId, 10);
   const embed = buildLeaderboardEmbed(config, topPlayers, guild);
 
-  // Try to edit existing leaderboard message
   if (config.leaderboardMessageId) {
     try {
       const msg = await channel.messages
@@ -39,18 +32,12 @@ async function updateLeaderboard(guildId, client) {
         await msg.edit({ embeds: [embed] }).catch(() => {});
         return config.leaderboardMessageId;
       }
-    } catch {
-      // Message deleted, post new
-    }
+    } catch {}
   }
 
-  // Post new leaderboard
   try {
     const msg = await channel.send({ embeds: [embed] });
-    await prisma.sniperChallengeConfig.update({
-      where: { guildId },
-      data: { leaderboardMessageId: msg.id },
-    });
+    await db.updateConfig(guildId, { leaderboardMessageId: msg.id });
     return msg.id;
   } catch (err) {
     logger.error("[SniperChallenge] Failed to post leaderboard", {
@@ -61,24 +48,14 @@ async function updateLeaderboard(guildId, client) {
   }
 }
 
-/**
- * Post a fresh leaderboard (admin-triggered repair).
- */
 async function postLeaderboard(guildId, client) {
-  // Clear stored message ID to force a fresh post
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: { leaderboardMessageId: null },
-  });
+  await db.updateConfig(guildId, { leaderboardMessageId: null });
   return updateLeaderboard(guildId, client);
 }
 
-/**
- * Get a formatted leaderboard text for ephemeral display.
- */
 async function getLeaderboardText(guildId) {
-  const config = await getConfig(guildId);
-  const topPlayers = await getTopPlayers(guildId, 10);
+  const config = await db.findConfig(guildId);
+  const topPlayers = await db.findTopPlayers(guildId, 10);
 
   if (!topPlayers?.length) {
     return "No winners yet. Be the first!";
@@ -92,8 +69,4 @@ async function getLeaderboardText(guildId) {
     .join("\n");
 }
 
-module.exports = {
-  updateLeaderboard,
-  postLeaderboard,
-  getLeaderboardText,
-};
+module.exports = { updateLeaderboard, postLeaderboard, getLeaderboardText };

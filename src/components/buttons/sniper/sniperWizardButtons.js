@@ -9,7 +9,7 @@ const {
   WIZARD_STEPS,
 } = require("../../../modules/sniper/sniperEmbeds");
 const { buildWizardNav } = require("./sniperDashboardButtons");
-const prisma = require("../../../lib/prisma");
+const db = require("../../../modules/sniper/sniperDb");
 
 module.exports = {
   customIdPrefix: "sniper:wiz:",
@@ -45,40 +45,32 @@ module.exports = {
     // ── Next step ────────────────────────────────────────────────────────
     if (customId.startsWith("sniper:wiz:next:")) {
       const targetStep = parseInt(customId.split(":")[3]);
-
       if (!state || state.step + 1 !== targetStep) {
         return interaction.reply({
           content: "Wizard session expired or out of sync. Please start again.",
           flags: 64,
         });
       }
-
       state.step = targetStep;
       wizardState.set(userId, guildId, state);
-
       const embed = buildWizardStepEmbed(targetStep, state);
       const components = buildWizardNav(targetStep);
-
       return interaction.update({ embeds: [embed], components });
     }
 
     // ── Back step ────────────────────────────────────────────────────────
     if (customId.startsWith("sniper:wiz:back:")) {
       const targetStep = parseInt(customId.split(":")[3]);
-
       if (!state || state.step - 1 !== targetStep) {
         return interaction.reply({
           content: "Wizard session expired. Please start again.",
           flags: 64,
         });
       }
-
       state.step = targetStep;
       wizardState.set(userId, guildId, state);
-
       const embed = buildWizardStepEmbed(targetStep, state);
       const components = buildWizardNav(targetStep);
-
       return interaction.update({ embeds: [embed], components });
     }
 
@@ -91,11 +83,9 @@ module.exports = {
         ActionRowBuilder: ModalActionRow,
       } = require("discord.js");
       const { formatMs } = require("../../../modules/sniper/sniperEmbeds");
-
       const modal = new ModalBuilder()
         .setCustomId("sniper:wiz_timing_modal")
         .setTitle("⏱️ Sniper Challenge Timing");
-
       const minDelay = new TextInputBuilder()
         .setCustomId("min_delay")
         .setLabel("Minimum Random Delay")
@@ -103,7 +93,6 @@ module.exports = {
         .setStyle(TextInputStyle.Short)
         .setValue(formatMs(state?.minDelayMs ?? 3600000))
         .setRequired(true);
-
       const maxDelay = new TextInputBuilder()
         .setCustomId("max_delay")
         .setLabel("Maximum Random Delay")
@@ -111,7 +100,6 @@ module.exports = {
         .setStyle(TextInputStyle.Short)
         .setValue(formatMs(state?.maxDelayMs ?? 10800000))
         .setRequired(true);
-
       const activeDuration = new TextInputBuilder()
         .setCustomId("active_duration")
         .setLabel("Active Challenge Duration")
@@ -119,13 +107,11 @@ module.exports = {
         .setStyle(TextInputStyle.Short)
         .setValue(formatMs(state?.activeDurationMs ?? 180000))
         .setRequired(true);
-
       modal.addComponents(
         new ModalActionRow().addComponents(minDelay),
         new ModalActionRow().addComponents(maxDelay),
         new ModalActionRow().addComponents(activeDuration),
       );
-
       return interaction.showModal(modal);
     }
 
@@ -138,7 +124,6 @@ module.exports = {
         });
       }
 
-      // Validate
       const {
         validateSetup,
       } = require("../../../modules/sniper/sniperService");
@@ -163,35 +148,18 @@ module.exports = {
         });
       }
 
-      // Save to DB
-      await prisma.sniperChallengeConfig.upsert({
-        where: { guildId },
-        create: {
-          guildId,
-          enabled: true,
-          paused: false,
-          challengeChannelIds: state.challengeChannelIds || [],
-          rewardRoleId: state.rewardRoleId,
-          leaderboardChannelId: state.leaderboardChannelId,
-          notificationChannelId: state.notificationChannelId || null,
-          minDelayMs: state.minDelayMs ?? 3600000,
-          maxDelayMs: state.maxDelayMs ?? 10800000,
-          activeDurationMs: state.activeDurationMs ?? 180000,
-        },
-        update: {
-          enabled: true,
-          paused: false,
-          challengeChannelIds: state.challengeChannelIds || [],
-          rewardRoleId: state.rewardRoleId,
-          leaderboardChannelId: state.leaderboardChannelId,
-          notificationChannelId: state.notificationChannelId || null,
-          minDelayMs: state.minDelayMs ?? 3600000,
-          maxDelayMs: state.maxDelayMs ?? 10800000,
-          activeDurationMs: state.activeDurationMs ?? 180000,
-        },
+      await db.upsertConfig(guildId, {
+        enabled: true,
+        paused: false,
+        challengeChannelIds: state.challengeChannelIds || [],
+        rewardRoleId: state.rewardRoleId,
+        leaderboardChannelId: state.leaderboardChannelId,
+        notificationChannelId: state.notificationChannelId || null,
+        minDelayMs: state.minDelayMs ?? 3600000,
+        maxDelayMs: state.maxDelayMs ?? 10800000,
+        activeDurationMs: state.activeDurationMs ?? 180000,
       });
 
-      // Schedule first run
       const {
         randomDelay,
       } = require("../../../modules/sniper/sniperScheduler");
@@ -199,12 +167,10 @@ module.exports = {
         state.minDelayMs ?? 3600000,
         state.maxDelayMs ?? 10800000,
       );
-      await prisma.sniperChallengeConfig.update({
-        where: { guildId },
-        data: { nextRunAt: new Date(Date.now() + nextDelay) },
+      await db.updateConfig(guildId, {
+        nextRunAt: new Date(Date.now() + nextDelay),
       });
 
-      // Post leaderboard
       try {
         const {
           postLeaderboard,
@@ -241,29 +207,15 @@ module.exports = {
         });
       }
 
-      await prisma.sniperChallengeConfig.upsert({
-        where: { guildId },
-        create: {
-          guildId,
-          enabled: false,
-          challengeChannelIds: state.challengeChannelIds || [],
-          rewardRoleId: state.rewardRoleId,
-          leaderboardChannelId: state.leaderboardChannelId,
-          notificationChannelId: state.notificationChannelId || null,
-          minDelayMs: state.minDelayMs ?? 3600000,
-          maxDelayMs: state.maxDelayMs ?? 10800000,
-          activeDurationMs: state.activeDurationMs ?? 180000,
-        },
-        update: {
-          enabled: false,
-          challengeChannelIds: state.challengeChannelIds || [],
-          rewardRoleId: state.rewardRoleId,
-          leaderboardChannelId: state.leaderboardChannelId,
-          notificationChannelId: state.notificationChannelId || null,
-          minDelayMs: state.minDelayMs ?? 3600000,
-          maxDelayMs: state.maxDelayMs ?? 10800000,
-          activeDurationMs: state.activeDurationMs ?? 180000,
-        },
+      await db.upsertConfig(guildId, {
+        enabled: false,
+        challengeChannelIds: state.challengeChannelIds || [],
+        rewardRoleId: state.rewardRoleId,
+        leaderboardChannelId: state.leaderboardChannelId,
+        notificationChannelId: state.notificationChannelId || null,
+        minDelayMs: state.minDelayMs ?? 3600000,
+        maxDelayMs: state.maxDelayMs ?? 10800000,
+        activeDurationMs: state.activeDurationMs ?? 180000,
       });
 
       wizardState.del(userId, guildId);
@@ -286,10 +238,6 @@ module.exports = {
       });
     }
 
-    // ── Fallback ─────────────────────────────────────────────────────────
-    return interaction.reply({
-      content: "Unknown wizard action.",
-      flags: 64,
-    });
+    return interaction.reply({ content: "Unknown wizard action.", flags: 64 });
   },
 };

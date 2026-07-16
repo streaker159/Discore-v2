@@ -1,6 +1,6 @@
 "use strict";
 
-const prisma = require("../../lib/prisma");
+const db = require("./sniperDb");
 const logger = require("../../lib/logger");
 const {
   buildChallengeEmbed,
@@ -15,25 +15,21 @@ const { randomDelay } = require("./sniperScheduler");
 
 const DEBUG = process.env.DEBUG_SNIPER_CHALLENGE === "true";
 
-// ─── Config helpers ──────────────────────────────────────────────────────────────
+// ─── Config helpers ──────────────────────────────────────────────────────────
 
 async function getConfig(guildId) {
-  return prisma.sniperChallengeConfig.findUnique({ where: { guildId } });
+  return db.findConfig(guildId);
 }
 
 async function ensureConfig(guildId) {
-  let config = await prisma.sniperChallengeConfig.findUnique({
-    where: { guildId },
-  });
+  let config = await db.findConfig(guildId);
   if (!config) {
-    config = await prisma.sniperChallengeConfig.create({
-      data: { guildId },
-    });
+    config = await db.upsertConfig(guildId, {});
   }
   return config;
 }
 
-// ─── Validation ──────────────────────────────────────────────────────────────────
+// ─── Validation ──────────────────────────────────────────────────────────────
 
 function validateSetup(config) {
   const issues = [];
@@ -66,29 +62,24 @@ function validateSetup(config) {
   return issues;
 }
 
-// ─── Spawn challenge ─────────────────────────────────────────────────────────────
+// ─── Spawn challenge ─────────────────────────────────────────────────────────
 
 async function spawnChallenge(guildId, client, forceChannelId = null) {
   const config = await getConfig(guildId);
   if (!config || !config.enabled) return null;
 
-  // Check if another challenge is already active
-  const existingActive = await prisma.sniperChallengeRun.findFirst({
-    where: { guildId, status: "ACTIVE" },
-  });
+  const existingActive = await db.findActiveRun(guildId);
   if (existingActive) {
     if (DEBUG) logger.info("[SniperChallenge] Already active, skipping spawn");
     return null;
   }
 
-  // Pick a random channel
   const channelIds = config.challengeChannelIds || [];
   if (!channelIds.length) return null;
 
   const channelId =
     forceChannelId || channelIds[Math.floor(Math.random() * channelIds.length)];
 
-  // Fetch channel
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return null;
 
@@ -101,7 +92,6 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
     return null;
   }
 
-  // Check bot permissions
   const perms = channel.permissionsFor(guild.members.me);
   if (
     !perms?.has("ViewChannel") ||
@@ -118,7 +108,6 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
 
   const expiresAt = new Date(Date.now() + config.activeDurationMs);
 
-  // Build the challenge message
   const embed = buildChallengeEmbed();
   const attachments = getChallengeAttachments();
 
@@ -152,26 +141,21 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
     return null;
   }
 
-  // Create run record
-  const run = await prisma.sniperChallengeRun.create({
-    data: {
-      guildId,
-      channelId,
-      messageId: message.id,
-      status: "ACTIVE",
-      spawnedAt: new Date(),
-      expiresAt,
-    },
+  const run = await db.createRun({
+    guildId,
+    channelId,
+    messageId: message.id,
+    status: "ACTIVE",
+    spawnedAt: new Date(),
+    expiresAt,
   });
 
-  // Schedule next run
+  if (!run) return null;
+
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
   const nextRunAt = new Date(Date.now() + nextDelay);
 
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: { nextRunAt },
-  });
+  await db.updateConfig(guildId, { nextRunAt });
 
   if (DEBUG) {
     logger.info("[SniperChallenge] Challenge spawned", {
@@ -186,22 +170,17 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
   return run;
 }
 
-// ─── Handle shoot click (race-condition safe) ────────────────────────────────────
+// ─── Handle shoot click (race-condition safe) ────────────────────────────────
 
 async function handleShoot(interaction, challengeId) {
   const userId = interaction.user.id;
   const guildId = interaction.guildId;
 
-  // Reject bots
   if (interaction.user.bot) {
     return { success: false, reason: "bot" };
   }
 
-  // Fetch the run
-  const run = await prisma.sniperChallengeRun.findUnique({
-    where: { id: challengeId },
-  });
-
+  const run = await db.findRun(challengeId);
   if (!run) {
     return { success: false, reason: "unknown_challenge" };
   }
@@ -211,43 +190,25 @@ async function handleShoot(interaction, challengeId) {
   }
 
   if (new Date() > run.expiresAt) {
-    // Mark expired
-    await prisma.sniperChallengeRun
-      .update({
-        where: { id: challengeId },
-        data: { status: "EXPIRED" },
-      })
-      .catch(() => {});
+    await db.updateRun(challengeId, { status: "EXPIRED" });
     return { success: false, reason: "expired" };
   }
 
-  // Atomic race-condition-safe update
   const spawnedAt = run.spawnedAt;
   const wonAt = new Date();
   const reactionTimeMs = spawnedAt
     ? wonAt.getTime() - spawnedAt.getTime()
     : null;
 
-  const result = await prisma.sniperChallengeRun.updateMany({
-    where: {
-      id: challengeId,
-      status: "ACTIVE",
-      winnerId: null,
-    },
-    data: {
-      winnerId: userId,
-      status: "WON",
-      wonAt,
-      reactionTimeMs,
-    },
-  });
+  const result = await db.updateRunMany(
+    { id: challengeId, status: "ACTIVE", winnerId: null },
+    { winnerId: userId, status: "WON", wonAt, reactionTimeMs },
+  );
 
   if (result.count === 0) {
-    // Already won by someone else
     return { success: false, reason: "too_slow" };
   }
 
-  // Process the win
   try {
     await processWin(
       guildId,
@@ -267,7 +228,7 @@ async function handleShoot(interaction, challengeId) {
   return { success: true, winnerId: userId, reactionTimeMs };
 }
 
-// ─── Process win ─────────────────────────────────────────────────────────────────
+// ─── Process win ─────────────────────────────────────────────────────────────
 
 async function processWin(
   guildId,
@@ -279,37 +240,26 @@ async function processWin(
   const config = await getConfig(guildId);
   if (!config) return;
 
-  // 1. Update / create player stats
-  const stats = await prisma.sniperPlayerStats.upsert({
-    where: { guildId_userId: { guildId, userId } },
-    create: {
-      guildId,
-      userId,
-      totalWins: 1,
-      currentStreak: 1,
-      bestStreak: 1,
-      lastWinAt: new Date(),
-    },
-    update: {},
+  // 1. Update player stats
+  const stats = await db.upsertStats(guildId, userId, {
+    totalWins: 0,
+    currentStreak: 1,
+    bestStreak: 1,
   });
-
-  // Determine if same champion (streak)
   const isStreak = config.currentChampionId === userId;
-  const newStreak = isStreak ? stats.currentStreak + 1 : 1;
-  const newBestStreak = Math.max(stats.bestStreak, newStreak);
+  const newStreak = stats && isStreak ? stats.currentStreak + 1 : 1;
+  const newBestStreak = stats
+    ? Math.max(stats.bestStreak, newStreak)
+    : newStreak;
 
-  await prisma.sniperPlayerStats.update({
-    where: { guildId_userId: { guildId, userId } },
-    data: {
-      totalWins: { increment: 1 },
-      currentStreak: newStreak,
-      bestStreak: newBestStreak,
-      lastWinAt: new Date(),
-    },
+  await db.updateStats(guildId, userId, {
+    totalWins: { increment: 1 },
+    currentStreak: newStreak,
+    bestStreak: newBestStreak,
+    lastWinAt: new Date(),
   });
 
-  // 2. Handle champion role
-  // Remove role from previous champion
+  // 2. Champion role
   if (
     config.currentChampionId &&
     config.currentChampionId !== userId &&
@@ -323,13 +273,6 @@ async function processWin(
           .catch(() => null);
         if (prevMember) {
           await prevMember.roles.remove(config.rewardRoleId).catch(() => {});
-          if (DEBUG)
-            logger.info(
-              "[SniperChallenge] Removed role from previous champion",
-              {
-                prevChampion: config.currentChampionId,
-              },
-            );
         }
       }
     } catch (err) {
@@ -343,7 +286,6 @@ async function processWin(
     }
   }
 
-  // Give role to new winner
   if (config.rewardRoleId) {
     try {
       const guild = client.guilds.cache.get(guildId);
@@ -351,12 +293,6 @@ async function processWin(
         const member = await guild.members.fetch(userId).catch(() => null);
         if (member) {
           await member.roles.add(config.rewardRoleId).catch(() => {});
-          if (DEBUG)
-            logger.info("[SniperChallenge] Gave role to new champion", {
-              userId,
-            });
-        } else {
-          logger.warn("[SniperChallenge] Winner not in guild", { userId });
         }
       }
     } catch (err) {
@@ -368,20 +304,15 @@ async function processWin(
   }
 
   // 3. Update config
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: {
-      currentChampionId: userId,
-      currentChampionSince: new Date(),
-      lastWinnerId: userId,
-      totalChallengesCompleted: { increment: 1 },
-    },
+  await db.updateConfig(guildId, {
+    currentChampionId: userId,
+    currentChampionSince: new Date(),
+    lastWinnerId: userId,
+    totalChallengesCompleted: { increment: 1 },
   });
 
   // 4. Edit challenge message
-  const run = await prisma.sniperChallengeRun.findUnique({
-    where: { id: challengeId },
-  });
+  const run = await db.findRun(challengeId);
   if (run?.messageId && run?.channelId) {
     try {
       const channel = client.channels.cache.get(run.channelId);
@@ -420,10 +351,8 @@ async function processWin(
     }
   }
 
-  // 5. Send winner announcement
-  const freshStats = await prisma.sniperPlayerStats.findUnique({
-    where: { guildId_userId: { guildId, userId } },
-  });
+  // 5. Winner announcement
+  const freshStats = await db.findStats(guildId, userId);
   const notifChannelId = config.notificationChannelId || run?.channelId;
   if (notifChannelId) {
     try {
@@ -434,12 +363,11 @@ async function processWin(
           freshStats?.totalWins ?? 1,
           freshStats?.currentStreak ?? 1,
         );
-        const annAttachments = getWinnerAnnouncementAttachments();
         await notifChannel
           .send({
             content: `🏆 <@${userId}> just stole the top spot!`,
             embeds: [announcementEmbed],
-            files: annAttachments,
+            files: getWinnerAnnouncementAttachments(),
           })
           .catch(() => {});
       }
@@ -450,7 +378,7 @@ async function processWin(
     }
   }
 
-  // 6. Update leaderboard
+  // 6. Leaderboard
   try {
     await updateLeaderboard(guildId, client);
   } catch (err) {
@@ -468,7 +396,7 @@ async function processWin(
   }
 }
 
-// ─── Handle expiry ───────────────────────────────────────────────────────────────
+// ─── Handle expiry ───────────────────────────────────────────────────────────
 
 async function handleExpiry(run, client) {
   if (!run.messageId || !run.channelId) return;
@@ -476,7 +404,6 @@ async function handleExpiry(run, client) {
   try {
     const channel = client.channels.cache.get(run.channelId);
     if (!channel) return;
-
     const message = await channel.messages
       .fetch(run.messageId)
       .catch(() => null);
@@ -495,7 +422,6 @@ async function handleExpiry(run, client) {
       .setEmoji("🔫")
       .setDisabled(true);
     const row = new ActionRowBuilder().addComponents(disabledButton);
-
     await message
       .edit({ embeds: [expiredEmbed], components: [row] })
       .catch(() => {});
@@ -505,45 +431,29 @@ async function handleExpiry(run, client) {
     });
   }
 
-  // Mark run as expired
-  await prisma.sniperChallengeRun
-    .update({
-      where: { id: run.id },
-      data: { status: "EXPIRED" },
-    })
-    .catch(() => {});
+  await db.updateRun(run.id, { status: "EXPIRED" });
 }
 
-// ─── Pause / Resume ──────────────────────────────────────────────────────────────
+// ─── Pause / Resume ──────────────────────────────────────────────────────────
 
 async function pauseChallenges(guildId) {
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: { paused: true, nextRunAt: null },
-  });
+  await db.updateConfig(guildId, { paused: true, nextRunAt: null });
 }
 
 async function resumeChallenges(guildId, client) {
   const config = await getConfig(guildId);
   if (!config || !config.enabled) return;
 
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: { paused: false },
-  });
+  await db.updateConfig(guildId, { paused: false });
 
-  // Schedule next run
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
   const nextRunAt = new Date(Date.now() + nextDelay);
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: { nextRunAt },
-  });
+  await db.updateConfig(guildId, { nextRunAt });
 
   if (DEBUG) logger.info("[SniperChallenge] Resumed", { guildId, nextRunAt });
 }
 
-// ─── Force challenge ─────────────────────────────────────────────────────────────
+// ─── Force challenge ─────────────────────────────────────────────────────────
 
 async function forceChallenge(guildId, client) {
   const config = await getConfig(guildId);
@@ -554,16 +464,9 @@ async function forceChallenge(guildId, client) {
     return { success: false, reason: "invalid_setup", issues };
   }
 
-  // Check existing active
-  const active = await prisma.sniperChallengeRun.findFirst({
-    where: { guildId, status: "ACTIVE" },
-  });
+  const active = await db.findActiveRun(guildId);
   if (active) {
-    // Cancel it first
-    await prisma.sniperChallengeRun.update({
-      where: { id: active.id },
-      data: { status: "CANCELLED" },
-    });
+    await db.updateRun(active.id, { status: "CANCELLED" });
   }
 
   const run = await spawnChallenge(guildId, client);
@@ -574,44 +477,34 @@ async function forceChallenge(guildId, client) {
   return { success: true, runId: run.id };
 }
 
-// ─── Cancel active ───────────────────────────────────────────────────────────────
+// ─── Cancel active ───────────────────────────────────────────────────────────
 
 async function cancelActive(guildId) {
-  const active = await prisma.sniperChallengeRun.findFirst({
-    where: { guildId, status: "ACTIVE" },
-  });
+  const active = await db.findActiveRun(guildId);
   if (!active) return false;
-
-  await prisma.sniperChallengeRun.update({
-    where: { id: active.id },
-    data: { status: "CANCELLED" },
-  });
+  await db.updateRun(active.id, { status: "CANCELLED" });
   return true;
 }
 
-// ─── Reset stats ─────────────────────────────────────────────────────────────────
+// ─── Reset stats ─────────────────────────────────────────────────────────────
 
 async function resetStats(guildId) {
-  await prisma.sniperPlayerStats.deleteMany({ where: { guildId } });
-  await prisma.sniperChallengeRun.deleteMany({ where: { guildId } });
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: {
-      currentChampionId: null,
-      currentChampionSince: null,
-      lastWinnerId: null,
-      totalChallengesCompleted: 0,
-    },
+  await db.deleteStats({ guildId });
+  await db.deleteRuns({ guildId });
+  await db.updateConfig(guildId, {
+    currentChampionId: null,
+    currentChampionSince: null,
+    lastWinnerId: null,
+    totalChallengesCompleted: 0,
   });
 }
 
-// ─── Clear champion ──────────────────────────────────────────────────────────────
+// ─── Clear champion ──────────────────────────────────────────────────────────
 
 async function clearChampion(guildId, client) {
   const config = await getConfig(guildId);
   if (!config?.currentChampionId) return;
 
-  // Remove role
   if (config.rewardRoleId) {
     try {
       const guild = client.guilds.cache.get(guildId);
@@ -626,66 +519,47 @@ async function clearChampion(guildId, client) {
     } catch {}
   }
 
-  await prisma.sniperChallengeConfig.update({
-    where: { guildId },
-    data: { currentChampionId: null, currentChampionSince: null },
+  await db.updateConfig(guildId, {
+    currentChampionId: null,
+    currentChampionSince: null,
   });
 }
 
-// ─── Delete config ───────────────────────────────────────────────────────────────
+// ─── Delete config ───────────────────────────────────────────────────────────
 
 async function deleteConfig(guildId) {
-  await prisma.sniperPlayerStats.deleteMany({ where: { guildId } });
-  await prisma.sniperChallengeRun.deleteMany({ where: { guildId } });
-  await prisma.sniperChallengeConfig
-    .delete({ where: { guildId } })
-    .catch(() => {});
+  await db.deleteStats({ guildId });
+  await db.deleteRuns({ guildId });
+  await db.deleteConfig(guildId);
 }
 
-// ─── Get player stats ────────────────────────────────────────────────────────────
+// ─── Get player stats ────────────────────────────────────────────────────────
 
 async function getPlayerStats(guildId, userId) {
-  return prisma.sniperPlayerStats.findUnique({
-    where: { guildId_userId: { guildId, userId } },
-  });
+  return db.findStats(guildId, userId);
 }
 
-// ─── Get top players ─────────────────────────────────────────────────────────────
+// ─── Get top players ─────────────────────────────────────────────────────────
 
 async function getTopPlayers(guildId, limit = 10) {
-  return prisma.sniperPlayerStats.findMany({
-    where: { guildId },
-    orderBy: { totalWins: "desc" },
-    take: limit,
-  });
+  return db.findTopPlayers(guildId, limit);
 }
 
-// ─── Mark expired runs ───────────────────────────────────────────────────────────
+// ─── Mark expired runs ───────────────────────────────────────────────────────
 
 async function markExpiredRuns() {
-  const now = new Date();
-  const expiredRuns = await prisma.sniperChallengeRun.findMany({
-    where: {
-      status: "ACTIVE",
-      expiresAt: { lte: now },
-    },
-  });
-
+  const expiredRuns = await db.findExpiredRuns();
   if (expiredRuns.length > 0) {
-    await prisma.sniperChallengeRun.updateMany({
-      where: {
-        id: { in: expiredRuns.map((r) => r.id) },
-      },
-      data: { status: "EXPIRED" },
-    });
-
+    await db.updateRunMany(
+      { id: { in: expiredRuns.map((r) => r.id) } },
+      { status: "EXPIRED" },
+    );
     if (DEBUG) {
       logger.info("[SniperChallenge] Marked expired runs", {
         count: expiredRuns.length,
       });
     }
   }
-
   return expiredRuns;
 }
 

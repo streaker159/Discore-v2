@@ -12,22 +12,15 @@ const {
 const {
   buildWizardNav,
 } = require("../../buttons/sniper/sniperDashboardButtons");
-const prisma = require("../../../lib/prisma");
+const db = require("../../../modules/sniper/sniperDb");
 
-/**
- * Parse a human-readable duration string into milliseconds.
- * Supports formats like: "3m", "30m", "1h", "2h", "6h"
- */
 function parseDuration(input) {
   const trimmed = String(input).trim().toLowerCase();
   if (!trimmed) return null;
-
   const match = trimmed.match(/^(\d+)\s*(h|m|s)$/);
   if (!match) return null;
-
   const value = parseInt(match[1], 10);
   const unit = match[2];
-
   switch (unit) {
     case "s":
       return value * 1000;
@@ -41,13 +34,11 @@ function parseDuration(input) {
 }
 
 module.exports = [
-  // ── Dashboard timing modal ──────────────────────────────────────────────
   {
     customId: "sniper:timing_modal",
 
     async execute(interaction) {
       if (!(await requireSniperAdmin(interaction))) return;
-
       const guildId = interaction.guildId;
 
       const minDelayRaw = interaction.fields.getTextInputValue("min_delay");
@@ -66,28 +57,24 @@ module.exports = [
           flags: 64,
         });
       }
-
       if (minDelayMs >= maxDelayMs) {
         return interaction.reply({
           content: "Min delay must be less than max delay.",
           flags: 64,
         });
       }
-
       if (minDelayMs < 60000) {
         return interaction.reply({
           content: "Min delay must be at least 1 minute.",
           flags: 64,
         });
       }
-
       if (activeDurationMs < 30000) {
         return interaction.reply({
           content: "Active duration must be at least 30 seconds.",
           flags: 64,
         });
       }
-
       if (activeDurationMs > 600000) {
         return interaction.reply({
           content: "Active duration must be at most 10 minutes.",
@@ -95,24 +82,24 @@ module.exports = [
         });
       }
 
-      await prisma.sniperChallengeConfig.update({
-        where: { guildId },
-        data: { minDelayMs, maxDelayMs, activeDurationMs },
+      await db.updateConfig(guildId, {
+        minDelayMs,
+        maxDelayMs,
+        activeDurationMs,
       });
 
       const { getConfig } = require("../../../modules/sniper/sniperService");
       const {
         buildSettingsEmbed,
       } = require("../../../modules/sniper/sniperEmbeds");
-
-      const config = await getConfig(guildId);
-      const embed = buildSettingsEmbed(config);
-
       const {
         ActionRowBuilder,
         ButtonBuilder,
         ButtonStyle,
       } = require("discord.js");
+
+      const config = await getConfig(guildId);
+      const embed = buildSettingsEmbed(config);
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId("sniper:dash:edit_timing")
@@ -129,13 +116,11 @@ module.exports = [
     },
   },
 
-  // ── Wizard timing modal ─────────────────────────────────────────────────
   {
     customId: "sniper:wiz_timing_modal",
 
     async execute(interaction) {
       if (!(await requireSniperAdmin(interaction))) return;
-
       const guildId = interaction.guildId;
       const userId = interaction.user.id;
       const state = wizardState.get(userId, guildId);
@@ -163,14 +148,12 @@ module.exports = [
           flags: 64,
         });
       }
-
       if (minDelayMs >= maxDelayMs) {
         return interaction.reply({
           content: "Min delay must be less than max delay.",
           flags: 64,
         });
       }
-
       if (minDelayMs < 60000) {
         return interaction.reply({
           content: "Min delay must be at least 1 minute.",

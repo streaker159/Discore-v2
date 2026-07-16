@@ -1,6 +1,7 @@
 "use strict";
 
 const logger = require("../lib/logger");
+const db = require("../modules/sniper/sniperDb");
 const {
   getDueConfigs,
   recoverOnStartup,
@@ -11,7 +12,7 @@ const {
   handleExpiry,
 } = require("../modules/sniper/sniperService");
 
-const CHECK_INTERVAL_MS = 30_000; // Check every 30 seconds
+const CHECK_INTERVAL_MS = 30_000;
 const DEBUG = process.env.DEBUG_SNIPER_CHALLENGE === "true";
 
 let isRunning = false;
@@ -21,15 +22,12 @@ async function processDueChallenges(client) {
   isRunning = true;
 
   try {
-    // First, mark any expired active runs
     const expiredRuns = await markExpiredRuns();
 
-    // Handle expiry (edit messages to show expired)
     for (const run of expiredRuns) {
       await handleExpiry(run, client).catch(() => {});
     }
 
-    // Get configs due for a new challenge
     const dueConfigs = await getDueConfigs();
 
     if (dueConfigs.length === 0) return;
@@ -43,14 +41,11 @@ async function processDueChallenges(client) {
     for (const config of dueConfigs) {
       try {
         const run = await spawnChallenge(config.guildId, client);
-
-        if (run) {
-          if (DEBUG) {
-            logger.info("[SniperChallenge] Challenge spawned by scheduler", {
-              guildId: config.guildId,
-              runId: run.id,
-            });
-          }
+        if (run && DEBUG) {
+          logger.info("[SniperChallenge] Challenge spawned by scheduler", {
+            guildId: config.guildId,
+            runId: run.id,
+          });
         }
       } catch (err) {
         logger.error(
@@ -68,39 +63,41 @@ async function processDueChallenges(client) {
   }
 }
 
-/**
- * Start the Sniper Challenge scheduler.
- * Called from jobLoader.
- */
 function startSniperScheduler(client) {
   logger.info(
     `[SniperChallenge] Starting scheduler — checking every ${CHECK_INTERVAL_MS / 1000}s`,
   );
 
-  // On startup, recover configs and clean up expired runs
-  recoverOnStartup(client).catch((e) =>
-    logger.error("[SniperChallenge] Startup recovery error", {
-      error: e.message,
-    }),
-  );
-
-  // First run immediately to catch any missed challenges
-  setTimeout(() => {
-    processDueChallenges(client).catch((e) =>
-      logger.error("[SniperChallenge] Initial run error", {
+  // Auto-create database tables on startup (no CLI needed)
+  db.ensureTables()
+    .then(() => {
+      // Recovery after tables are guaranteed to exist
+      return recoverOnStartup(client);
+    })
+    .catch((e) =>
+      logger.error("[SniperChallenge] Startup recovery error", {
         error: e.message,
       }),
-    );
-  }, 5000);
+    )
+    .finally(() => {
+      // First run
+      setTimeout(() => {
+        processDueChallenges(client).catch((e) =>
+          logger.error("[SniperChallenge] Initial run error", {
+            error: e.message,
+          }),
+        );
+      }, 5000);
 
-  // Then run on interval
-  setInterval(() => {
-    processDueChallenges(client).catch((e) =>
-      logger.error("[SniperChallenge] Interval error", {
-        error: e.message,
-      }),
-    );
-  }, CHECK_INTERVAL_MS);
+      // Interval
+      setInterval(() => {
+        processDueChallenges(client).catch((e) =>
+          logger.error("[SniperChallenge] Interval error", {
+            error: e.message,
+          }),
+        );
+      }, CHECK_INTERVAL_MS);
+    });
 }
 
 module.exports = { startSniperScheduler };
