@@ -66,6 +66,12 @@ const CATEGORIES = [
     label: "XP & Leveling",
     description: "XP system, levels & leaderboards",
   },
+  {
+    value: "autoposts",
+    emoji: "📣",
+    label: "Auto Posts & Welcome",
+    description: "Automated posts, welcome messages & placeholders",
+  },
 ];
 
 // ─── Embed builders ───────────────────────────────────────────────────────────
@@ -89,11 +95,13 @@ async function buildOverviewEmbed(interaction) {
       "> 🎮 **Events & Battles** — Schedule events, battle signups & AI strategy",
       "> 👤 **Players & Alliances** — Profiles & alliance management",
       "> ⭐ **Premium & Server Setup** — Plans, AI credits & configuration",
+      "> ✨ **XP & Leveling** — XP system, levels & leaderboards",
+      "> 📣 **Auto Posts & Welcome** — Automated posts, welcome messages & placeholders",
       "",
       "### 🔗 Core Commands",
       "`/scoreboard` · `/archive` · `/event` · `/ask` · `/unit`",
       "`/player` · `/suggestion` · `/mod` · `/automod` · `/role`",
-      "`/server` · `/premium` · `/safecrack` · `/ping` · `/help`",
+      "`/server` · `/premium` · `/safecrack` · `/ping` · `/help` · `/autopost`",
       "",
       "### 🎯 Supported Games",
       "Supremacy: WW3 • Conflict of Nations • Call of War • Supremacy 1914",
