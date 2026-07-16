@@ -6,7 +6,7 @@ const { getShootAttachment, getWinnerAttachment } = require("./sniperAssets");
 const SNIPER_COLOR = 0xe74c3c;
 const SNIPER_GOLD = 0xf1c40f;
 
-// ─── Duration formatting ────────────────────────────────────────────────────────
+// ─── Duration formatting ────────────────────────────────────────────────────
 
 function formatMs(ms) {
   if (ms >= 3600000) {
@@ -17,17 +17,72 @@ function formatMs(ms) {
     const m = Math.round(ms / 60000);
     return `${m}m`;
   }
-  const s = Math.round(ms / 1000);
-  return `${s}s`;
+  return `${Math.round(ms / 1000)}s`;
 }
 
-// ─── Dashboard embed (admin view) ───────────────────────────────────────────────
+// ─── Randomized hype/trash talk ──────────────────────────────────────────────
+
+const WIN_MESSAGES = [
+  "🔫 **HEADSHOT!** The crown is yours!",
+  "🎯 **Bullseye!** You just stole the throne!",
+  "⚡ **Lightning reflexes!** Nobody saw that coming.",
+  "💀 **Eliminated the competition!** New champion crowned.",
+  "🏆 **VICTORY!** The top spot belongs to you now.",
+  "💥 **Crack shot!** That target never stood a chance.",
+  "👑 **King maker!** You've claimed the sniper throne.",
+  "🎪 **Showstopper!** The crowd goes wild for the new champion.",
+];
+
+const LOSS_MESSAGES = [
+  "🐌 Too slow! Someone's already wearing the crown.",
+  "💨 That shot was already taken, friend.",
+  "😴 Were you napping? Target's already gone.",
+  "👻 Ghost of the challenge — you're clicking on thin air.",
+  "⏰ Tick tock... and the target is dust. Better luck next time!",
+  "🎯 Missed by a heartbeat! Stay sharp for the next one.",
+];
+
+const DETHRONE_MESSAGES = [
+  "👑 **THE CROWN HAS BEEN STOLEN!** {winner} dethrones {loser}!",
+  "💔 The reign of {loser} has ended. All hail {winner}!",
+  "⚔️ **USURPER!** {winner} has taken the throne from {loser}!",
+  "🔪 Backstab complete! {winner} snipes the crown from {loser}.",
+  "🏚️ The {loser} era is over. {winner} rises to power!",
+  "🔥 **COUP D'ÉTAT!** {winner} seizes the sniper throne from {loser}!",
+];
+
+function randomPick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+function getRandomWinMessage() {
+  return randomPick(WIN_MESSAGES);
+}
+function getRandomLossMessage() {
+  return randomPick(LOSS_MESSAGES);
+}
+function getRandomDethroneMessage(winnerId, loserId) {
+  return randomPick(DETHRONE_MESSAGES)
+    .replace(/\{winner\}/g, `<@${winnerId}>`)
+    .replace(/\{loser\}/g, `<@${loserId}>`);
+}
+
+// ─── Streak badges ───────────────────────────────────────────────────────────
+
+function getStreakBadge(streak) {
+  if (streak >= 10) return "⚡👑⚡ **GODLIKE**";
+  if (streak >= 7) return "👑 **Legendary**";
+  if (streak >= 5) return "💀 **Unstoppable**";
+  if (streak >= 3) return "🔥🔥 **On Fire**";
+  if (streak >= 2) return "🔥 **Getting Warm**";
+  return null;
+}
+
+// ─── Dashboard embed (admin view) ───────────────────────────────────────────
 
 function buildDashboardEmbed(config, guild) {
   const enabled = config?.enabled ?? false;
   const paused = config?.paused ?? false;
   const status = !enabled ? "🔴 Disabled" : paused ? "🟡 Paused" : "🟢 Running";
-
   const embed = new EmbedBuilder()
     .setColor(SNIPER_COLOR)
     .setTitle("⚡ Sniper Challenge Control Centre")
@@ -35,11 +90,7 @@ function buildDashboardEmbed(config, guild) {
       "A server-wide reflex mini-game. The first to shoot wins the top spot.",
     )
     .addFields(
-      {
-        name: "📡 Status",
-        value: `${status}`,
-        inline: true,
-      },
+      { name: "📡 Status", value: `${status}`, inline: true },
       {
         name: "👑 Current Champion",
         value: config?.currentChampionId
@@ -55,8 +106,6 @@ function buildDashboardEmbed(config, guild) {
         inline: true,
       },
     );
-
-  // Challenge channels
   const channels =
     config?.challengeChannelIds?.length > 0
       ? config.challengeChannelIds.map((id) => `<#${id}>`).join(", ")
@@ -66,8 +115,6 @@ function buildDashboardEmbed(config, guild) {
     value: channels,
     inline: false,
   });
-
-  // Leaderboard & notification
   embed.addFields(
     {
       name: "📊 Leaderboard Channel",
@@ -84,8 +131,6 @@ function buildDashboardEmbed(config, guild) {
       inline: true,
     },
   );
-
-  // Timing
   embed.addFields(
     {
       name: "⏱️ Delay Range",
@@ -98,19 +143,12 @@ function buildDashboardEmbed(config, guild) {
       inline: true,
     },
   );
-
-  // Stats
   const nextRun =
     config?.nextRunAt && config.enabled && !config.paused
       ? `<t:${Math.floor(new Date(config.nextRunAt).getTime() / 1000)}:R>`
       : "—";
-
   embed.addFields(
-    {
-      name: "⏳ Next Challenge",
-      value: nextRun,
-      inline: true,
-    },
+    { name: "⏳ Next Challenge", value: nextRun, inline: true },
     {
       name: "🎯 Total Completed",
       value: `${config?.totalChallengesCompleted ?? 0}`,
@@ -122,31 +160,22 @@ function buildDashboardEmbed(config, guild) {
       inline: true,
     },
   );
-
   embed.setFooter({ text: "Sniper Challenge • Discore" }).setTimestamp();
-
   return embed;
 }
-
-// ─── Public view (normal users) ─────────────────────────────────────────────────
 
 function buildPublicEmbed(config) {
   const enabled = config?.enabled ?? false;
   const paused = config?.paused ?? false;
   const status = !enabled ? "🔴 Disabled" : paused ? "🟡 Paused" : "🟢 Running";
-
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(SNIPER_COLOR)
     .setTitle("⚡ Sniper Challenge")
     .setDescription(
       "Stay sharp — the top spot can change at any moment.\nA target can appear in any configured channel at any time. First to shoot wins!",
     )
     .addFields(
-      {
-        name: "📡 Status",
-        value: status,
-        inline: true,
-      },
+      { name: "📡 Status", value: status, inline: true },
       {
         name: "👑 Current Champion",
         value: config?.currentChampionId
@@ -159,66 +188,64 @@ function buildPublicEmbed(config) {
         value: `${config?.totalChallengesCompleted ?? 0}`,
         inline: true,
       },
-    );
-
-  if (config?.currentChampionId) {
-    embed.setThumbnail(
-      `https://cdn.discordapp.com/avatars/${config.currentChampionId}/${config.currentChampionId}.png?size=128`,
-    );
-  }
-
-  embed.setFooter({
-    text: "Keep watching — your chance can appear at any time.",
-  });
-
-  return embed;
+    )
+    .setFooter({ text: "Keep watching — your chance can appear at any time." });
 }
 
-// ─── Setup wizard embeds ────────────────────────────────────────────────────────
+// ─── Wizard embeds ───────────────────────────────────────────────────────────
 
 const WIZARD_STEPS = {
   CHANNELS: 1,
   ROLE: 2,
-  LEADERBOARD: 3,
-  NOTIFICATION: 4,
-  TIMING: 5,
-  PREVIEW: 6,
+  TEASER: 3,
+  LEADERBOARD: 4,
+  NOTIFICATION: 5,
+  TIMING: 6,
+  PREVIEW: 7,
 };
 
 function buildWizardStepEmbed(step, data = {}) {
   const color = SNIPER_COLOR;
-
   switch (step) {
     case WIZARD_STEPS.CHANNELS:
       return new EmbedBuilder()
         .setColor(color)
-        .setTitle("⚡ Setup Wizard — Step 1/6: Challenge Channels")
+        .setTitle("⚡ Setup Wizard — Step 1/7: Challenge Channels")
         .setDescription(
-          "Select up to **5 channels** where challenges may randomly appear.\n\n" +
-            "The bot will randomly pick one each time a target appears.\n\n" +
+          "Select up to **5 channels** where challenges may randomly appear.\n\nThe bot will randomly pick one each time a target appears.\n\n" +
             (data.challengeChannelIds?.length
               ? `✅ Selected: ${data.challengeChannelIds.map((id) => `<#${id}>`).join(", ")}`
               : "⚠️ No channels selected yet."),
         )
         .setFooter({ text: "Use the dropdown below to select channels." });
-
     case WIZARD_STEPS.ROLE:
       return new EmbedBuilder()
         .setColor(color)
-        .setTitle("⚡ Setup Wizard — Step 2/6: Winner Role")
+        .setTitle("⚡ Setup Wizard — Step 2/7: Winner Role")
         .setDescription(
-          "Select the role awarded to the current champion.\n\n" +
-            "The role is removed from the previous champion when a new winner claims the top spot.\n\n" +
+          "Select the role awarded to the current champion.\n\nThe role is removed from the previous champion when a new winner claims the top spot.\n\n" +
             (data.rewardRoleId
               ? `✅ Selected: <@&${data.rewardRoleId}>`
               : "⚠️ No role selected yet."),
         )
         .setFooter({ text: "Use the dropdown below to select a role." });
-
+    case WIZARD_STEPS.TEASER:
+      return new EmbedBuilder()
+        .setColor(color)
+        .setTitle("⚡ Setup Wizard — Step 3/7: Teaser Role (Optional)")
+        .setDescription(
+          "Select a role to ping **30 seconds before** a challenge spawns.\n\nThis builds hype — people know to get ready!\n\n" +
+            (data.teaserRoleId
+              ? `✅ Selected: <@&${data.teaserRoleId}>`
+              : "⚠️ None (no teaser ping will be sent)"),
+        )
+        .setFooter({
+          text: "Use the dropdown below to select a role, or click Skip.",
+        });
     case WIZARD_STEPS.LEADERBOARD:
       return new EmbedBuilder()
         .setColor(color)
-        .setTitle("⚡ Setup Wizard — Step 3/6: Leaderboard Channel")
+        .setTitle("⚡ Setup Wizard — Step 4/7: Leaderboard Channel")
         .setDescription(
           "Select the channel where the **Sniper Challenge leaderboard** will be posted and updated.\n\n" +
             (data.leaderboardChannelId
@@ -226,191 +253,172 @@ function buildWizardStepEmbed(step, data = {}) {
               : "⚠️ No channel selected yet."),
         )
         .setFooter({ text: "Use the dropdown below to select a channel." });
-
     case WIZARD_STEPS.NOTIFICATION:
       return new EmbedBuilder()
         .setColor(color)
-        .setTitle("⚡ Setup Wizard — Step 4/6: Notification Channel")
+        .setTitle("⚡ Setup Wizard — Step 5/7: Notification Channel")
         .setDescription(
-          "Select the channel for winner announcements and system updates.\n" +
-            "This can be the same as the leaderboard channel or different.\n\n" +
+          "Select the channel for winner announcements and system updates.\nThis can be the same as the leaderboard channel or different.\n\n" +
             (data.notificationChannelId
               ? `✅ Selected: <#${data.notificationChannelId}>`
               : "⚠️ No channel selected yet (will use challenge channel as fallback)."),
         )
         .setFooter({ text: "Use the dropdown below to select a channel." });
-
-    case WIZARD_STEPS.TIMING:
-      const minStr = formatMs(data.minDelayMs ?? 3600000);
-      const maxStr = formatMs(data.maxDelayMs ?? 10800000);
-      const activeStr = formatMs(data.activeDurationMs ?? 180000);
+    case WIZARD_STEPS.TIMING: {
+      const minStr = formatMs(data.minDelayMs ?? 3600000),
+        maxStr = formatMs(data.maxDelayMs ?? 10800000),
+        activeStr = formatMs(data.activeDurationMs ?? 180000);
       return new EmbedBuilder()
         .setColor(color)
-        .setTitle("⚡ Setup Wizard — Step 5/6: Timing Settings")
+        .setTitle("⚡ Setup Wizard — Step 6/7: Timing Settings")
         .setDescription(
-          "Configure when and how long challenges run.\n\n" +
-            `**Random Delay Range:** ${minStr} – ${maxStr}\n` +
-            `**Active Challenge Duration:** ${activeStr}\n\n` +
-            "Click **Edit Timing** to change these values.",
+          `Configure when and how long challenges run.\n\n**Random Delay Range:** ${minStr} – ${maxStr}\n**Active Challenge Duration:** ${activeStr}\n\nClick **Edit Timing** to change these values.`,
         )
         .setFooter({ text: "Defaults: 1h–3h delay, 3m active window." });
-
-    case WIZARD_STEPS.PREVIEW:
+    }
+    case WIZARD_STEPS.PREVIEW: {
       const channelsStr = data.challengeChannelIds?.length
         ? data.challengeChannelIds.map((id) => `<#${id}>`).join(", ")
         : "⚠️ Not set";
       return new EmbedBuilder()
         .setColor(0x2ecc71)
-        .setTitle("⚡ Setup Wizard — Step 6/6: Preview & Enable")
+        .setTitle("⚡ Setup Wizard — Step 7/7: Preview & Enable")
         .setDescription(
-          "Review your configuration before enabling.\n\n" +
-            `**Challenge Channels:** ${channelsStr}\n` +
-            `**Winner Role:** ${data.rewardRoleId ? `<@&${data.rewardRoleId}>` : "⚠️ Not set"}\n` +
-            `**Leaderboard Channel:** ${data.leaderboardChannelId ? `<#${data.leaderboardChannelId}>` : "⚠️ Not set"}\n` +
-            `**Notification Channel:** ${data.notificationChannelId ? `<#${data.notificationChannelId}>` : "Using challenge channel as fallback"}\n` +
-            `**Delay Range:** ${formatMs(data.minDelayMs ?? 3600000)} – ${formatMs(data.maxDelayMs ?? 10800000)}\n` +
-            `**Active Window:** ${formatMs(data.activeDurationMs ?? 180000)}\n\n` +
-            "Ready to go? Click **Enable Sniper Challenge** to start!",
+          `Review your configuration before enabling.\n\n**Challenge Channels:** ${channelsStr}\n**Winner Role:** ${data.rewardRoleId ? `<@&${data.rewardRoleId}>` : "⚠️ Not set"}\n**Teaser Role:** ${data.teaserRoleId ? `<@&${data.teaserRoleId}>` : "None"}\n**Leaderboard Channel:** ${data.leaderboardChannelId ? `<#${data.leaderboardChannelId}>` : "⚠️ Not set"}\n**Notification Channel:** ${data.notificationChannelId ? `<#${data.notificationChannelId}>` : "Using challenge channel as fallback"}\n**Delay Range:** ${formatMs(data.minDelayMs ?? 3600000)} – ${formatMs(data.maxDelayMs ?? 10800000)}\n**Active Window:** ${formatMs(data.activeDurationMs ?? 180000)}\n\nReady to go? Click **Enable Sniper Challenge** to start!`,
         );
+    }
     default:
       return new EmbedBuilder().setDescription("Unknown step.");
   }
 }
 
-// ─── Challenge spawn embed ──────────────────────────────────────────────────────
+// ─── Challenge spawn embed ──────────────────────────────────────────────────
 
 function buildChallengeEmbed() {
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(SNIPER_GOLD)
     .setTitle("🎯 A Target Appeared!")
     .setDescription(
-      "The first person to hit the button **steals the top spot**.\n" +
-        "Stay sharp — the challenge can appear at any time.",
+      "The first person to hit the button **steals the top spot**.\nStay sharp — the challenge can appear at any time.",
     )
     .setImage("attachment://shoot.png")
     .setFooter({ text: "Sniper Challenge • First click wins" })
     .setTimestamp();
-
-  return embed;
 }
 
 function getChallengeAttachments() {
   return [getShootAttachment()];
 }
 
-// ─── Challenge expired embed (edit) ─────────────────────────────────────────────
+// ─── Teaser embed ───────────────────────────────────────────────────────────
+
+function buildTeaserEmbed() {
+  return new EmbedBuilder()
+    .setColor(SNIPER_GOLD)
+    .setTitle("👀 Incoming Target...")
+    .setDescription(
+      "A sniper challenge is about to spawn in a random channel.\n**Stay sharp — be ready to shoot!** 🔍",
+    )
+    .setThumbnail("attachment://shoot.png")
+    .setFooter({ text: "Sniper Challenge • Teaser" })
+    .setTimestamp();
+}
+
+// ─── Expired embed ──────────────────────────────────────────────────────────
 
 function buildExpiredEmbed() {
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(0x95a5a6)
     .setTitle("🎯 Target Escaped!")
     .setDescription(
-      "Nobody was fast enough — the target got away.\n" +
-        "Stay sharp — another one will appear soon!",
+      "Nobody was fast enough — the target got away.\nStay sharp — another one will appear soon!",
     )
     .setFooter({ text: "Sniper Challenge • Target escaped" })
     .setTimestamp();
-
-  return embed;
 }
 
-// ─── Challenge won embed (edit) ─────────────────────────────────────────────────
+// ─── Won embed ──────────────────────────────────────────────────────────────
 
 function buildWonEmbed(winnerId, reactionTimeMs) {
-  const reactionTime =
+  const rt =
     reactionTimeMs != null ? `${(reactionTimeMs / 1000).toFixed(1)}s` : "N/A";
-
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(0x2ecc71)
     .setTitle("🎯 Target Eliminated!")
     .setDescription(
-      `**Winner:** <@${winnerId}>\n` +
-        `**Reaction Time:** ${reactionTime}\n` +
-        `**Top spot stolen!**`,
+      `**Winner:** <@${winnerId}>\n**Reaction Time:** ${rt}\n**Top spot stolen!**`,
     )
     .setImage("attachment://winner.png")
     .setFooter({ text: "Sniper Challenge • Direct hit!" })
     .setTimestamp();
-
-  return embed;
 }
 
-// ─── Winner announcement embed ──────────────────────────────────────────────────
+// ─── Winner announcement embed ──────────────────────────────────────────────
 
-function buildWinnerAnnouncementEmbed(winnerId, totalWins, currentStreak) {
-  const embed = new EmbedBuilder()
+function buildWinnerAnnouncementEmbed(
+  winnerId,
+  totalWins,
+  currentStreak,
+  prevChampionId,
+) {
+  const badge = getStreakBadge(currentStreak);
+  let desc = `<@${winnerId}> has won the **Sniper Challenge** and taken the top spot!`;
+  if (prevChampionId && prevChampionId !== winnerId)
+    desc = getRandomDethroneMessage(winnerId, prevChampionId);
+  if (badge) desc += `\n\n${badge}`;
+  return new EmbedBuilder()
     .setColor(SNIPER_GOLD)
     .setTitle("🏆 We Have a Winner!")
-    .setDescription(
-      `<@${winnerId}> has won the **Sniper Challenge** and taken the top spot!`,
-    )
+    .setDescription(desc)
     .addFields(
-      {
-        name: "🔫 Total Wins",
-        value: `${totalWins}`,
-        inline: true,
-      },
-      {
-        name: "🔥 Current Streak",
-        value: `${currentStreak}`,
-        inline: true,
-      },
+      { name: "🔫 Total Wins", value: `${totalWins}`, inline: true },
+      { name: "🔥 Current Streak", value: `${currentStreak}`, inline: true },
     )
     .setImage("attachment://winner.png")
     .setFooter({
       text: "Keep watching — your chance to steal the top spot can appear at any time.",
     })
     .setTimestamp();
-
-  return embed;
 }
 
 function getWinnerAnnouncementAttachments() {
   return [getWinnerAttachment()];
 }
 
-// ─── Leaderboard embed ──────────────────────────────────────────────────────────
+// ─── Leaderboard embed ──────────────────────────────────────────────────────
 
-function buildLeaderboardEmbed(config, topPlayers, guild) {
+function buildLeaderboardEmbed(config, topPlayers, fastestReactions, guild) {
   const embed = new EmbedBuilder()
     .setColor(SNIPER_GOLD)
     .setTitle("🏆 Sniper Challenge Leaderboard")
     .setDescription("Top marksmen — first click takes the crown.")
     .setTimestamp();
-
-  // Champion
-  if (config?.currentChampionId) {
+  if (config?.currentChampionId)
     embed.addFields({
       name: "👑 Current Champion",
       value: `<@${config.currentChampionId}>`,
       inline: false,
     });
-  }
 
-  // Top 10
   if (topPlayers?.length) {
-    const leaderboardLines = topPlayers
-      .map(
-        (p, i) =>
-          `**${i + 1}.** <@${p.userId}> — ${p.totalWins} win${p.totalWins !== 1 ? "s" : ""} | 🔥 Streak: ${p.currentStreak}`,
-      )
+    const lines = topPlayers
+      .map((p, i) => {
+        const badge = getStreakBadge(p.currentStreak);
+        return `**${i + 1}.** <@${p.userId}> — ${p.totalWins} wins | 🔥 ${p.currentStreak} streak${badge ? ` ${badge}` : ""}`;
+      })
       .join("\n");
-
     embed.addFields({
       name: "📊 Top 10 Winners",
-      value: leaderboardLines || "No winners yet.",
+      value: lines || "No winners yet.",
       inline: false,
     });
-
-    // Best streak
     const bestStreak = Math.max(...topPlayers.map((p) => p.bestStreak), 0);
-    if (bestStreak > 0) {
+    if (bestStreak > 0)
       embed.addFields({
         name: "🔥 Highest Streak",
         value: `${bestStreak}`,
         inline: true,
       });
-    }
   } else {
     embed.addFields({
       name: "📊 Top 10 Winners",
@@ -425,31 +433,30 @@ function buildLeaderboardEmbed(config, topPlayers, guild) {
     inline: true,
   });
 
+  if (fastestReactions?.length) {
+    const rtLines = fastestReactions
+      .map(
+        (r, i) =>
+          `**${i + 1}.** <@${r.winnerId}> — ${(r.reactionTimeMs / 1000).toFixed(2)}s`,
+      )
+      .join("\n");
+    embed.addFields({
+      name: "⚡ Fastest Shots",
+      value: rtLines,
+      inline: false,
+    });
+  }
+
   embed.setFooter({
     text: "Sniper Challenge Leaderboard • Automatically updated",
   });
-
   return embed;
 }
 
-// ─── Modal embed helpers ────────────────────────────────────────────────────────
-
-function buildTimingModalEmbed(data = {}) {
-  const embed = new EmbedBuilder()
-    .setColor(SNIPER_COLOR)
-    .setTitle("⏱️ Edit Timing")
-    .setDescription(
-      `Current settings:\n` +
-        `**Min Delay:** ${formatMs(data.minDelayMs ?? 3600000)}\n` +
-        `**Max Delay:** ${formatMs(data.maxDelayMs ?? 10800000)}\n` +
-        `**Active Window:** ${formatMs(data.activeDurationMs ?? 180000)}\n\n` +
-        "Click the button below to open the timing modal.",
-    );
-  return embed;
-}
+// ─── Settings embed ─────────────────────────────────────────────────────────
 
 function buildSettingsEmbed(config) {
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(SNIPER_COLOR)
     .setTitle("⚙️ Sniper Challenge Settings")
     .setDescription("Configure timing, channels, role, and more.")
@@ -465,23 +472,15 @@ function buildSettingsEmbed(config) {
         inline: true,
       },
     );
-  return embed;
 }
 
-// ─── Reset/Advanced embed ──────────────────────────────────────────────────────
-
-function buildResetEmbed(config) {
-  const embed = new EmbedBuilder()
+function buildResetEmbed() {
+  return new EmbedBuilder()
     .setColor(0xe74c3c)
     .setTitle("⚠️ Reset & Advanced")
     .setDescription(
-      "Danger zone — these actions cannot be undone.\n\n" +
-        "• **Reset Stats** — Clear all player stats (wins, streaks).\n" +
-        "• **Clear Champion** — Remove the current champion and their role.\n" +
-        "• **Delete Config** — Completely remove the Sniper Challenge setup.\n\n" +
-        "Use with caution.",
+      "Danger zone — these actions cannot be undone.\n\n• **Reset Stats** — Clear all player stats (wins, streaks).\n• **Clear Champion** — Remove the current champion and their role.\n• **Delete Config** — Completely remove the Sniper Challenge setup.\n\nUse with caution.",
     );
-  return embed;
 }
 
 module.exports = {
@@ -489,17 +488,21 @@ module.exports = {
   SNIPER_GOLD,
   formatMs,
   WIZARD_STEPS,
+  getRandomWinMessage,
+  getRandomLossMessage,
+  getRandomDethroneMessage,
+  getStreakBadge,
   buildDashboardEmbed,
   buildPublicEmbed,
   buildWizardStepEmbed,
   buildChallengeEmbed,
   getChallengeAttachments,
+  buildTeaserEmbed,
   buildExpiredEmbed,
   buildWonEmbed,
   buildWinnerAnnouncementEmbed,
   getWinnerAnnouncementAttachments,
   buildLeaderboardEmbed,
-  buildTimingModalEmbed,
   buildSettingsEmbed,
   buildResetEmbed,
 };

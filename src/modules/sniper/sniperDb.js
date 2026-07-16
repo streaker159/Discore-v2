@@ -10,14 +10,6 @@ function cuid() {
     : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Helper: build placeholder list, casting "status" column to enum
-function buildValuePlaceholders(keys) {
-  return keys.map((k, idx) => {
-    if (k === "status") return `CAST($${idx + 2} AS "SniperChallengeStatus")`;
-    return `$${idx + 2}`;
-  });
-}
-
 function buildSetClauses(keys) {
   return keys
     .map((k, idx) => {
@@ -172,7 +164,6 @@ async function findActiveRun(guildId) {
 }
 
 async function createRun(data) {
-  // Status column requires CAST to custom enum
   try {
     const id = cuid();
     const keys = Object.keys(data);
@@ -399,6 +390,23 @@ async function deleteStats(where) {
   }
 }
 
+// ─── Fastest Reactions ─────────────────────────────────────────────────────
+
+async function findFastestReactions(guildId, limit = 5) {
+  try {
+    return await prisma.$queryRawUnsafe(
+      `SELECT "winnerId", "reactionTimeMs", "wonAt" FROM "SniperChallengeRun" WHERE "guildId" = $1 AND "status" = 'WON' AND "reactionTimeMs" IS NOT NULL ORDER BY "reactionTimeMs" ASC LIMIT $2`,
+      guildId,
+      limit,
+    );
+  } catch (e) {
+    logger.error("[SniperChallenge] findFastestReactions failed", {
+      error: e.message,
+    });
+    return [];
+  }
+}
+
 // ─── Table creation ─────────────────────────────────────────────────────────
 
 async function ensureTables() {
@@ -407,15 +415,13 @@ async function ensureTables() {
       `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'SniperChallengeStatus') THEN CREATE TYPE "SniperChallengeStatus" AS ENUM ('ACTIVE','WON','EXPIRED','CANCELLED'); END IF; END $$;`,
     );
   } catch {}
-
   try {
     await prisma.$executeRawUnsafe(
-      `CREATE TABLE IF NOT EXISTS "SniperChallengeConfig" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT UNIQUE NOT NULL,"enabled" BOOLEAN NOT NULL DEFAULT false,"paused" BOOLEAN NOT NULL DEFAULT false,"challengeChannelIds" TEXT[] NOT NULL DEFAULT '{}',"leaderboardChannelId" TEXT,"notificationChannelId" TEXT,"rewardRoleId" TEXT,"currentChampionId" TEXT,"currentChampionSince" TIMESTAMPTZ,"minDelayMs" INTEGER NOT NULL DEFAULT 3600000,"maxDelayMs" INTEGER NOT NULL DEFAULT 10800000,"activeDurationMs" INTEGER NOT NULL DEFAULT 180000,"nextRunAt" TIMESTAMPTZ,"leaderboardMessageId" TEXT,"totalChallengesCompleted" INTEGER NOT NULL DEFAULT 0,"lastWinnerId" TEXT,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());`,
+      `CREATE TABLE IF NOT EXISTS "SniperChallengeConfig" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT UNIQUE NOT NULL,"enabled" BOOLEAN NOT NULL DEFAULT false,"paused" BOOLEAN NOT NULL DEFAULT false,"challengeChannelIds" TEXT[] NOT NULL DEFAULT '{}',"leaderboardChannelId" TEXT,"notificationChannelId" TEXT,"rewardRoleId" TEXT,"teaserRoleId" TEXT,"currentChampionId" TEXT,"currentChampionSince" TIMESTAMPTZ,"minDelayMs" INTEGER NOT NULL DEFAULT 3600000,"maxDelayMs" INTEGER NOT NULL DEFAULT 10800000,"activeDurationMs" INTEGER NOT NULL DEFAULT 180000,"nextRunAt" TIMESTAMPTZ,"leaderboardMessageId" TEXT,"totalChallengesCompleted" INTEGER NOT NULL DEFAULT 0,"lastWinnerId" TEXT,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());`,
     );
   } catch (e) {
     logger.warn("[SniperChallenge] Config table ensure", { error: e.message });
   }
-
   try {
     await prisma.$executeRawUnsafe(
       `CREATE TABLE IF NOT EXISTS "SniperChallengeRun" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT NOT NULL,"channelId" TEXT NOT NULL,"messageId" TEXT,"status" "SniperChallengeStatus" NOT NULL DEFAULT 'ACTIVE',"spawnedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"expiresAt" TIMESTAMPTZ NOT NULL,"winnerId" TEXT,"wonAt" TIMESTAMPTZ,"reactionTimeMs" INTEGER,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());`,
@@ -423,7 +429,6 @@ async function ensureTables() {
   } catch (e) {
     logger.warn("[SniperChallenge] Run table ensure", { error: e.message });
   }
-
   try {
     await prisma.$executeRawUnsafe(
       `CREATE TABLE IF NOT EXISTS "SniperPlayerStats" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT NOT NULL,"userId" TEXT NOT NULL,"totalWins" INTEGER NOT NULL DEFAULT 0,"currentStreak" INTEGER NOT NULL DEFAULT 0,"bestStreak" INTEGER NOT NULL DEFAULT 0,"lastWinAt" TIMESTAMPTZ,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE("guildId","userId"));`,
@@ -431,7 +436,22 @@ async function ensureTables() {
   } catch (e) {
     logger.warn("[SniperChallenge] Stats table ensure", { error: e.message });
   }
-
+  // Add missing columns safely
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "SniperChallengeConfig" ADD COLUMN IF NOT EXISTS "teaserRoleId" TEXT`,
+    );
+  } catch {}
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "SniperChallengeConfig" ALTER COLUMN "id" SET DEFAULT gen_random_uuid()::text`,
+    );
+  } catch {}
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "SniperChallengeRun" ALTER COLUMN "id" SET DEFAULT gen_random_uuid()::text`,
+    );
+  } catch {}
   logger.info("[SniperChallenge] Database tables ensured");
 }
 
@@ -454,4 +474,5 @@ module.exports = {
   updateStats,
   findTopPlayers,
   deleteStats,
+  findFastestReactions,
 };

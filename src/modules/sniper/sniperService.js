@@ -21,38 +21,27 @@ async function getConfig(guildId) {
 
 async function ensureConfig(guildId) {
   let config = await db.findConfig(guildId);
-  if (!config) {
-    config = await db.upsertConfig(guildId, {});
-  }
+  if (!config) config = await db.upsertConfig(guildId, {});
   return config;
 }
 
 function validateSetup(config) {
   const issues = [];
-  if (!config.challengeChannelIds || config.challengeChannelIds.length === 0) {
+  if (!config.challengeChannelIds || config.challengeChannelIds.length === 0)
     issues.push("No challenge channels selected.");
-  }
-  if (config.challengeChannelIds && config.challengeChannelIds.length > 5) {
+  if (config.challengeChannelIds && config.challengeChannelIds.length > 5)
     issues.push("Maximum 5 challenge channels allowed.");
-  }
-  if (!config.rewardRoleId) {
-    issues.push("No reward role selected.");
-  }
-  if (!config.leaderboardChannelId) {
+  if (!config.rewardRoleId) issues.push("No reward role selected.");
+  if (!config.leaderboardChannelId)
     issues.push("No leaderboard channel selected (recommended).");
-  }
-  if (config.minDelayMs >= config.maxDelayMs) {
+  if (config.minDelayMs >= config.maxDelayMs)
     issues.push("Min delay must be less than max delay.");
-  }
-  if (config.minDelayMs < 60000) {
+  if (config.minDelayMs < 60000)
     issues.push("Min delay must be at least 1 minute.");
-  }
-  if (config.activeDurationMs < 30000) {
+  if (config.activeDurationMs < 30000)
     issues.push("Active duration must be at least 30 seconds.");
-  }
-  if (config.activeDurationMs > 600000) {
+  if (config.activeDurationMs > 600000)
     issues.push("Active duration must be at most 10 minutes.");
-  }
   return issues;
 }
 
@@ -71,7 +60,6 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
 
   const channelId =
     forceChannelId || channelIds[Math.floor(Math.random() * channelIds.length)];
-
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return null;
 
@@ -112,7 +100,6 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
     .setLabel("SHOOT")
     .setStyle(ButtonStyle.Danger)
     .setEmoji("🔫");
-
   const row = new ActionRowBuilder().addComponents(button);
 
   let message;
@@ -142,8 +129,9 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
   if (!run) return null;
 
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
-  const nextRunAt = new Date(Date.now() + nextDelay);
-  await db.updateConfig(guildId, { nextRunAt });
+  await db.updateConfig(guildId, {
+    nextRunAt: new Date(Date.now() + nextDelay),
+  });
 
   if (DEBUG)
     logger.info("[SniperChallenge] Challenge spawned", {
@@ -151,7 +139,6 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
       channelId,
       runId: run.id,
       expiresAt,
-      nextRunAt,
     });
   return run;
 }
@@ -171,12 +158,12 @@ async function handleShoot(interaction, challengeId) {
     return { success: false, reason: "expired" };
   }
 
-  const spawnedAt = run.spawnedAt;
   const wonAt = new Date();
-  const reactionTimeMs = spawnedAt
-    ? wonAt.getTime() - spawnedAt.getTime()
+  const reactionTimeMs = run.spawnedAt
+    ? wonAt.getTime() - run.spawnedAt.getTime()
     : null;
 
+  // Atomic race-condition check — only one click succeeds
   const result = await db.updateRunMany(
     { id: challengeId, status: "ACTIVE", winnerId: null },
     { winnerId: userId, status: "WON", wonAt, reactionTimeMs },
@@ -184,21 +171,22 @@ async function handleShoot(interaction, challengeId) {
 
   if (result.count === 0) return { success: false, reason: "too_slow" };
 
-  try {
-    await processWin(
+  // Reply immediately (within Discord's 3s timeout), then process the win in background
+  setImmediate(() => {
+    processWin(
       guildId,
       userId,
       challengeId,
       reactionTimeMs,
       interaction.client,
-    );
-  } catch (err) {
-    logger.error("[SniperChallenge] Error processing win", {
-      guildId,
-      userId,
-      error: err.message,
+    ).catch((err) => {
+      logger.error("[SniperChallenge] Background win processing failed", {
+        guildId,
+        userId,
+        error: err.message,
+      });
     });
-  }
+  });
 
   return { success: true, winnerId: userId, reactionTimeMs };
 }
@@ -213,10 +201,9 @@ async function processWin(
   const config = await getConfig(guildId);
   if (!config) return;
 
-  // 1. Player stats — get existing or create, then increment
+  // 1. Player stats
   let stats = await db.findStats(guildId, userId);
   if (!stats) {
-    // First win ever for this user in this guild
     stats = { totalWins: 0, currentStreak: 0, bestStreak: 0 };
     await db.upsertStats(guildId, userId, {
       totalWins: 0,
@@ -306,11 +293,12 @@ async function processWin(
             .setStyle(ButtonStyle.Secondary)
             .setEmoji("🔫")
             .setDisabled(true);
-          const row = new ActionRowBuilder().addComponents(disabledButton);
           await message
             .edit({
               embeds: [wonEmbed],
-              components: [row],
+              components: [
+                new ActionRowBuilder().addComponents(disabledButton),
+              ],
               files: getWinnerAnnouncementAttachments(),
             })
             .catch(() => {});
@@ -330,15 +318,16 @@ async function processWin(
     try {
       const notifChannel = client.channels.cache.get(notifChannelId);
       if (notifChannel) {
-        const announcementEmbed = buildWinnerAnnouncementEmbed(
-          userId,
-          freshStats?.totalWins ?? 1,
-          freshStats?.currentStreak ?? 1,
-        );
         await notifChannel
           .send({
             content: `🏆 <@${userId}> just stole the top spot!`,
-            embeds: [announcementEmbed],
+            embeds: [
+              buildWinnerAnnouncementEmbed(
+                userId,
+                freshStats?.totalWins ?? 1,
+                freshStats?.currentStreak ?? 1,
+              ),
+            ],
             files: getWinnerAnnouncementAttachments(),
           })
           .catch(() => {});
@@ -381,15 +370,18 @@ async function handleExpiry(run, client) {
       ButtonBuilder,
       ButtonStyle,
     } = require("discord.js");
+    const expiredEmbed = buildExpiredEmbed();
     const disabledButton = new ButtonBuilder()
       .setCustomId("sniper:shoot")
       .setLabel("Expired")
       .setStyle(ButtonStyle.Secondary)
       .setEmoji("🔫")
       .setDisabled(true);
-    const row = new ActionRowBuilder().addComponents(disabledButton);
     await message
-      .edit({ embeds: [buildExpiredEmbed()], components: [row] })
+      .edit({
+        embeds: [expiredEmbed],
+        components: [new ActionRowBuilder().addComponents(disabledButton)],
+      })
       .catch(() => {});
   } catch (err) {
     logger.warn("[SniperChallenge] Failed to edit expired message", {
@@ -407,8 +399,9 @@ async function resumeChallenges(guildId, client) {
   const config = await getConfig(guildId);
   if (!config || !config.enabled) return;
   await db.updateConfig(guildId, { paused: false });
-  const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
-  const nextRunAt = new Date(Date.now() + nextDelay);
+  const nextRunAt = new Date(
+    Date.now() + randomDelay(config.minDelayMs, config.maxDelayMs),
+  );
   await db.updateConfig(guildId, { nextRunAt });
   if (DEBUG) logger.info("[SniperChallenge] Resumed", { guildId, nextRunAt });
 }
