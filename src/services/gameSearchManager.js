@@ -247,9 +247,11 @@ class GameSearchManager {
           (a, b) => Number(b.properties.crdate) - Number(a.properties.crdate),
         )[0];
 
+        const gameId = String(foundGame.properties.gameID);
         await this._updateMessage(
           userId,
           buildGameFoundEmbed(foundGame.properties),
+          `**Game ID:** \`${gameId}\`\n> *Tap and hold the number above to copy it on mobile, or triple-click the text below:*\n\`\`\`\n${gameId}\n\`\`\``,
         );
         this._cleanup(userId);
         logger.info("Game finder: match found", {
@@ -292,7 +294,7 @@ class GameSearchManager {
     state.messageId = messageId;
   }
 
-  async _updateMessage(userId, embed) {
+  async _updateMessage(userId, embed, content = null) {
     const state = this.activeSearches.get(userId);
     if (!state) return;
 
@@ -312,7 +314,9 @@ class GameSearchManager {
             .fetch(state.messageId)
             .catch(() => null);
           if (message) {
-            await message.edit({ embeds: [embed], components });
+            const editOptions = { embeds: [embed], components };
+            if (content !== null) editOptions.content = content;
+            await message.edit(editOptions);
             return;
           }
         }
@@ -324,10 +328,9 @@ class GameSearchManager {
         id: state.applicationId,
         token: state.interactionToken,
       });
-      await webhook.editMessage("@original", {
-        embeds: [embed],
-        components,
-      });
+      const editOptions = { embeds: [embed], components };
+      if (content !== null) editOptions.content = content;
+      await webhook.editMessage("@original", editOptions);
     } catch (err) {
       logger.error("Game finder: failed to edit message", {
         error: err.message,
