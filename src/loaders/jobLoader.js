@@ -30,6 +30,11 @@ function loadJobs(client) {
       logger.info("Started job", { name: "suggestionCleanupJob" });
       continue;
     }
+    if (typeof job.startSniperScheduler === "function") {
+      job.startSniperScheduler(client);
+      logger.info("Started job", { name: "sniperScheduler" });
+      continue;
+    }
 
     // Support old-style jobs
     if (!job?.name || typeof job.run !== "function" || !job.intervalMs) {

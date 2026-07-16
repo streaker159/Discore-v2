@@ -19,7 +19,6 @@ module.exports = {
     if (expiredEvents.length) {
       const ids = expiredEvents.map((e) => e.id);
 
-      // Clean up event-related data
       await prisma.eventRsvp.deleteMany({ where: { eventId: { in: ids } } });
       await prisma.eventNotificationLog.deleteMany({
         where: { eventId: { in: ids } },
@@ -121,7 +120,7 @@ module.exports = {
       });
     }
 
-    // ── Scoreboard action log cap (safety sweep: keep newest 200 per board) ─
+    // ── Scoreboard action log cap ─
     const heavyBoards = await prisma.scoreboardAction.groupBy({
       by: ["scoreboardId"],
       _count: { id: true },
@@ -143,7 +142,7 @@ module.exports = {
       }
     }
 
-    // ── Orphaned UserRoleScore (scoreboard deleted but rows remain) ────────
+    // ── Orphaned UserRoleScore ────────
     const orphanedScores = await prisma.$queryRaw`
       DELETE FROM "UserRoleScore"
       WHERE "scoreboardId" NOT IN (SELECT id FROM "Scoreboard")
@@ -155,7 +154,7 @@ module.exports = {
       });
     }
 
-    // ── Orphaned EventNotificationLog (event deleted but logs remain) ──────
+    // ── Orphaned EventNotificationLog ──────
     const orphanedNotifLogs = await prisma.$queryRaw`
       DELETE FROM "EventNotificationLog"
       WHERE "eventId" NOT IN (SELECT id FROM "Event")
@@ -170,7 +169,7 @@ module.exports = {
       );
     }
 
-    // ── Orphaned EventReminder (event deleted but reminders remain) ─────────
+    // ── Orphaned EventReminder ─────────
     const orphanedReminders = await prisma.$queryRaw`
       DELETE FROM "EventReminder"
       WHERE "eventId" NOT IN (SELECT id FROM "Event")
@@ -219,6 +218,24 @@ module.exports = {
       });
     }
 
+    // ── Sniper Challenge runs (30-day retention for ended runs) ──────────
+    try {
+      const sniperRunDeleted = await prisma.sniperChallengeRun.deleteMany({
+        where: {
+          status: { in: ["WON", "EXPIRED", "CANCELLED"] },
+          createdAt: { lte: thirtyDaysAgo },
+        },
+      });
+      if (sniperRunDeleted.count) {
+        totalDeleted += sniperRunDeleted.count;
+        logger.info("dataCleanupJob: pruned old sniper challenge runs", {
+          count: sniperRunDeleted.count,
+        });
+      }
+    } catch {
+      // SniperChallengeRun table may not exist yet (before migration)
+    }
+
     // ── Old AI usage logs (90-day retention) ───────────────
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     const oldLogsDel = await prisma.aiUsage.deleteMany({
@@ -242,7 +259,7 @@ module.exports = {
       });
     }
 
-    // ── Orphaned UserXp (guild no longer in DB) ───────────────────
+    // ── Orphaned UserXp ───────────────────
     const orphanedXp = await prisma.$queryRaw`
       DELETE FROM "UserXp"
       WHERE "guildId" NOT IN (SELECT id FROM "Guild")
@@ -254,7 +271,7 @@ module.exports = {
       });
     }
 
-    // ── Orphaned UserXpEvent (guild no longer in DB) ──────────────
+    // ── Orphaned UserXpEvent ──────────────
     const orphanedXpEvents = await prisma.$queryRaw`
       DELETE FROM "UserXpEvent"
       WHERE "guildId" NOT IN (SELECT id FROM "Guild")

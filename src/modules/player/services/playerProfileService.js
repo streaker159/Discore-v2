@@ -126,6 +126,15 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
     }
   }
 
+  // Get sniper challenge stats
+  let sniperStats = null;
+  try {
+    const { getPlayerStats } = require("../../sniper/sniperService");
+    sniperStats = await getPlayerStats(guildId, userId);
+  } catch {
+    // Sniper may not be set up yet
+  }
+
   // Get activity
   const activity = await getUserActivity(guildId, userId);
 
@@ -139,9 +148,20 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
     },
     activity,
     xpStats,
+    sniperStats,
   };
+}
+
+async function getSniperPlayerStats(guildId, userId) {
+  try {
+    const { getPlayerStats } = require("../../sniper/sniperService");
+    return await getPlayerStats(guildId, userId);
+  } catch {
+    return null;
+  }
 }
 
 module.exports = {
   getPlayerProfileStats,
+  getSniperPlayerStats,
 };
