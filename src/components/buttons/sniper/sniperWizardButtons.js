@@ -16,14 +16,11 @@ module.exports = {
 
   async execute(interaction, client) {
     if (!(await requireSniperAdmin(interaction))) return;
-
     const customId = interaction.customId;
     const guildId = interaction.guildId;
     const userId = interaction.user.id;
-
     const state = wizardState.get(userId, guildId);
 
-    // ── Cancel ──────────────────────────────────────────────────────────
     if (customId === "sniper:wiz:cancel") {
       wizardState.del(userId, guildId);
       const {
@@ -38,43 +35,42 @@ module.exports = {
       const {
         buildAdminDashboardButtons,
       } = require("../../../commands/public/sniper/sniper");
-      const components = buildAdminDashboardButtons(config || {});
-      return interaction.update({ embeds: [embed], components });
+      return interaction.update({
+        embeds: [embed],
+        components: buildAdminDashboardButtons(config || {}),
+      });
     }
 
-    // ── Next step ────────────────────────────────────────────────────────
     if (customId.startsWith("sniper:wiz:next:")) {
       const targetStep = parseInt(customId.split(":")[3]);
-      if (!state || state.step + 1 !== targetStep) {
+      if (!state || state.step + 1 !== targetStep)
         return interaction.reply({
           content: "Wizard session expired or out of sync. Please start again.",
           flags: 64,
         });
-      }
       state.step = targetStep;
       wizardState.set(userId, guildId, state);
-      const embed = buildWizardStepEmbed(targetStep, state);
-      const components = buildWizardNav(targetStep);
-      return interaction.update({ embeds: [embed], components });
+      return interaction.update({
+        embeds: [buildWizardStepEmbed(targetStep, state)],
+        components: buildWizardNav(targetStep),
+      });
     }
 
-    // ── Back step ────────────────────────────────────────────────────────
     if (customId.startsWith("sniper:wiz:back:")) {
       const targetStep = parseInt(customId.split(":")[3]);
-      if (!state || state.step - 1 !== targetStep) {
+      if (!state || state.step - 1 !== targetStep)
         return interaction.reply({
           content: "Wizard session expired. Please start again.",
           flags: 64,
         });
-      }
       state.step = targetStep;
       wizardState.set(userId, guildId, state);
-      const embed = buildWizardStepEmbed(targetStep, state);
-      const components = buildWizardNav(targetStep);
-      return interaction.update({ embeds: [embed], components });
+      return interaction.update({
+        embeds: [buildWizardStepEmbed(targetStep, state)],
+        components: buildWizardNav(targetStep),
+      });
     }
 
-    // ── Edit timing modal ────────────────────────────────────────────────
     if (customId === "sniper:wiz:edit_timing") {
       const {
         ModalBuilder,
@@ -115,15 +111,27 @@ module.exports = {
       return interaction.showModal(modal);
     }
 
-    // ── Enable ───────────────────────────────────────────────────────────
+    if (customId === "sniper:wiz:skip_teaser") {
+      if (!state)
+        return interaction.reply({
+          content: "Wizard session expired.",
+          flags: 64,
+        });
+      state.teaserRoleId = null;
+      state.step = WIZARD_STEPS.LEADERBOARD;
+      wizardState.set(userId, guildId, state);
+      return interaction.update({
+        embeds: [buildWizardStepEmbed(WIZARD_STEPS.LEADERBOARD, state)],
+        components: buildWizardNav(WIZARD_STEPS.LEADERBOARD),
+      });
+    }
+
     if (customId === "sniper:wiz:enable") {
-      if (!state) {
+      if (!state)
         return interaction.reply({
           content: "Wizard session expired. Please start again.",
           flags: 64,
         });
-      }
-
       const {
         validateSetup,
       } = require("../../../modules/sniper/sniperService");
@@ -135,106 +143,93 @@ module.exports = {
         maxDelayMs: state.maxDelayMs ?? 10800000,
         activeDurationMs: state.activeDurationMs ?? 180000,
       });
-
       if (
         issues.some(
           (i) =>
             i.includes("No challenge channels") || i.includes("No reward role"),
         )
-      ) {
+      )
         return interaction.reply({
           content: `⚠️ Cannot enable:\n${issues.map((i) => `• ${i}`).join("\n")}`,
           flags: 64,
         });
-      }
 
       await db.upsertConfig(guildId, {
         enabled: true,
         paused: false,
         challengeChannelIds: state.challengeChannelIds || [],
         rewardRoleId: state.rewardRoleId,
+        teaserRoleId: state.teaserRoleId || null,
         leaderboardChannelId: state.leaderboardChannelId,
         notificationChannelId: state.notificationChannelId || null,
         minDelayMs: state.minDelayMs ?? 3600000,
         maxDelayMs: state.maxDelayMs ?? 10800000,
         activeDurationMs: state.activeDurationMs ?? 180000,
       });
-
       const {
         randomDelay,
       } = require("../../../modules/sniper/sniperScheduler");
-      const nextDelay = randomDelay(
-        state.minDelayMs ?? 3600000,
-        state.maxDelayMs ?? 10800000,
-      );
       await db.updateConfig(guildId, {
-        nextRunAt: new Date(Date.now() + nextDelay),
+        nextRunAt: new Date(
+          Date.now() +
+            randomDelay(
+              state.minDelayMs ?? 3600000,
+              state.maxDelayMs ?? 10800000,
+            ),
+        ),
       });
-
       try {
         const {
           postLeaderboard,
         } = require("../../../modules/sniper/sniperLeaderboard");
         await postLeaderboard(guildId, client);
       } catch {}
-
       wizardState.del(userId, guildId);
-
       const {
         buildDashboardEmbed,
       } = require("../../../modules/sniper/sniperEmbeds");
       const { getConfig } = require("../../../modules/sniper/sniperService");
       const config = await getConfig(guildId);
-      const embed = buildDashboardEmbed(config, interaction.guild);
       const {
         buildAdminDashboardButtons,
       } = require("../../../commands/public/sniper/sniper");
-      const components = buildAdminDashboardButtons(config);
-
       return interaction.update({
         content: "✅ Sniper Challenge is now **ENABLED**!",
-        embeds: [embed],
-        components,
+        embeds: [buildDashboardEmbed(config, interaction.guild)],
+        components: buildAdminDashboardButtons(config),
       });
     }
 
-    // ── Save Disabled ────────────────────────────────────────────────────
     if (customId === "sniper:wiz:save_disabled") {
-      if (!state) {
+      if (!state)
         return interaction.reply({
           content: "Wizard session expired. Please start again.",
           flags: 64,
         });
-      }
-
       await db.upsertConfig(guildId, {
         enabled: false,
         challengeChannelIds: state.challengeChannelIds || [],
         rewardRoleId: state.rewardRoleId,
+        teaserRoleId: state.teaserRoleId || null,
         leaderboardChannelId: state.leaderboardChannelId,
         notificationChannelId: state.notificationChannelId || null,
         minDelayMs: state.minDelayMs ?? 3600000,
         maxDelayMs: state.maxDelayMs ?? 10800000,
         activeDurationMs: state.activeDurationMs ?? 180000,
       });
-
       wizardState.del(userId, guildId);
-
       const {
         buildDashboardEmbed,
       } = require("../../../modules/sniper/sniperEmbeds");
       const { getConfig } = require("../../../modules/sniper/sniperService");
       const config = await getConfig(guildId);
-      const embed = buildDashboardEmbed(config, interaction.guild);
       const {
         buildAdminDashboardButtons,
       } = require("../../../commands/public/sniper/sniper");
-      const components = buildAdminDashboardButtons(config);
-
       return interaction.update({
         content: "💾 Setup saved (disabled). You can enable it anytime.",
-        embeds: [embed],
-        components,
+        embeds: [buildDashboardEmbed(config, interaction.guild)],
+        components: buildAdminDashboardButtons(config),
       });
     }
 

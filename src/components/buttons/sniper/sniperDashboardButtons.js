@@ -36,41 +36,33 @@ module.exports = {
   customIdPrefix: "sniper:dash:",
 
   async execute(interaction, client) {
-    // All dashboard buttons require admin
     if (!(await requireSniperAdmin(interaction))) return;
-
     const action = interaction.customId.replace("sniper:dash:", "");
     const guildId = interaction.guildId;
 
     switch (action) {
       case "setup": {
-        // Clear any existing wizard state
         wizardState.del(interaction.user.id, guildId);
-
-        // Init new wizard state
         wizardState.set(interaction.user.id, guildId, {
           step: 1,
           challengeChannelIds: [],
           rewardRoleId: null,
+          teaserRoleId: null,
           leaderboardChannelId: null,
           notificationChannelId: null,
           minDelayMs: 3600000,
           maxDelayMs: 10800000,
           activeDurationMs: 180000,
         });
-
         const {
           buildWizardStepEmbed,
           WIZARD_STEPS,
         } = require("../../../modules/sniper/sniperEmbeds");
-
         const embed = buildWizardStepEmbed(WIZARD_STEPS.CHANNELS, {});
-        const components = buildWizardNav(WIZARD_STEPS.CHANNELS, false, false);
-
+        const components = buildWizardNav(WIZARD_STEPS.CHANNELS);
         await interaction.update({ embeds: [embed], components });
         break;
       }
-
       case "pause": {
         const config = await getConfig(guildId);
         if (!config?.enabled) {
@@ -80,33 +72,28 @@ module.exports = {
           });
           return;
         }
-
         if (config.paused) {
           await resumeChallenges(guildId, client);
         } else {
           await pauseChallenges(guildId);
         }
-
-        // Refresh dashboard
         const freshConfig = await getConfig(guildId);
         const embed = buildDashboardEmbed(freshConfig, interaction.guild);
         const {
           buildAdminDashboardButtons,
         } = require("../../../commands/public/sniper/sniper");
-        const components = buildAdminDashboardButtons(freshConfig);
-
-        await interaction.update({ embeds: [embed], components });
+        await interaction.update({
+          embeds: [embed],
+          components: buildAdminDashboardButtons(freshConfig),
+        });
         break;
       }
-
       case "force": {
         const result = await forceChallenge(guildId, client);
-
         if (!result.success) {
           let msg = "Failed to force challenge.";
-          if (result.issues) {
+          if (result.issues)
             msg += `\nIssues:\n${result.issues.map((i) => `• ${i}`).join("\n")}`;
-          }
           await interaction.reply({ content: msg, flags: 64 });
         } else {
           await interaction.reply({
@@ -116,18 +103,15 @@ module.exports = {
         }
         break;
       }
-
       case "leaderboard": {
         const config = await getConfig(guildId);
         const topText = await getLeaderboardText(guildId);
-
         const embed = new EmbedBuilder()
           .setColor(0xf1c40f)
           .setTitle("📊 Sniper Challenge Leaderboard")
           .setDescription(topText)
           .setFooter({ text: "Sniper Challenge • Discore" })
           .setTimestamp();
-
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("sniper:dash:repair_leaderboard")
@@ -139,11 +123,9 @@ module.exports = {
             .setLabel("Back to Dashboard")
             .setStyle(ButtonStyle.Secondary),
         );
-
         await interaction.update({ embeds: [embed], components: [row] });
         break;
       }
-
       case "repair_leaderboard": {
         await interaction.deferReply({ flags: 64 });
         await postLeaderboard(guildId, client);
@@ -152,11 +134,9 @@ module.exports = {
         });
         break;
       }
-
       case "settings": {
         const config = await getConfig(guildId);
         const embed = buildSettingsEmbed(config);
-
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("sniper:dash:edit_timing")
@@ -168,11 +148,9 @@ module.exports = {
             .setLabel("Back to Dashboard")
             .setStyle(ButtonStyle.Secondary),
         );
-
         await interaction.update({ embeds: [embed], components: [row] });
         break;
       }
-
       case "edit_timing": {
         const {
           ModalBuilder,
@@ -180,14 +158,11 @@ module.exports = {
           TextInputStyle,
           ActionRowBuilder: ModalActionRow,
         } = require("discord.js");
-
         const config = await getConfig(guildId);
         const { formatMs } = require("../../../modules/sniper/sniperEmbeds");
-
         const modal = new ModalBuilder()
           .setCustomId("sniper:timing_modal")
           .setTitle("⏱️ Sniper Challenge Timing");
-
         const minDelay = new TextInputBuilder()
           .setCustomId("min_delay")
           .setLabel("Minimum Random Delay")
@@ -195,7 +170,6 @@ module.exports = {
           .setStyle(TextInputStyle.Short)
           .setValue(formatMs(config?.minDelayMs ?? 3600000))
           .setRequired(true);
-
         const maxDelay = new TextInputBuilder()
           .setCustomId("max_delay")
           .setLabel("Maximum Random Delay")
@@ -203,7 +177,6 @@ module.exports = {
           .setStyle(TextInputStyle.Short)
           .setValue(formatMs(config?.maxDelayMs ?? 10800000))
           .setRequired(true);
-
         const activeDuration = new TextInputBuilder()
           .setCustomId("active_duration")
           .setLabel("Active Challenge Duration")
@@ -211,21 +184,16 @@ module.exports = {
           .setStyle(TextInputStyle.Short)
           .setValue(formatMs(config?.activeDurationMs ?? 180000))
           .setRequired(true);
-
         modal.addComponents(
           new ModalActionRow().addComponents(minDelay),
           new ModalActionRow().addComponents(maxDelay),
           new ModalActionRow().addComponents(activeDuration),
         );
-
         await interaction.showModal(modal);
         break;
       }
-
       case "reset": {
-        const config = await getConfig(guildId);
-        const embed = buildResetEmbed(config);
-
+        const embed = buildResetEmbed(await getConfig(guildId));
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("sniper:dash:reset_stats")
@@ -243,7 +211,6 @@ module.exports = {
             .setStyle(ButtonStyle.Danger)
             .setEmoji("🗑️"),
         );
-
         const row2 = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("sniper:dash:cancel_active")
@@ -255,14 +222,9 @@ module.exports = {
             .setLabel("Back to Dashboard")
             .setStyle(ButtonStyle.Secondary),
         );
-
-        await interaction.update({
-          embeds: [embed],
-          components: [row, row2],
-        });
+        await interaction.update({ embeds: [embed], components: [row, row2] });
         break;
       }
-
       case "reset_stats": {
         await interaction.deferReply({ flags: 64 });
         await resetStats(guildId);
@@ -271,7 +233,6 @@ module.exports = {
         });
         break;
       }
-
       case "clear_champion": {
         await interaction.deferReply({ flags: 64 });
         await clearChampion(guildId, client);
@@ -280,7 +241,6 @@ module.exports = {
         });
         break;
       }
-
       case "delete_config": {
         await interaction.deferReply({ flags: 64 });
         await deleteConfig(guildId);
@@ -290,34 +250,32 @@ module.exports = {
         });
         break;
       }
-
       case "cancel_active": {
         const cancelled = await cancelActive(guildId);
-        if (cancelled) {
+        if (cancelled)
           await interaction.reply({
             content: "✅ Active challenge cancelled.",
             flags: 64,
           });
-        } else {
+        else
           await interaction.reply({
             content: "No active challenge to cancel.",
             flags: 64,
           });
-        }
         break;
       }
-
       case "back_to_dash": {
         const config = await getConfig(guildId);
         const embed = buildDashboardEmbed(config, interaction.guild);
         const {
           buildAdminDashboardButtons,
         } = require("../../../commands/public/sniper/sniper");
-        const components = buildAdminDashboardButtons(config);
-        await interaction.update({ embeds: [embed], components });
+        await interaction.update({
+          embeds: [embed],
+          components: buildAdminDashboardButtons(config),
+        });
         break;
       }
-
       case "close": {
         await interaction
           .update({
@@ -328,7 +286,6 @@ module.exports = {
           .catch(() => {});
         break;
       }
-
       default: {
         await interaction.reply({
           content: "Unknown dashboard action.",
@@ -339,12 +296,11 @@ module.exports = {
   },
 };
 
-// ─── Wizard navigation helpers ───────────────────────────────────────────────────
+// ─── Wizard navigation helpers (7-step: CHANNELS→ROLE→TEASER→LEADERBOARD→NOTIFICATION→TIMING→PREVIEW) ───
 
-function buildWizardNav(step, canGoBack = true, canGoNext = true) {
+function buildWizardNav(step) {
   const { ChannelSelectMenuBuilder, ChannelType } = require("discord.js");
   const { WIZARD_STEPS } = require("../../../modules/sniper/sniperEmbeds");
-
   const rows = [];
 
   switch (step) {
@@ -364,8 +320,7 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
           new ButtonBuilder()
             .setCustomId("sniper:wiz:next:2")
             .setLabel("Next")
-            .setStyle(ButtonStyle.Primary)
-            .setDisabled(false),
+            .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
             .setCustomId("sniper:wiz:cancel")
             .setLabel("Cancel")
@@ -374,7 +329,6 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       );
       break;
     }
-
     case WIZARD_STEPS.ROLE: {
       const { RoleSelectMenuBuilder } = require("discord.js");
       const roleSelect = new RoleSelectMenuBuilder()
@@ -401,23 +355,23 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       );
       break;
     }
-
-    case WIZARD_STEPS.LEADERBOARD: {
-      const channelSelect = new ChannelSelectMenuBuilder()
-        .setCustomId("sniper:wiz:leaderboard_select")
-        .setPlaceholder("Select leaderboard channel...")
-        .setMinValues(1)
-        .setMaxValues(1)
-        .setChannelTypes([
-          ChannelType.GuildText,
-          ChannelType.GuildAnnouncement,
-        ]);
-      rows.push(new ActionRowBuilder().addComponents(channelSelect));
+    case WIZARD_STEPS.TEASER: {
+      const { RoleSelectMenuBuilder } = require("discord.js");
+      const teaserSelect = new RoleSelectMenuBuilder()
+        .setCustomId("sniper:wiz:teaser_select")
+        .setPlaceholder("Select teaser role (optional)...")
+        .setMinValues(0)
+        .setMaxValues(1);
+      rows.push(new ActionRowBuilder().addComponents(teaserSelect));
       rows.push(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("sniper:wiz:back:2")
             .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("sniper:wiz:skip_teaser")
+            .setLabel("Skip")
             .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
             .setCustomId("sniper:wiz:next:4")
@@ -431,11 +385,10 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       );
       break;
     }
-
-    case WIZARD_STEPS.NOTIFICATION: {
+    case WIZARD_STEPS.LEADERBOARD: {
       const channelSelect = new ChannelSelectMenuBuilder()
-        .setCustomId("sniper:wiz:notif_select")
-        .setPlaceholder("Select notification channel...")
+        .setCustomId("sniper:wiz:leaderboard_select")
+        .setPlaceholder("Select leaderboard channel...")
         .setMinValues(1)
         .setMaxValues(1)
         .setChannelTypes([
@@ -461,17 +414,17 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       );
       break;
     }
-
-    case WIZARD_STEPS.TIMING: {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("sniper:wiz:edit_timing")
-            .setLabel("Edit Timing")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("⏱️"),
-        ),
-      );
+    case WIZARD_STEPS.NOTIFICATION: {
+      const channelSelect = new ChannelSelectMenuBuilder()
+        .setCustomId("sniper:wiz:notif_select")
+        .setPlaceholder("Select notification channel...")
+        .setMinValues(1)
+        .setMaxValues(1)
+        .setChannelTypes([
+          ChannelType.GuildText,
+          ChannelType.GuildAnnouncement,
+        ]);
+      rows.push(new ActionRowBuilder().addComponents(channelSelect));
       rows.push(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -490,7 +443,34 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       );
       break;
     }
-
+    case WIZARD_STEPS.TIMING: {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("sniper:wiz:edit_timing")
+            .setLabel("Edit Timing")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("⏱️"),
+        ),
+      );
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("sniper:wiz:back:5")
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("sniper:wiz:next:7")
+            .setLabel("Next")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId("sniper:wiz:cancel")
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Danger),
+        ),
+      );
+      break;
+    }
     case WIZARD_STEPS.PREVIEW: {
       rows.push(
         new ActionRowBuilder().addComponents(
@@ -508,7 +488,7 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       rows.push(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId("sniper:wiz:back:5")
+            .setCustomId("sniper:wiz:back:6")
             .setLabel("Back")
             .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
@@ -520,7 +500,6 @@ function buildWizardNav(step, canGoBack = true, canGoNext = true) {
       break;
     }
   }
-
   return rows.filter((r) => r.components?.length);
 }
 
