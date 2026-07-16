@@ -10,7 +10,23 @@ function cuid() {
     : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// ── All operations use raw SQL since Prisma model delegates are unavailable ──
+// Helper: build placeholder list, casting "status" column to enum
+function buildValuePlaceholders(keys) {
+  return keys.map((k, idx) => {
+    if (k === "status") return `CAST($${idx + 2} AS "SniperChallengeStatus")`;
+    return `$${idx + 2}`;
+  });
+}
+
+function buildSetClauses(keys) {
+  return keys
+    .map((k, idx) => {
+      if (k === "status")
+        return `"status" = CAST($${idx + 1} AS "SniperChallengeStatus")`;
+      return `"${k}" = $${idx + 1}`;
+    })
+    .join(", ");
+}
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -71,9 +87,7 @@ async function upsertConfig(guildId, data) {
     } else {
       const keys = Object.keys(data);
       if (keys.length > 0) {
-        const setClauses = keys
-          .map((k, idx) => `"${k}" = $${idx + 1}`)
-          .join(", ");
+        const setClauses = buildSetClauses(keys);
         const vals = keys.map((k) => data[k]);
         await prisma.$executeRawUnsafe(
           `UPDATE "SniperChallengeConfig" SET ${setClauses} WHERE "guildId" = $${keys.length + 1}`,
@@ -96,7 +110,7 @@ async function updateConfig(guildId, data) {
   try {
     const keys = Object.keys(data);
     if (keys.length === 0) return findConfig(guildId);
-    const setClauses = keys.map((k, idx) => `"${k}" = $${idx + 1}`).join(", ");
+    const setClauses = buildSetClauses(keys);
     const vals = keys.map((k) => data[k]);
     await prisma.$executeRawUnsafe(
       `UPDATE "SniperChallengeConfig" SET ${setClauses} WHERE "guildId" = $${keys.length + 1}`,
@@ -158,15 +172,23 @@ async function findActiveRun(guildId) {
 }
 
 async function createRun(data) {
+  // Status column requires CAST to custom enum
   try {
     const id = cuid();
     const keys = Object.keys(data);
     const cols = ["id", ...keys];
-    const vals = [id, ...keys.map((k) => data[k])];
-    const placeholders = cols.map((_, idx) => `$${idx + 1}`).join(", ");
+    const vals = [id];
+    const phs = ["$1"];
+    for (let idx = 0; idx < keys.length; idx++) {
+      const k = keys[idx];
+      vals.push(data[k]);
+      if (k === "status")
+        phs.push(`CAST($${idx + 2} AS "SniperChallengeStatus")`);
+      else phs.push(`$${idx + 2}`);
+    }
     const colList = cols.map((c) => `"${c}"`).join(", ");
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "SniperChallengeRun" (${colList}) VALUES (${placeholders})`,
+      `INSERT INTO "SniperChallengeRun" (${colList}) VALUES (${phs.join(", ")})`,
       ...vals,
     );
     return findRun(id);
@@ -180,7 +202,7 @@ async function updateRun(id, data) {
   try {
     const keys = Object.keys(data);
     if (keys.length === 0) return findRun(id);
-    const setClauses = keys.map((k, idx) => `"${k}" = $${idx + 1}`).join(", ");
+    const setClauses = buildSetClauses(keys);
     const vals = keys.map((k) => data[k]);
     await prisma.$executeRawUnsafe(
       `UPDATE "SniperChallengeRun" SET ${setClauses} WHERE "id" = $${keys.length + 1}`,
@@ -197,7 +219,7 @@ async function updateRun(id, data) {
 async function updateRunMany(where, data) {
   try {
     const keys = Object.keys(data);
-    const setClauses = keys.map((k, idx) => `"${k}" = $${idx + 1}`).join(", ");
+    const setClauses = buildSetClauses(keys);
     const vals = keys.map((k) => data[k]);
     let whereClause = "";
     const whereParams = [];
@@ -209,8 +231,9 @@ async function updateRunMany(where, data) {
     }
     if (where.status) {
       if (whereClause) whereClause += " AND ";
-      whereClause += `"status" = $${i++}`;
+      whereClause += `"status" = CAST($${i} AS "SniperChallengeStatus")`;
       whereParams.push(where.status);
+      i++;
     }
     if (where.winnerId !== undefined) {
       if (whereClause) whereClause += " AND ";
@@ -254,7 +277,7 @@ async function deleteRuns(where) {
       params.push(where.guildId);
     }
     if (where.status && where.status.in) {
-      query += ` AND "status" IN (${where.status.in.map((_, idx) => `$${i + idx}`).join(", ")})`;
+      query += ` AND "status"::text IN (${where.status.in.map((_, idx) => `$${i + idx}`).join(", ")})`;
       params.push(...where.status.in);
       i += where.status.in.length;
     }
@@ -308,9 +331,7 @@ async function upsertStats(guildId, userId, data) {
     } else {
       const keys = Object.keys(data);
       if (keys.length > 0) {
-        const setClauses = keys
-          .map((k, idx) => `"${k}" = $${idx + 1}`)
-          .join(", ");
+        const setClauses = buildSetClauses(keys);
         const vals = keys.map((k) => data[k]);
         await prisma.$executeRawUnsafe(
           `UPDATE "SniperPlayerStats" SET ${setClauses} WHERE "guildId" = $${keys.length + 1} AND "userId" = $${keys.length + 2}`,
@@ -331,7 +352,7 @@ async function updateStats(guildId, userId, data) {
   try {
     const keys = Object.keys(data);
     if (keys.length === 0) return findStats(guildId, userId);
-    const setClauses = keys.map((k, idx) => `"${k}" = $${idx + 1}`).join(", ");
+    const setClauses = buildSetClauses(keys);
     const vals = keys.map((k) => data[k]);
     await prisma.$executeRawUnsafe(
       `UPDATE "SniperPlayerStats" SET ${setClauses} WHERE "guildId" = $${keys.length + 1} AND "userId" = $${keys.length + 2}`,
@@ -378,79 +399,35 @@ async function deleteStats(where) {
   }
 }
 
-// ─── Raw SQL table creation ────────────────────────────────────────────────
+// ─── Table creation ─────────────────────────────────────────────────────────
 
 async function ensureTables() {
   try {
-    await prisma.$executeRawUnsafe(`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'SniperChallengeStatus') THEN
-          CREATE TYPE "SniperChallengeStatus" AS ENUM ('ACTIVE', 'WON', 'EXPIRED', 'CANCELLED');
-        END IF;
-      END $$;
-    `);
+    await prisma.$executeRawUnsafe(
+      `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'SniperChallengeStatus') THEN CREATE TYPE "SniperChallengeStatus" AS ENUM ('ACTIVE','WON','EXPIRED','CANCELLED'); END IF; END $$;`,
+    );
   } catch {}
 
   try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "SniperChallengeConfig" (
-        "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        "guildId" TEXT UNIQUE NOT NULL,
-        "enabled" BOOLEAN NOT NULL DEFAULT false,
-        "paused" BOOLEAN NOT NULL DEFAULT false,
-        "challengeChannelIds" TEXT[] NOT NULL DEFAULT '{}',
-        "leaderboardChannelId" TEXT,
-        "notificationChannelId" TEXT,
-        "rewardRoleId" TEXT,
-        "currentChampionId" TEXT,
-        "currentChampionSince" TIMESTAMPTZ,
-        "minDelayMs" INTEGER NOT NULL DEFAULT 3600000,
-        "maxDelayMs" INTEGER NOT NULL DEFAULT 10800000,
-        "activeDurationMs" INTEGER NOT NULL DEFAULT 180000,
-        "nextRunAt" TIMESTAMPTZ,
-        "leaderboardMessageId" TEXT,
-        "totalChallengesCompleted" INTEGER NOT NULL DEFAULT 0,
-        "lastWinnerId" TEXT,
-        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-    `);
+    await prisma.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "SniperChallengeConfig" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT UNIQUE NOT NULL,"enabled" BOOLEAN NOT NULL DEFAULT false,"paused" BOOLEAN NOT NULL DEFAULT false,"challengeChannelIds" TEXT[] NOT NULL DEFAULT '{}',"leaderboardChannelId" TEXT,"notificationChannelId" TEXT,"rewardRoleId" TEXT,"currentChampionId" TEXT,"currentChampionSince" TIMESTAMPTZ,"minDelayMs" INTEGER NOT NULL DEFAULT 3600000,"maxDelayMs" INTEGER NOT NULL DEFAULT 10800000,"activeDurationMs" INTEGER NOT NULL DEFAULT 180000,"nextRunAt" TIMESTAMPTZ,"leaderboardMessageId" TEXT,"totalChallengesCompleted" INTEGER NOT NULL DEFAULT 0,"lastWinnerId" TEXT,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());`,
+    );
   } catch (e) {
     logger.warn("[SniperChallenge] Config table ensure", { error: e.message });
   }
 
   try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "SniperChallengeRun" (
-        "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        "guildId" TEXT NOT NULL, "channelId" TEXT NOT NULL,
-        "messageId" TEXT,
-        "status" "SniperChallengeStatus" NOT NULL DEFAULT 'ACTIVE',
-        "spawnedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        "expiresAt" TIMESTAMPTZ NOT NULL,
-        "winnerId" TEXT, "wonAt" TIMESTAMPTZ, "reactionTimeMs" INTEGER,
-        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-    `);
+    await prisma.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "SniperChallengeRun" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT NOT NULL,"channelId" TEXT NOT NULL,"messageId" TEXT,"status" "SniperChallengeStatus" NOT NULL DEFAULT 'ACTIVE',"spawnedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"expiresAt" TIMESTAMPTZ NOT NULL,"winnerId" TEXT,"wonAt" TIMESTAMPTZ,"reactionTimeMs" INTEGER,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());`,
+    );
   } catch (e) {
     logger.warn("[SniperChallenge] Run table ensure", { error: e.message });
   }
 
   try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "SniperPlayerStats" (
-        "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        "guildId" TEXT NOT NULL, "userId" TEXT NOT NULL,
-        "totalWins" INTEGER NOT NULL DEFAULT 0,
-        "currentStreak" INTEGER NOT NULL DEFAULT 0,
-        "bestStreak" INTEGER NOT NULL DEFAULT 0,
-        "lastWinAt" TIMESTAMPTZ,
-        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE("guildId", "userId")
-      );
-    `);
+    await prisma.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "SniperPlayerStats" ("id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,"guildId" TEXT NOT NULL,"userId" TEXT NOT NULL,"totalWins" INTEGER NOT NULL DEFAULT 0,"currentStreak" INTEGER NOT NULL DEFAULT 0,"bestStreak" INTEGER NOT NULL DEFAULT 0,"lastWinAt" TIMESTAMPTZ,"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),"updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE("guildId","userId"));`,
+    );
   } catch (e) {
     logger.warn("[SniperChallenge] Stats table ensure", { error: e.message });
   }
