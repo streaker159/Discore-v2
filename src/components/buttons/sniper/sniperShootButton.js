@@ -2,6 +2,10 @@
 
 const { handleShoot } = require("../../../modules/sniper/sniperService");
 const db = require("../../../modules/sniper/sniperDb");
+const {
+  getRandomWinMessage,
+  getRandomLossMessage,
+} = require("../../../modules/sniper/sniperEmbeds");
 
 module.exports = {
   customId: "sniper:shoot",
@@ -17,13 +21,10 @@ module.exports = {
       });
     }
 
-    // Extract challenge ID from customId
-    // Format: sniper:shoot or sniper:shoot:<challengeId>
     const parts = interaction.customId.split(":");
     const challengeId = parts.length >= 3 ? parts[2] : null;
 
     if (!challengeId) {
-      // Fallback: find the active run for this guild and use its ID
       const active = await db.findActiveRun(guildId);
       if (!active) {
         return interaction.reply({
@@ -46,10 +47,8 @@ async function handleShootResponse(interaction, result) {
       result.reactionTimeMs != null
         ? ` (${(result.reactionTimeMs / 1000).toFixed(1)}s)`
         : "";
-    return interaction.reply({
-      content: `🔫 **Direct hit!** You stole the top spot!${reactionStr}`,
-      flags: 64,
-    });
+    const msg = getRandomWinMessage();
+    return interaction.reply({ content: `${msg}${reactionStr}`, flags: 64 });
   }
 
   switch (result.reason) {
@@ -74,10 +73,7 @@ async function handleShootResponse(interaction, result) {
         flags: 64,
       });
     case "too_slow":
-      return interaction.reply({
-        content: "💨 **Too slow!** Someone else took the shot first.",
-        flags: 64,
-      });
+      return interaction.reply({ content: getRandomLossMessage(), flags: 64 });
     default:
       return interaction.reply({
         content: "Something went wrong. Please try again.",

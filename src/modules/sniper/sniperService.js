@@ -14,6 +14,7 @@ const { updateLeaderboard } = require("./sniperLeaderboard");
 const { randomDelay } = require("./sniperScheduler");
 
 const DEBUG = process.env.DEBUG_SNIPER_CHALLENGE === "true";
+const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
 
 async function getConfig(guildId) {
   return db.findConfig(guildId);
@@ -128,6 +129,35 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
   });
   if (!run) return null;
 
+  // Auto-delete challenge message after 10 minutes
+  setTimeout(() => {
+    message.delete().catch(() => {});
+  }, AUTO_DELETE_MS);
+
+  // Teaser announcement (alongside spawn, not 30s before)
+  if (config.teaserRoleId || config.notificationChannelId) {
+    const teaserChanId = config.notificationChannelId || channelId;
+    const teaserChan = client.channels.cache.get(teaserChanId);
+    if (teaserChan) {
+      const { buildTeaserEmbed } = require("./sniperEmbeds");
+      const teaserContent = config.teaserRoleId
+        ? `<@&${config.teaserRoleId}> — Incoming target!`
+        : null;
+      let teaserMsg;
+      try {
+        teaserMsg = await teaserChan.send({
+          content: teaserContent || "👀 A target is about to appear...",
+          embeds: [buildTeaserEmbed()],
+          files: getChallengeAttachments(),
+        });
+      } catch {}
+      if (teaserMsg)
+        setTimeout(() => {
+          teaserMsg.delete().catch(() => {});
+        }, AUTO_DELETE_MS);
+    }
+  }
+
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
   await db.updateConfig(guildId, {
     nextRunAt: new Date(Date.now() + nextDelay),
@@ -163,7 +193,6 @@ async function handleShoot(interaction, challengeId) {
     ? wonAt.getTime() - run.spawnedAt.getTime()
     : null;
 
-  // Atomic race-condition check — only one click succeeds
   const result = await db.updateRunMany(
     { id: challengeId, status: "ACTIVE", winnerId: null },
     { winnerId: userId, status: "WON", wonAt, reactionTimeMs },
@@ -171,7 +200,6 @@ async function handleShoot(interaction, challengeId) {
 
   if (result.count === 0) return { success: false, reason: "too_slow" };
 
-  // Reply immediately (within Discord's 3s timeout), then process the win in background
   setImmediate(() => {
     processWin(
       guildId,
@@ -201,7 +229,6 @@ async function processWin(
   const config = await getConfig(guildId);
   if (!config) return;
 
-  // 1. Player stats
   let stats = await db.findStats(guildId, userId);
   if (!stats) {
     stats = { totalWins: 0, currentStreak: 0, bestStreak: 0 };
@@ -225,7 +252,6 @@ async function processWin(
     lastWinAt: new Date(),
   });
 
-  // 2. Champion role — remove from previous, give to new
   if (
     config.currentChampionId &&
     config.currentChampionId !== userId &&
@@ -263,7 +289,6 @@ async function processWin(
     }
   }
 
-  // 3. Update config
   await db.updateConfig(guildId, {
     currentChampionId: userId,
     currentChampionSince: new Date(),
@@ -271,7 +296,6 @@ async function processWin(
     totalChallengesCompleted: (config.totalChallengesCompleted ?? 0) + 1,
   });
 
-  // 4. Edit challenge message
   const run = await db.findRun(challengeId);
   if (run?.messageId && run?.channelId) {
     try {
@@ -302,6 +326,10 @@ async function processWin(
               files: getWinnerAnnouncementAttachments(),
             })
             .catch(() => {});
+          // Auto-delete won challenge message
+          setTimeout(() => {
+            message.delete().catch(() => {});
+          }, AUTO_DELETE_MS);
         }
       }
     } catch (err) {
@@ -311,14 +339,14 @@ async function processWin(
     }
   }
 
-  // 5. Winner announcement
+  // Winner announcement with auto-delete
   const freshStats = await db.findStats(guildId, userId);
   const notifChannelId = config.notificationChannelId || run?.channelId;
   if (notifChannelId) {
     try {
       const notifChannel = client.channels.cache.get(notifChannelId);
       if (notifChannel) {
-        await notifChannel
+        const annMsg = await notifChannel
           .send({
             content: `🏆 <@${userId}> just stole the top spot!`,
             embeds: [
@@ -326,11 +354,18 @@ async function processWin(
                 userId,
                 freshStats?.totalWins ?? 1,
                 freshStats?.currentStreak ?? 1,
+                config.currentChampionId !== userId
+                  ? config.currentChampionId
+                  : null,
               ),
             ],
             files: getWinnerAnnouncementAttachments(),
           })
-          .catch(() => {});
+          .catch(() => null);
+        if (annMsg)
+          setTimeout(() => {
+            annMsg.delete().catch(() => {});
+          }, AUTO_DELETE_MS);
       }
     } catch (err) {
       logger.warn("[SniperChallenge] Failed to send winner announcement", {
@@ -339,7 +374,6 @@ async function processWin(
     }
   }
 
-  // 6. Leaderboard
   try {
     await updateLeaderboard(guildId, client);
   } catch (err) {
@@ -383,6 +417,10 @@ async function handleExpiry(run, client) {
         components: [new ActionRowBuilder().addComponents(disabledButton)],
       })
       .catch(() => {});
+    // Auto-delete expired challenge message
+    setTimeout(() => {
+      message.delete().catch(() => {});
+    }, AUTO_DELETE_MS);
   } catch (err) {
     logger.warn("[SniperChallenge] Failed to edit expired message", {
       error: err.message,

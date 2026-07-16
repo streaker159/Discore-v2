@@ -21,7 +21,13 @@ async function updateLeaderboard(guildId, client) {
   }
 
   const topPlayers = await db.findTopPlayers(guildId, 10);
-  const embed = buildLeaderboardEmbed(config, topPlayers, guild);
+  const fastestReactions = await db.findFastestReactions(guildId, 5);
+  const embed = buildLeaderboardEmbed(
+    config,
+    topPlayers,
+    fastestReactions,
+    guild,
+  );
 
   if (config.leaderboardMessageId) {
     try {
@@ -54,13 +60,8 @@ async function postLeaderboard(guildId, client) {
 }
 
 async function getLeaderboardText(guildId) {
-  const config = await db.findConfig(guildId);
   const topPlayers = await db.findTopPlayers(guildId, 10);
-
-  if (!topPlayers?.length) {
-    return "No winners yet. Be the first!";
-  }
-
+  if (!topPlayers?.length) return "No winners yet. Be the first!";
   return topPlayers
     .map(
       (p, i) =>
