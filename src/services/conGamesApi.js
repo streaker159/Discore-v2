@@ -389,8 +389,12 @@ async function fetchPlayer({ userId, username } = {}) {
   const decodedPayload = buildPlayerDecodedPayload({ userId, username });
   const encodedPayload = Buffer.from(decodedPayload, "utf8").toString("base64");
 
+  // ── Use the same confirmed field name as the game search ──────────
   const body = new URLSearchParams();
-  body.set(process.env.CON_ENCODED_PAYLOAD_FIELD || "data", encodedPayload);
+  body.set(
+    confirmedFieldName || process.env.CON_ENCODED_PAYLOAD_FIELD || "data",
+    encodedPayload,
+  );
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
