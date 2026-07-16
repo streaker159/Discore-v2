@@ -67,9 +67,18 @@ module.exports = {
         .setStyle(ButtonStyle.Danger),
     );
 
-    await interaction.editReply({
+    const reply = await interaction.editReply({
       embeds: [buildSearchingEmbed()],
       components: [row],
     });
+
+    // ── Store the reply message info so the search manager can edit
+    //     the message via the bot's REST API even after the interaction
+    //     webhook token expires (15 min limit, search lasts 30 min).
+    gameSearchManager.setReplyMessage(
+      userId,
+      reply.channelId || interaction.channelId,
+      reply.id,
+    );
   },
 };

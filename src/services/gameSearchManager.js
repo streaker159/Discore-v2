@@ -55,9 +55,9 @@ class GameSearchManager {
      * Each value:
      * {
      *   userId: string,
-     *   interaction: object,        // original interaction (for getUser)
-     *   interactionToken: string,   // interaction token for webhook edits
-     *   applicationId: string,
+     *   interaction: object,        // original interaction (for client access)
+     *   channelId: string,          // channel where the reply was posted
+     *   messageId: string,          // message ID of the reply
      *   cancelled: boolean,
      *   startedAt: number,
      *   timeoutTimer: NodeJS.Timeout | null,
@@ -119,6 +119,8 @@ class GameSearchManager {
       baselineIds,
       pollCount: 0,
       gamesCache: null,
+      channelId: null,
+      messageId: null,
     };
 
     // ── Timeout guard ──────────────────────────────────────────────
@@ -279,21 +281,49 @@ class GameSearchManager {
   }
 
   // ── Private: update the Discord message ─────────────────────────────────
+  /**
+   * Store the reply message info so we can edit it later without
+   * relying on the expiring interaction webhook token.
+   */
+  setReplyMessage(userId, channelId, messageId) {
+    const state = this.activeSearches.get(userId);
+    if (!state) return;
+    state.channelId = channelId;
+    state.messageId = messageId;
+  }
+
   async _updateMessage(userId, embed) {
     const state = this.activeSearches.get(userId);
     if (!state) return;
 
-    // _updateMessage is only called for final results (match found,
-    // timeout, or fatal error) — always strip the Stop button.
+    // Always strip the Stop button for final results
     const components = [];
 
     try {
+      // Use the bot's REST API (no token expiry) if we have message info,
+      // fall back to WebhookClient for backward compatibility
+      if (state.channelId && state.messageId && state.interaction) {
+        const client = state.interaction.client;
+        const channel = await client.channels
+          .fetch(state.channelId)
+          .catch(() => null);
+        if (channel?.isTextBased()) {
+          const message = await channel.messages
+            .fetch(state.messageId)
+            .catch(() => null);
+          if (message) {
+            await message.edit({ embeds: [embed], components });
+            return;
+          }
+        }
+      }
+
+      // Fallback: try the webhook (works for short-lived searches)
       const { WebhookClient } = require("discord.js");
       const webhook = new WebhookClient({
         id: state.applicationId,
         token: state.interactionToken,
       });
-
       await webhook.editMessage("@original", {
         embeds: [embed],
         components,
