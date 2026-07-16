@@ -7,7 +7,6 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  MessageFlags,
 } = require("discord.js");
 const { createDiscoreEmbed } = require("../../../lib/embedBuilder");
 
@@ -150,10 +149,22 @@ module.exports = {
     const embed = await buildOverviewEmbed(interaction);
     const selectRow = buildHelpSelectMenu("overview");
 
-    await interaction.reply({
+    const reply = await interaction.reply({
       embeds: [embed],
       components: [selectRow, buildSupportButtonRow()],
-      flags: [MessageFlags.Ephemeral],
+      fetchReply: true,
     });
+
+    // Auto-delete the help embed after 10 minutes
+    setTimeout(
+      async () => {
+        try {
+          await reply.delete();
+        } catch {
+          // Message may already be deleted
+        }
+      },
+      10 * 60 * 1000,
+    );
   },
 };
