@@ -25,6 +25,42 @@ const logger = require("../lib/logger");
 
 const IMAGE_GEN_COST = 5; // Credits per image generation
 
+// ── Helper: handle conversation continuation (reply to bot AI message) ─────────
+
+async function handleDiscoreReplyContinuation({
+  message,
+  client,
+  guildId,
+  userId,
+  channelId,
+}) {
+  const content = message.content.trim();
+  if (!content) return;
+
+  const { handleDiscoreMention } = require("../modules/ai/service");
+  const { addTurn } = require("../modules/ai/conversationMemory");
+
+  // Store the user's turn
+  addTurn({
+    guildId,
+    channelId,
+    userId,
+    role: "user",
+    content: content.substring(0, 200),
+    messageId: message.id,
+  });
+
+  // Treat it like a mention
+  await handleDiscoreMention({
+    message,
+    client,
+    guildId,
+    userId,
+    channelId,
+    content: `User: ${message.author.username}\nMessage: ${content}`,
+  });
+}
+
 module.exports = {
   name: "messageCreate",
   async execute(message, client) {
@@ -168,10 +204,65 @@ module.exports = {
     // Ignore @everyone and @here mentions — these are not directed at the bot
     if (message.mentions.everyone) return;
 
+    // Check if this is a reply to a bot message
+    const isReplyToBotMsg =
+      message.reference?.messageId &&
+      (await (async () => {
+        try {
+          const refMsg = await message.channel.messages.fetch(
+            message.reference.messageId,
+          );
+          return refMsg?.author?.id === client.user.id;
+        } catch {
+          return false;
+        }
+      })());
+
+    // ── Conversation continuation: reply to bot AI message (no @mention needed) ──
+    if (!message.mentions.has(client.user) && isReplyToBotMsg) {
+      const {
+        isConversationContinuation: isCont,
+      } = require("../modules/ai/conversationMemory");
+      if (isCont({ guildId, channelId, userId, message })) {
+        // This is a reply to a bot conversation message — treat as a mention
+        await handleDiscoreReplyContinuation({
+          message,
+          client,
+          guildId,
+          userId,
+          channelId,
+        });
+      }
+      return;
+    }
+
     // Only respond when explicitly @mentioned
     const botMentioned = message.mentions.has(client.user);
-
     if (!botMentioned) return;
+
+    // ── If @mentioned while replying to a bot embed → IGNORE ─────────────
+    if (isReplyToBotMsg) {
+      // Check if the reply target is one of our conversation messages
+      const {
+        isConversationContinuation: isCont,
+      } = require("../modules/ai/conversationMemory");
+      if (!isCont({ guildId, channelId, userId, message })) {
+        // Reply target is a bot message NOT in conversation memory → likely an embed
+        // Verify: fetch and check if it has embeds with no substantial text
+        try {
+          const refMsg = await message.channel.messages.fetch(
+            message.reference.messageId,
+          );
+          const hasEmbeds = refMsg.embeds && refMsg.embeds.length > 0;
+          const hasText = refMsg.content && refMsg.content.trim().length > 50;
+          if (hasEmbeds && !hasText) {
+            return; // Silent ignore — replying to bot embed, not a conversation
+          }
+        } catch {
+          // Can't verify — skip to be safe
+        }
+      }
+    }
 
     // Strip mention and clean content
     const strippedContent = message.content
