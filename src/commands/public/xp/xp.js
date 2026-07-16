@@ -30,10 +30,10 @@ const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
  * Schedule auto-delete for a message (profile/rank responses)
  * Safe — ignores if already deleted or lacks permission
  */
-function scheduleAutoDelete(message) {
-  if (!message?.deletable) return;
+function scheduleAutoDelete(interaction) {
+  if (!interaction) return;
   setTimeout(() => {
-    message.delete().catch(() => {});
+    interaction.deleteReply().catch(() => {});
   }, AUTO_DELETE_MS);
 }
 
@@ -199,10 +199,12 @@ module.exports = {
         buildPanelRows2,
       } = require("../../../modules/xp/xpPanelHelpers");
 
-      return interaction.editReply({
+      await interaction.editReply({
         embeds: [buildPanelEmbed(config)],
         components: [...buildPanelRows(), ...buildPanelRows2()],
       });
+      scheduleAutoDelete(interaction);
+      return;
     }
 
     // ── /xp rank ────────────────────────────────────────────────────────
@@ -281,7 +283,7 @@ module.exports = {
             },
           ],
         });
-        scheduleAutoDelete(reply);
+        scheduleAutoDelete(interaction);
         return;
       }
 
@@ -304,8 +306,8 @@ module.exports = {
         })
         .setTimestamp();
 
-      const reply = await interaction.editReply({ embeds: [fallbackEmbed] });
-      scheduleAutoDelete(reply);
+      await interaction.editReply({ embeds: [fallbackEmbed] });
+      scheduleAutoDelete(interaction);
       return;
     }
 
@@ -333,8 +335,8 @@ module.exports = {
         },
       });
 
-      const reply = await interaction.editReply(payload);
-      scheduleAutoDelete(reply);
+      await interaction.editReply(payload);
+      scheduleAutoDelete(interaction);
       return;
     }
 

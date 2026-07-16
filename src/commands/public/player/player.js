@@ -17,10 +17,10 @@ const {
 
 const AUTO_DELETE_MS = 10 * 60 * 1000;
 
-function scheduleAutoDelete(message) {
-  if (!message?.deletable) return;
+function scheduleAutoDelete(interaction) {
+  if (!interaction) return;
   setTimeout(() => {
-    message.delete().catch(() => {});
+    interaction.deleteReply().catch(() => {});
   }, AUTO_DELETE_MS);
 }
 
@@ -207,8 +207,8 @@ module.exports = {
           payload.embeds = [fallbackEmbed];
         }
 
-        const reply = await interaction.editReply(payload);
-        scheduleAutoDelete(reply);
+        await interaction.editReply(payload);
+        scheduleAutoDelete(interaction);
       } catch (error) {
         console.error("[Player Profile Error]", error);
         return interaction.editReply({

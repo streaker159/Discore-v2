@@ -231,6 +231,41 @@ module.exports = {
       });
     }
 
+    // ── Old XP events (90-day retention) ──────────────────────────
+    const xpEventDeleted = await prisma.userXpEvent.deleteMany({
+      where: { createdAt: { lte: ninetyDaysAgo } },
+    });
+    if (xpEventDeleted.count) {
+      totalDeleted += xpEventDeleted.count;
+      logger.info("dataCleanupJob: pruned old XP events", {
+        count: xpEventDeleted.count,
+      });
+    }
+
+    // ── Orphaned UserXp (guild no longer in DB) ───────────────────
+    const orphanedXp = await prisma.$queryRaw`
+      DELETE FROM "UserXp"
+      WHERE "guildId" NOT IN (SELECT id FROM "Guild")
+    `;
+    if (orphanedXp > 0) {
+      totalDeleted += Number(orphanedXp);
+      logger.info("dataCleanupJob: removed orphaned UserXp rows", {
+        count: Number(orphanedXp),
+      });
+    }
+
+    // ── Orphaned UserXpEvent (guild no longer in DB) ──────────────
+    const orphanedXpEvents = await prisma.$queryRaw`
+      DELETE FROM "UserXpEvent"
+      WHERE "guildId" NOT IN (SELECT id FROM "Guild")
+    `;
+    if (orphanedXpEvents > 0) {
+      totalDeleted += Number(orphanedXpEvents);
+      logger.info("dataCleanupJob: removed orphaned UserXpEvent rows", {
+        count: Number(orphanedXpEvents),
+      });
+    }
+
     if (totalDeleted > 0) {
       logger.info("dataCleanupJob: cleanup complete", { totalDeleted });
     }
