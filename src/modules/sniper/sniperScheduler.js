@@ -2,7 +2,6 @@
 
 const logger = require("../../lib/logger");
 const prisma = require("../../lib/prisma");
-const { spawnChallenge, markExpiredRuns } = require("./sniperService");
 
 const DEBUG = process.env.DEBUG_SNIPER_CHALLENGE === "true";
 
@@ -15,16 +14,30 @@ function randomDelay(minMs, maxMs) {
 
 /**
  * Get all configs that are enabled, not paused, and due for a challenge.
+ * Returns empty array if the table doesn't exist yet.
  */
 async function getDueConfigs() {
-  const now = new Date();
-  return prisma.sniperChallengeConfig.findMany({
-    where: {
-      enabled: true,
-      paused: false,
-      nextRunAt: { lte: now },
-    },
-  });
+  try {
+    const now = new Date();
+    return await prisma.sniperChallengeConfig.findMany({
+      where: {
+        enabled: true,
+        paused: false,
+        nextRunAt: { lte: now },
+      },
+    });
+  } catch (err) {
+    // Table may not exist yet (before migration/prisma db push)
+    if (DEBUG) {
+      logger.warn(
+        "[SniperChallenge] getDueConfigs failed (table may not exist)",
+        {
+          error: err.message,
+        },
+      );
+    }
+    return [];
+  }
 }
 
 /**
@@ -34,22 +47,41 @@ async function getDueConfigs() {
  */
 async function recoverOnStartup(client) {
   try {
+    const { markExpiredRuns, handleExpiry } = require("./sniperService");
+
     // Mark expired active runs
-    const expiredRuns = await markExpiredRuns();
+    let expiredRuns = [];
+    try {
+      expiredRuns = await markExpiredRuns();
+    } catch (err) {
+      if (DEBUG) {
+        logger.warn("[SniperChallenge] markExpiredRuns failed", {
+          error: err.message,
+        });
+      }
+    }
 
     // Handle expired runs — disable their buttons
     for (const run of expiredRuns) {
-      const { handleExpiry } = require("./sniperService");
       await handleExpiry(run, client).catch(() => {});
     }
 
     // Recalculate nextRunAt for configs that need it
-    const activeConfigs = await prisma.sniperChallengeConfig.findMany({
-      where: {
-        enabled: true,
-        paused: false,
-      },
-    });
+    let activeConfigs = [];
+    try {
+      activeConfigs = await prisma.sniperChallengeConfig.findMany({
+        where: {
+          enabled: true,
+          paused: false,
+        },
+      });
+    } catch (err) {
+      if (DEBUG) {
+        logger.warn("[SniperChallenge] findMany configs failed", {
+          error: err.message,
+        });
+      }
+    }
 
     for (const config of activeConfigs) {
       if (!config.nextRunAt || config.nextRunAt <= new Date()) {
@@ -64,10 +96,7 @@ async function recoverOnStartup(client) {
         if (DEBUG) {
           logger.info(
             "[SniperChallenge] Startup recovery: scheduled next run",
-            {
-              guildId: config.guildId,
-              nextRunAt,
-            },
+            { guildId: config.guildId, nextRunAt },
           );
         }
       }
