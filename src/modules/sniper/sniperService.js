@@ -15,8 +15,6 @@ const { randomDelay } = require("./sniperScheduler");
 
 const DEBUG = process.env.DEBUG_SNIPER_CHALLENGE === "true";
 
-// ─── Config helpers ──────────────────────────────────────────────────────────
-
 async function getConfig(guildId) {
   return db.findConfig(guildId);
 }
@@ -29,11 +27,8 @@ async function ensureConfig(guildId) {
   return config;
 }
 
-// ─── Validation ──────────────────────────────────────────────────────────────
-
 function validateSetup(config) {
   const issues = [];
-
   if (!config.challengeChannelIds || config.challengeChannelIds.length === 0) {
     issues.push("No challenge channels selected.");
   }
@@ -58,11 +53,8 @@ function validateSetup(config) {
   if (config.activeDurationMs > 600000) {
     issues.push("Active duration must be at most 10 minutes.");
   }
-
   return issues;
 }
-
-// ─── Spawn challenge ─────────────────────────────────────────────────────────
 
 async function spawnChallenge(guildId, client, forceChannelId = null) {
   const config = await getConfig(guildId);
@@ -107,10 +99,8 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
   }
 
   const expiresAt = new Date(Date.now() + config.activeDurationMs);
-
   const embed = buildChallengeEmbed();
   const attachments = getChallengeAttachments();
-
   const {
     ActionRowBuilder,
     ButtonBuilder,
@@ -149,15 +139,13 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
     spawnedAt: new Date(),
     expiresAt,
   });
-
   if (!run) return null;
 
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
   const nextRunAt = new Date(Date.now() + nextDelay);
-
   await db.updateConfig(guildId, { nextRunAt });
 
-  if (DEBUG) {
+  if (DEBUG)
     logger.info("[SniperChallenge] Challenge spawned", {
       guildId,
       channelId,
@@ -165,30 +153,19 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
       expiresAt,
       nextRunAt,
     });
-  }
-
   return run;
 }
-
-// ─── Handle shoot click (race-condition safe) ────────────────────────────────
 
 async function handleShoot(interaction, challengeId) {
   const userId = interaction.user.id;
   const guildId = interaction.guildId;
 
-  if (interaction.user.bot) {
-    return { success: false, reason: "bot" };
-  }
+  if (interaction.user.bot) return { success: false, reason: "bot" };
 
   const run = await db.findRun(challengeId);
-  if (!run) {
-    return { success: false, reason: "unknown_challenge" };
-  }
-
-  if (run.status !== "ACTIVE") {
+  if (!run) return { success: false, reason: "unknown_challenge" };
+  if (run.status !== "ACTIVE")
     return { success: false, reason: "already_ended" };
-  }
-
   if (new Date() > run.expiresAt) {
     await db.updateRun(challengeId, { status: "EXPIRED" });
     return { success: false, reason: "expired" };
@@ -205,9 +182,7 @@ async function handleShoot(interaction, challengeId) {
     { winnerId: userId, status: "WON", wonAt, reactionTimeMs },
   );
 
-  if (result.count === 0) {
-    return { success: false, reason: "too_slow" };
-  }
+  if (result.count === 0) return { success: false, reason: "too_slow" };
 
   try {
     await processWin(
@@ -228,8 +203,6 @@ async function handleShoot(interaction, challengeId) {
   return { success: true, winnerId: userId, reactionTimeMs };
 }
 
-// ─── Process win ─────────────────────────────────────────────────────────────
-
 async function processWin(
   guildId,
   userId,
@@ -240,26 +213,32 @@ async function processWin(
   const config = await getConfig(guildId);
   if (!config) return;
 
-  // 1. Update player stats
-  const stats = await db.upsertStats(guildId, userId, {
-    totalWins: 0,
-    currentStreak: 1,
-    bestStreak: 1,
-  });
+  // 1. Player stats — get existing or create, then increment
+  let stats = await db.findStats(guildId, userId);
+  if (!stats) {
+    // First win ever for this user in this guild
+    stats = { totalWins: 0, currentStreak: 0, bestStreak: 0 };
+    await db.upsertStats(guildId, userId, {
+      totalWins: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+    });
+  }
+
   const isStreak = config.currentChampionId === userId;
-  const newStreak = stats && isStreak ? stats.currentStreak + 1 : 1;
+  const newStreak = isStreak && stats ? stats.currentStreak + 1 : 1;
   const newBestStreak = stats
-    ? Math.max(stats.bestStreak, newStreak)
+    ? Math.max(stats.bestStreak ?? 0, newStreak)
     : newStreak;
 
   await db.updateStats(guildId, userId, {
-    totalWins: { increment: 1 },
+    totalWins: Number(stats.totalWins ?? 0) + 1,
     currentStreak: newStreak,
     bestStreak: newBestStreak,
     lastWinAt: new Date(),
   });
 
-  // 2. Champion role
+  // 2. Champion role — remove from previous, give to new
   if (
     config.currentChampionId &&
     config.currentChampionId !== userId &&
@@ -271,17 +250,13 @@ async function processWin(
         const prevMember = await guild.members
           .fetch(config.currentChampionId)
           .catch(() => null);
-        if (prevMember) {
+        if (prevMember)
           await prevMember.roles.remove(config.rewardRoleId).catch(() => {});
-        }
       }
     } catch (err) {
       logger.warn(
         "[SniperChallenge] Failed to remove role from previous champion",
-        {
-          prevChampion: config.currentChampionId,
-          error: err.message,
-        },
+        { prevChampion: config.currentChampionId, error: err.message },
       );
     }
   }
@@ -291,9 +266,7 @@ async function processWin(
       const guild = client.guilds.cache.get(guildId);
       if (guild) {
         const member = await guild.members.fetch(userId).catch(() => null);
-        if (member) {
-          await member.roles.add(config.rewardRoleId).catch(() => {});
-        }
+        if (member) await member.roles.add(config.rewardRoleId).catch(() => {});
       }
     } catch (err) {
       logger.warn("[SniperChallenge] Failed to give role to winner", {
@@ -308,7 +281,7 @@ async function processWin(
     currentChampionId: userId,
     currentChampionSince: new Date(),
     lastWinnerId: userId,
-    totalChallengesCompleted: { increment: 1 },
+    totalChallengesCompleted: (config.totalChallengesCompleted ?? 0) + 1,
   });
 
   // 4. Edit challenge message
@@ -334,12 +307,11 @@ async function processWin(
             .setEmoji("🔫")
             .setDisabled(true);
           const row = new ActionRowBuilder().addComponents(disabledButton);
-          const wonAttachments = getWinnerAnnouncementAttachments();
           await message
             .edit({
               embeds: [wonEmbed],
               components: [row],
-              files: wonAttachments,
+              files: getWinnerAnnouncementAttachments(),
             })
             .catch(() => {});
         }
@@ -387,20 +359,16 @@ async function processWin(
     });
   }
 
-  if (DEBUG) {
+  if (DEBUG)
     logger.info("[SniperChallenge] Winner processed", {
       guildId,
       userId,
       reactionTimeMs,
     });
-  }
 }
-
-// ─── Handle expiry ───────────────────────────────────────────────────────────
 
 async function handleExpiry(run, client) {
   if (!run.messageId || !run.channelId) return;
-
   try {
     const channel = client.channels.cache.get(run.channelId);
     if (!channel) return;
@@ -408,13 +376,11 @@ async function handleExpiry(run, client) {
       .fetch(run.messageId)
       .catch(() => null);
     if (!message) return;
-
     const {
       ActionRowBuilder,
       ButtonBuilder,
       ButtonStyle,
     } = require("discord.js");
-    const expiredEmbed = buildExpiredEmbed();
     const disabledButton = new ButtonBuilder()
       .setCustomId("sniper:shoot")
       .setLabel("Expired")
@@ -423,18 +389,15 @@ async function handleExpiry(run, client) {
       .setDisabled(true);
     const row = new ActionRowBuilder().addComponents(disabledButton);
     await message
-      .edit({ embeds: [expiredEmbed], components: [row] })
+      .edit({ embeds: [buildExpiredEmbed()], components: [row] })
       .catch(() => {});
   } catch (err) {
     logger.warn("[SniperChallenge] Failed to edit expired message", {
       error: err.message,
     });
   }
-
   await db.updateRun(run.id, { status: "EXPIRED" });
 }
-
-// ─── Pause / Resume ──────────────────────────────────────────────────────────
 
 async function pauseChallenges(guildId) {
   await db.updateConfig(guildId, { paused: true, nextRunAt: null });
@@ -443,41 +406,25 @@ async function pauseChallenges(guildId) {
 async function resumeChallenges(guildId, client) {
   const config = await getConfig(guildId);
   if (!config || !config.enabled) return;
-
   await db.updateConfig(guildId, { paused: false });
-
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
   const nextRunAt = new Date(Date.now() + nextDelay);
   await db.updateConfig(guildId, { nextRunAt });
-
   if (DEBUG) logger.info("[SniperChallenge] Resumed", { guildId, nextRunAt });
 }
-
-// ─── Force challenge ─────────────────────────────────────────────────────────
 
 async function forceChallenge(guildId, client) {
   const config = await getConfig(guildId);
   if (!config) return { success: false, reason: "no_config" };
-
   const issues = validateSetup(config);
-  if (issues.length > 0) {
+  if (issues.length > 0)
     return { success: false, reason: "invalid_setup", issues };
-  }
-
   const active = await db.findActiveRun(guildId);
-  if (active) {
-    await db.updateRun(active.id, { status: "CANCELLED" });
-  }
-
+  if (active) await db.updateRun(active.id, { status: "CANCELLED" });
   const run = await spawnChallenge(guildId, client);
-  if (!run) {
-    return { success: false, reason: "spawn_failed" };
-  }
-
+  if (!run) return { success: false, reason: "spawn_failed" };
   return { success: true, runId: run.id };
 }
-
-// ─── Cancel active ───────────────────────────────────────────────────────────
 
 async function cancelActive(guildId) {
   const active = await db.findActiveRun(guildId);
@@ -485,8 +432,6 @@ async function cancelActive(guildId) {
   await db.updateRun(active.id, { status: "CANCELLED" });
   return true;
 }
-
-// ─── Reset stats ─────────────────────────────────────────────────────────────
 
 async function resetStats(guildId) {
   await db.deleteStats({ guildId });
@@ -499,12 +444,9 @@ async function resetStats(guildId) {
   });
 }
 
-// ─── Clear champion ──────────────────────────────────────────────────────────
-
 async function clearChampion(guildId, client) {
   const config = await getConfig(guildId);
   if (!config?.currentChampionId) return;
-
   if (config.rewardRoleId) {
     try {
       const guild = client.guilds.cache.get(guildId);
@@ -512,20 +454,16 @@ async function clearChampion(guildId, client) {
         const member = await guild.members
           .fetch(config.currentChampionId)
           .catch(() => null);
-        if (member) {
+        if (member)
           await member.roles.remove(config.rewardRoleId).catch(() => {});
-        }
       }
     } catch {}
   }
-
   await db.updateConfig(guildId, {
     currentChampionId: null,
     currentChampionSince: null,
   });
 }
-
-// ─── Delete config ───────────────────────────────────────────────────────────
 
 async function deleteConfig(guildId) {
   await db.deleteStats({ guildId });
@@ -533,19 +471,13 @@ async function deleteConfig(guildId) {
   await db.deleteConfig(guildId);
 }
 
-// ─── Get player stats ────────────────────────────────────────────────────────
-
 async function getPlayerStats(guildId, userId) {
   return db.findStats(guildId, userId);
 }
 
-// ─── Get top players ─────────────────────────────────────────────────────────
-
 async function getTopPlayers(guildId, limit = 10) {
   return db.findTopPlayers(guildId, limit);
 }
-
-// ─── Mark expired runs ───────────────────────────────────────────────────────
 
 async function markExpiredRuns() {
   const expiredRuns = await db.findExpiredRuns();
@@ -554,11 +486,10 @@ async function markExpiredRuns() {
       { id: { in: expiredRuns.map((r) => r.id) } },
       { status: "EXPIRED" },
     );
-    if (DEBUG) {
+    if (DEBUG)
       logger.info("[SniperChallenge] Marked expired runs", {
         count: expiredRuns.length,
       });
-    }
   }
   return expiredRuns;
 }

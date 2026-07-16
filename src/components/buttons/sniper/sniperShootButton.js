@@ -1,12 +1,12 @@
 "use strict";
 
 const { handleShoot } = require("../../../modules/sniper/sniperService");
+const db = require("../../../modules/sniper/sniperDb");
 
 module.exports = {
   customId: "sniper:shoot",
 
   async execute(interaction) {
-    // Reject bots
     if (interaction.user.bot) return;
 
     const guildId = interaction.guildId;
@@ -23,26 +23,19 @@ module.exports = {
     const challengeId = parts.length >= 3 ? parts[2] : null;
 
     if (!challengeId) {
-      // Try to find active challenge for this guild
-      const prisma = require("../../../lib/prisma");
-      const active = await prisma.sniperChallengeRun.findFirst({
-        where: { guildId, status: "ACTIVE" },
-        orderBy: { spawnedAt: "desc" },
-      });
+      // Fallback: find the active run for this guild and use its ID
+      const active = await db.findActiveRun(guildId);
       if (!active) {
         return interaction.reply({
           content: "No active challenge found. This challenge may have ended.",
           flags: 64,
         });
       }
-      return handleShootResponse(interaction, {
-        success: false,
-        reason: "no_challenge_id",
-      });
+      const result = await handleShoot(interaction, active.id);
+      return handleShootResponse(interaction, result);
     }
 
     const result = await handleShoot(interaction, challengeId);
-
     await handleShootResponse(interaction, result);
   },
 };
