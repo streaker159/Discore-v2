@@ -87,90 +87,115 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
     return null;
   }
 
-  const expiresAt = new Date(Date.now() + config.activeDurationMs);
-  const embed = buildChallengeEmbed();
-  const attachments = getChallengeAttachments();
-  const {
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-  } = require("discord.js");
-
-  const button = new ButtonBuilder()
-    .setCustomId("sniper:shoot")
-    .setLabel("SHOOT")
-    .setStyle(ButtonStyle.Danger)
-    .setEmoji("🔫");
-  const row = new ActionRowBuilder().addComponents(button);
-
-  let message;
-  try {
-    message = await channel.send({
-      embeds: [embed],
-      components: [row],
-      files: attachments,
-    });
-  } catch (err) {
-    logger.error("[SniperChallenge] Failed to send challenge message", {
-      guildId,
-      channelId,
-      error: err.message,
-    });
-    return null;
-  }
-
-  const run = await db.createRun({
-    guildId,
-    channelId,
-    messageId: message.id,
-    status: "ACTIVE",
-    spawnedAt: new Date(),
-    expiresAt,
-  });
-  if (!run) return null;
-
-  // Auto-delete challenge message after 10 minutes
-  setTimeout(() => {
-    message.delete().catch(() => {});
-  }, AUTO_DELETE_MS);
-
-  // Teaser announcement (alongside spawn, not 30s before)
+  // ── TEASER: Send immediately, 30 seconds BEFORE the actual challenge ────
   if (config.teaserRoleId || config.notificationChannelId) {
     const teaserChanId = config.notificationChannelId || channelId;
     const teaserChan = client.channels.cache.get(teaserChanId);
     if (teaserChan) {
       const { buildTeaserEmbed } = require("./sniperEmbeds");
       const teaserContent = config.teaserRoleId
-        ? `<@&${config.teaserRoleId}> — Incoming target!`
-        : null;
+        ? `<@&${config.teaserRoleId}> — Incoming target in 30 seconds!`
+        : "👀 A target is about to appear in 30 seconds...";
       let teaserMsg;
       try {
         teaserMsg = await teaserChan.send({
-          content: teaserContent || "👀 A target is about to appear...",
+          content: teaserContent,
           embeds: [buildTeaserEmbed()],
-          files: getChallengeAttachments(),
+          files: [getChallengeAttachments()[0]],
         });
       } catch {}
-      if (teaserMsg)
+      if (teaserMsg) {
         setTimeout(() => {
           teaserMsg.delete().catch(() => {});
         }, AUTO_DELETE_MS);
+      }
     }
   }
 
+  // ── CHALLENGE: Schedule 30 seconds after teaser ─────────────────────────
+  // We return a pseudo-run immediately so the scheduler doesn't try to spawn again.
+  // The actual challenge posts after the delay.
+  const TEASER_DELAY_MS = 30 * 1000;
+
+  // Schedule next run now (based on when spawnChallenge was called)
   const nextDelay = randomDelay(config.minDelayMs, config.maxDelayMs);
   await db.updateConfig(guildId, {
-    nextRunAt: new Date(Date.now() + nextDelay),
+    nextRunAt: new Date(Date.now() + nextDelay + TEASER_DELAY_MS),
   });
 
-  if (DEBUG)
-    logger.info("[SniperChallenge] Challenge spawned", {
-      guildId,
-      channelId,
-      runId: run.id,
-      expiresAt,
-    });
-  return run;
+  // Create a placeholder run to prevent duplicate spawns during the 30s window
+  const placeholderRun = await db.createRun({
+    guildId,
+    channelId,
+    messageId: null,
+    status: "ACTIVE",
+    spawnedAt: new Date(),
+    expiresAt: new Date(Date.now() + config.activeDurationMs + TEASER_DELAY_MS),
+  });
+  if (!placeholderRun) return null;
+
+  // Fire the actual challenge after 30 seconds
+  setTimeout(async () => {
+    try {
+      const embed = buildChallengeEmbed();
+      const attachments = getChallengeAttachments();
+      const {
+        ActionRowBuilder,
+        ButtonBuilder,
+        ButtonStyle,
+      } = require("discord.js");
+      const button = new ButtonBuilder()
+        .setCustomId("sniper:shoot")
+        .setLabel("SHOOT")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("🔫");
+      const row = new ActionRowBuilder().addComponents(button);
+
+      let message;
+      try {
+        message = await channel.send({
+          embeds: [embed],
+          components: [row],
+          files: attachments,
+        });
+      } catch (err) {
+        logger.error(
+          "[SniperChallenge] Failed to send challenge message (delayed)",
+          { guildId, channelId, error: err.message },
+        );
+        await db.updateRun(placeholderRun.id, { status: "EXPIRED" });
+        return;
+      }
+
+      // Update the placeholder run with the real message ID
+      await db.updateRun(placeholderRun.id, {
+        messageId: message.id,
+        spawnedAt: new Date(),
+        expiresAt: new Date(Date.now() + config.activeDurationMs),
+      });
+
+      // Auto-delete after 10 minutes
+      setTimeout(() => {
+        message.delete().catch(() => {});
+      }, AUTO_DELETE_MS);
+
+      if (DEBUG) {
+        logger.info("[SniperChallenge] Challenge spawned (30s teaser)", {
+          guildId,
+          channelId,
+          runId: placeholderRun.id,
+        });
+      }
+    } catch (err) {
+      logger.error("[SniperChallenge] Delayed challenge spawn failed", {
+        guildId,
+        error: err.message,
+      });
+      await db.updateRun(placeholderRun.id, { status: "EXPIRED" });
+    }
+  }, TEASER_DELAY_MS);
+
+  return placeholderRun;
 }
 
 async function handleShoot(interaction, challengeId) {
@@ -190,7 +215,7 @@ async function handleShoot(interaction, challengeId) {
 
   const wonAt = new Date();
   const reactionTimeMs = run.spawnedAt
-    ? wonAt.getTime() - run.spawnedAt.getTime()
+    ? wonAt.getTime() - new Date(run.spawnedAt).getTime()
     : null;
 
   const result = await db.updateRunMany(
@@ -326,7 +351,6 @@ async function processWin(
               files: getWinnerAnnouncementAttachments(),
             })
             .catch(() => {});
-          // Auto-delete won challenge message
           setTimeout(() => {
             message.delete().catch(() => {});
           }, AUTO_DELETE_MS);
@@ -339,7 +363,6 @@ async function processWin(
     }
   }
 
-  // Winner announcement with auto-delete
   const freshStats = await db.findStats(guildId, userId);
   const notifChannelId = config.notificationChannelId || run?.channelId;
   if (notifChannelId) {
@@ -417,7 +440,6 @@ async function handleExpiry(run, client) {
         components: [new ActionRowBuilder().addComponents(disabledButton)],
       })
       .catch(() => {});
-    // Auto-delete expired challenge message
     setTimeout(() => {
       message.delete().catch(() => {});
     }, AUTO_DELETE_MS);
