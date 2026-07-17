@@ -16,6 +16,25 @@ const { randomDelay } = require("./sniperScheduler");
 const DEBUG = process.env.DEBUG_SNIPER_CHALLENGE === "true";
 const AUTO_DELETE_MS = 10 * 60 * 1000; // 10 minutes
 
+/**
+ * Schedule a message for deletion after AUTO_DELETE_MS.
+ * Wraps setTimeout with error logging so silent failures are visible.
+ */
+function scheduleDelete(message, label = "message") {
+  if (!message) return;
+  setTimeout(() => {
+    message.delete().catch((err) => {
+      if (err?.code !== 10008) {
+        // 10008 = Unknown Message (already deleted) — expected
+        logger.warn(`[SniperChallenge] Failed to auto-delete ${label}`, {
+          error: err?.message ?? err,
+          code: err?.code,
+        });
+      }
+    });
+  }, AUTO_DELETE_MS);
+}
+
 async function getConfig(guildId) {
   return db.findConfig(guildId);
 }
@@ -105,9 +124,7 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
         });
       } catch {}
       if (teaserMsg) {
-        setTimeout(() => {
-          teaserMsg.delete().catch(() => {});
-        }, AUTO_DELETE_MS);
+        scheduleDelete(teaserMsg, "teaser");
       }
     }
   }
@@ -175,9 +192,7 @@ async function spawnChallenge(guildId, client, forceChannelId = null) {
       });
 
       // Auto-delete after 10 minutes
-      setTimeout(() => {
-        message.delete().catch(() => {});
-      }, AUTO_DELETE_MS);
+      scheduleDelete(message, "challenge");
 
       if (DEBUG) {
         logger.info("[SniperChallenge] Challenge spawned (30s teaser)", {
@@ -351,9 +366,7 @@ async function processWin(
               files: getWinnerAnnouncementAttachments(),
             })
             .catch(() => {});
-          setTimeout(() => {
-            message.delete().catch(() => {});
-          }, AUTO_DELETE_MS);
+          scheduleDelete(message, "won challenge");
         }
       }
     } catch (err) {
@@ -385,10 +398,7 @@ async function processWin(
             files: getWinnerAnnouncementAttachments(),
           })
           .catch(() => null);
-        if (annMsg)
-          setTimeout(() => {
-            annMsg.delete().catch(() => {});
-          }, AUTO_DELETE_MS);
+        if (annMsg) scheduleDelete(annMsg, "winner announcement");
       }
     } catch (err) {
       logger.warn("[SniperChallenge] Failed to send winner announcement", {
