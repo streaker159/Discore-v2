@@ -44,6 +44,9 @@ const COLORS = {
  * @param {number} [opts.activeStreak] — days
  * @param {string} [opts.mostActiveChannel] — plain "#channel-name" string
  * @param {string[]} [opts.roles] — role names, highest position first
+ * @param {object} [opts.sniperStats] — { totalWins, currentStreak, bestStreak, lastWinAt }
+ * @param {number} [opts.totalLinkWins] — total link wins from sniper game API
+ * @param {object} [opts.scoreboardStats] — { active: {wins,losses,points,ratio}, activeRoleScores }
  * @returns {Promise<Buffer|null>}
  */
 async function createProfileXpCard(opts) {
@@ -72,6 +75,9 @@ async function createProfileXpCard(opts) {
       activeStreak,
       mostActiveChannel,
       roles,
+      sniperStats,
+      totalLinkWins,
+      scoreboardStats,
     } = opts;
 
     const width = 1000;
@@ -93,9 +99,14 @@ async function createProfileXpCard(opts) {
     );
 
     const rolesFirstLineY = 478;
+    // Estimate extra height for sniper, scoreboard, and role scores sections
+    const extraSectionsHeight = 80 + 80 + 60; // sniper ~80, scoreboard ~80, role scores ~60
     const height = Math.max(
       590,
-      rolesFirstLineY + (roleLines.length - 1) * rolesLineHeight + 50,
+      rolesFirstLineY +
+        (roleLines.length - 1) * rolesLineHeight +
+        50 +
+        extraSectionsHeight,
     );
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext("2d");
@@ -310,6 +321,120 @@ async function createProfileXpCard(opts) {
       COLORS.muted,
       '13px "Segoe UI", Arial, sans-serif',
     );
+
+    // ── Section: Sniper Stats ───────────────────────────────────────
+    const sniperDividerY =
+      rolesLabelY + 24 + roleLines.length * rolesLineHeight + 10;
+    ctx.strokeStyle = "#253040";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(avatarX, sniperDividerY);
+    ctx.lineTo(width - avatarX, sniperDividerY);
+    ctx.stroke();
+
+    const sniperLabelY = sniperDividerY + 22;
+    drawSectionLabel(ctx, "Sniper", secLeftX, sniperLabelY);
+
+    if (sniperStats) {
+      drawStatBlock(
+        ctx,
+        "Total Wins",
+        String(sniperStats.totalWins ?? 0),
+        secLeftX,
+        sniperLabelY + 24,
+      );
+      drawStatBlock(
+        ctx,
+        "Current Streak",
+        String(sniperStats.currentStreak ?? 0),
+        secLeftX + 130,
+        sniperLabelY + 24,
+      );
+      drawStatBlock(
+        ctx,
+        "Best Streak",
+        String(sniperStats.bestStreak ?? 0),
+        secLeftX + 260,
+        sniperLabelY + 24,
+      );
+      drawStatBlock(
+        ctx,
+        "Link Wins",
+        String(totalLinkWins ?? 0),
+        secLeftX + 390,
+        sniperLabelY + 24,
+      );
+    } else {
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = '14px "Segoe UI", Arial, sans-serif';
+      ctx.fillText("No sniper data yet", secLeftX, sniperLabelY + 44);
+    }
+
+    // ── Section: Scoreboard ─────────────────────────────────────────
+    const sbDividerY = sniperLabelY + 80;
+    ctx.strokeStyle = "#253040";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(avatarX, sbDividerY);
+    ctx.lineTo(width - avatarX, sbDividerY);
+    ctx.stroke();
+
+    const sbLabelY = sbDividerY + 22;
+    drawSectionLabel(ctx, "Scoreboard", secLeftX, sbLabelY);
+
+    const sbActive = scoreboardStats?.active;
+    if (sbActive) {
+      const ratioStr =
+        sbActive.ratio !== undefined ? `W/L: ${sbActive.ratio}` : "";
+      drawStatBlock(
+        ctx,
+        "Wins",
+        String(sbActive.wins ?? 0),
+        secLeftX,
+        sbLabelY + 24,
+      );
+      drawStatBlock(
+        ctx,
+        "Losses",
+        String(sbActive.losses ?? 0),
+        secLeftX + 130,
+        sbLabelY + 24,
+      );
+      drawStatBlock(
+        ctx,
+        "Points",
+        String(sbActive.points ?? 0),
+        secLeftX + 260,
+        sbLabelY + 24,
+      );
+      ctx.fillStyle = COLORS.white;
+      ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+      if (ratioStr) {
+        ctx.fillText(ratioStr, secLeftX + 390, sbLabelY + 56);
+      }
+    } else {
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = '14px "Segoe UI", Arial, sans-serif';
+      ctx.fillText("No scoreboard data yet", secLeftX, sbLabelY + 44);
+    }
+
+    // ── Active role scores ─────────────────────────────────────────
+    const activeRoleScores = scoreboardStats?.activeRoleScores;
+    if (Array.isArray(activeRoleScores) && activeRoleScores.length > 0) {
+      const arsY = sbLabelY + 78;
+      drawSectionLabel(ctx, "Role Scores", secLeftX, arsY);
+
+      const arsItems = activeRoleScores.map((rs) => {
+        const name = rs.scoreboardName || "Unknown";
+        return `${name.substring(0, 16)}  W${rs.wins ?? 0} L${rs.losses ?? 0} P${rs.points ?? 0}`;
+      });
+      drawSectionItems(ctx, arsItems, secLeftX, arsY + 22, COLORS.muted);
+    } else {
+      const arsY = sbLabelY + 78;
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = '13px "Segoe UI", Arial, sans-serif';
+      ctx.fillText("No role scores", secLeftX, arsY + 16);
+    }
 
     // ── Gold accent dot ─────────────────────────────────────────────
     ctx.fillStyle = COLORS.goldBright;

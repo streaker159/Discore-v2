@@ -164,6 +164,9 @@ module.exports = {
             activeStreak,
             mostActiveChannel,
             roles,
+            sniperStats: profileStats.sniperStats,
+            totalLinkWins: profileStats.totalLinkWins ?? 0,
+            scoreboardStats: profileStats.scoreboardStats,
           });
         } catch {
           // Canvas failed — fallback embed below

@@ -117,6 +117,12 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
       wins: finalScore.wins,
       losses: finalScore.losses,
       points: finalScore.points,
+      ratio:
+        finalScore.losses > 0
+          ? (finalScore.wins / finalScore.losses).toFixed(2)
+          : finalScore.wins > 0
+            ? finalScore.wins.toFixed(2)
+            : "0.00",
     };
 
     if (stillHasRole) {
@@ -138,6 +144,29 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
   // Get activity
   const activity = await getUserActivity(guildId, userId);
 
+  // Get total link wins from sniper game API
+  let totalLinkWins = 0;
+  try {
+    const apiUrl =
+      process.env.SNIPER_GAME_API_URL ||
+      "https://sniper-game.example.com/api/v1";
+    const apiKey = process.env.SNIPER_GAME_API_KEY || "";
+    if (apiKey) {
+      const url = `${apiUrl}/users/links/${userId}`;
+      const response = await fetch(url, {
+        headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const links = data?.links ?? [];
+        totalLinkWins = links.reduce((sum, link) => sum + (link.wins ?? 0), 0);
+      }
+    }
+  } catch {
+    // Sniper game API may not be available — safe to ignore
+  }
+
   return {
     scoreboardStats: {
       active: activeStats,
@@ -149,6 +178,7 @@ async function getPlayerProfileStats(guildId, userId, member = null) {
     activity,
     xpStats,
     sniperStats,
+    totalLinkWins,
   };
 }
 

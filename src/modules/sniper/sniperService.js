@@ -405,6 +405,71 @@ async function processWin(
     });
   }
 
+  // ── Auto-increment scoreboard wins for roles the winner holds ──────
+  try {
+    const prisma = require("../../lib/prisma");
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) {
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (member) {
+        const userRoleIds = member.roles.cache.map((r) => r.id);
+        // Find scoreboard entries targeting any role the user currently has
+        const roleEntries = await prisma.scoreboardEntry.findMany({
+          where: {
+            targetId: { in: userRoleIds },
+            targetType: "ROLE",
+            scoreboard: { guildId, isArchived: false },
+          },
+          include: { scoreboard: true },
+        });
+        for (const entry of roleEntries) {
+          await prisma.scoreboardEntry.update({
+            where: { id: entry.id },
+            data: { wins: { increment: 1 } },
+          });
+          // Update userRoleScore tracking
+          await prisma.userRoleScore.upsert({
+            where: {
+              userId_roleId_scoreboardId: {
+                userId,
+                roleId: entry.targetId,
+                scoreboardId: entry.scoreboardId,
+              },
+            },
+            create: {
+              userId,
+              roleId: entry.targetId,
+              scoreboardId: entry.scoreboardId,
+              wins: 1,
+              losses: 0,
+              points: 0,
+              isActive: true,
+            },
+            update: { wins: { increment: 1 }, isActive: true },
+          });
+        }
+        // Also update direct user entries
+        const userEntries = await prisma.scoreboardEntry.findMany({
+          where: {
+            targetId: userId,
+            targetType: "USER",
+            scoreboard: { guildId, isArchived: false },
+          },
+        });
+        for (const entry of userEntries) {
+          await prisma.scoreboardEntry.update({
+            where: { id: entry.id },
+            data: { wins: { increment: 1 } },
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn("[SniperChallenge] Failed to update scoreboard for winner", {
+      error: err.message,
+    });
+  }
+
   if (DEBUG)
     logger.info("[SniperChallenge] Winner processed", {
       guildId,
