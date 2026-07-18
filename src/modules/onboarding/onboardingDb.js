@@ -805,7 +805,7 @@ async function saveAnswer(data) {
     const id = cuid();
     await prisma.$queryRawUnsafe(
       `INSERT INTO "OnboardingAnswer" ("id", "applicationId", "fieldId", "fieldLabelSnapshot", "fieldType", "answerText", "answerJson", "selectedOptionValues", "selectedRoleIds", "fileRefs")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::jsonb)`,
       id,
       data.applicationId,
       data.fieldId || null,
@@ -897,7 +897,7 @@ async function addDecisionLog(data) {
     const id = cuid();
     await prisma.$queryRawUnsafe(
       `INSERT INTO "OnboardingDecisionLog" ("id", "applicationId", "guildId", "action", "actorId", "reason", "detailsJson")
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
       id,
       data.applicationId,
       data.guildId,
@@ -966,7 +966,7 @@ async function createSession(data) {
     const id = cuid();
     await prisma.$queryRawUnsafe(
       `INSERT INTO "OnboardingSession" ("id", "guildId", "applicationTypeId", "applicantId", "applicationId", "currentPage", "stateJson", "expiresAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
       id,
       data.guildId,
       data.applicationTypeId,
