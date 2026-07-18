@@ -467,14 +467,14 @@ async function handleKill(reaction, user, client) {
 
     // Post kill announcement with eliminated image
     try {
-      const channel = client.channels.cache.get(game.gameChannelId);
+      const channel = client?.channels?.cache?.get(game.gameChannelId);
       if (channel) {
         const killEmbed = buildKillAnnouncementEmbed(
           userId,
           messageAuthorId,
           newAlive,
         );
-        const guild = client.guilds.cache.get(guildId);
+        const guild = client?.guilds?.cache?.get(guildId);
         let eliminatedAttachment;
         if (guild) {
           const member = await guild.members.fetch(userId).catch(() => null);

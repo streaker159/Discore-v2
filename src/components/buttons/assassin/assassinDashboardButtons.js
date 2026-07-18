@@ -196,9 +196,10 @@ function b(id, label, style, disabled = false) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleStartGame(interaction, guildId, client) {
+  await interaction.deferUpdate().catch(() => {});
   const r = await createSignup(guildId, client);
   if (!r)
-    return interaction.reply({
+    return interaction.followUp({
       content: "❌ Failed. Is the game channel set?",
       flags: [MessageFlags.Ephemeral],
     });
@@ -210,9 +211,10 @@ async function handleStartGame(interaction, guildId, client) {
 }
 
 async function handleBeginHunt(interaction, guildId, client) {
+  await interaction.deferUpdate().catch(() => {});
   const r = await beginHunt(guildId, client);
   if (!r.success)
-    return interaction.reply({
+    return interaction.followUp({
       content: `❌ ${r.reason}`,
       flags: [MessageFlags.Ephemeral],
     });
