@@ -386,8 +386,6 @@ function buildWizardRows(state) {
           .setMinValues(1)
           .setMaxValues(1),
       );
-      if (state.winnerRoleId)
-        act.addComponents(b("wiz_role_clear", "Clear", ButtonStyle.Secondary));
       break;
     case 2: // Leaderboard Channel
       act.addComponents(
@@ -397,10 +395,6 @@ function buildWizardRows(state) {
           .setMinValues(1)
           .setMaxValues(1),
       );
-      if (state.leaderboardChannelId)
-        act.addComponents(
-          b("wiz_lb_channel_clear", "Clear", ButtonStyle.Secondary),
-        );
       break;
     case 3: // Min Players
       act.addComponents(
