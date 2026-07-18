@@ -29,12 +29,143 @@ module.exports = {
   async execute(interaction, client) {
     const customId = interaction.customId;
     const guildId = interaction.guildId;
-    if (!guildId) return;
 
     // Parse: onboarding:modal:action:appId (or just action)
     const parts = customId.split(":");
     const action = parts[2];
     const targetId = parts[3];
+
+    /** ── DM Text Field Answer (runs in DM context — no guildId) ── **/
+    if (action === "field") {
+      const sessionId = targetId;
+      const fieldIndex = parseInt(parts[4], 10);
+      const value = interaction.fields.getTextInputValue("value");
+
+      const session = await db.getSessionById(sessionId);
+      if (!session || session.applicantId !== interaction.user.id) {
+        return interaction
+          .reply({
+            content: "This application session has expired.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const pages = await db.getFormPages(session.applicationTypeId);
+      const page = pages[session.currentPage || 0];
+      if (!page) {
+        return interaction
+          .reply({
+            content: "This form page no longer exists.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const fields = await db.getFormFields(page.id);
+      const field = fields[fieldIndex];
+      if (!field) {
+        return interaction
+          .reply({
+            content: "This question no longer exists.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const answers = session.stateJson?.answers || [];
+      const existing = answers.findIndex((a) => a.fieldId === field.id);
+      const answerEntry = {
+        fieldId: field.id,
+        fieldLabel: field.label,
+        fieldType: field.fieldType,
+        answerText: value,
+      };
+      if (existing >= 0) answers[existing] = answerEntry;
+      else answers.push(answerEntry);
+
+      await db.updateSession(sessionId, {
+        stateJson: { ...session.stateJson, answers },
+      });
+
+      const {
+        buildFormPagePayload,
+      } = require("../../buttons/onboarding/onboardingDmFlow");
+      const payload = await buildFormPagePayload(
+        { ...session, stateJson: { answers } },
+        session.currentPage || 0,
+        client,
+      );
+
+      // Modal submissions triggered from a message component (isFromMessage)
+      // support `.update()` to edit that original message in place.
+      if (interaction.isFromMessage?.()) {
+        await interaction.update(payload).catch(async () => {
+          await interaction
+            .reply({ ...payload, flags: [MessageFlags.Ephemeral] })
+            .catch(() => {});
+        });
+      } else {
+        await interaction
+          .reply({ ...payload, flags: [MessageFlags.Ephemeral] })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    if (!guildId) return;
+
+    /** ── Add Form Page (guild dashboard context) ── **/
+    if (action === "addpage" && targetId) {
+      const title = interaction.fields.getTextInputValue("title");
+      const description =
+        interaction.fields.getTextInputValue("description") || null;
+
+      const pages = await db.getFormPages(targetId);
+      const newPage = await db.createFormPage({
+        applicationTypeId: targetId,
+        title,
+        description,
+        sortOrder: pages.length,
+      });
+
+      if (!newPage) {
+        return interaction
+          .reply({
+            content: "Failed to create form page. Please try again.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const appType = await db.getApplicationType(targetId);
+      const updatedPages = await db.getFormPages(targetId);
+      let desc = `**Form pages for: ${appType?.publicTitle || appType?.name}**\n\n`;
+      for (const p of updatedPages) {
+        const fields = await db.getFormFields(p.id);
+        desc += `📄 **${p.title}** (${fields.length} fields)\n`;
+      }
+      desc += "\nUse **Add Page** to create another page.";
+
+      await interaction.reply({
+        embeds: [buildSimpleEmbed("✅ Page Added", desc, "#57f287")],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`onboarding:type:addpage:${targetId}`)
+              .setLabel("Add Another Page")
+              .setStyle(ButtonStyle.Success)
+              .setEmoji("➕"),
+            new ButtonBuilder()
+              .setCustomId(`onboarding:type:edit:${targetId}`)
+              .setLabel("Back to Type Settings")
+              .setStyle(ButtonStyle.Secondary),
+          ),
+        ],
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
 
     /** ── Create Application Type ── **/
     if (action === "createtype") {

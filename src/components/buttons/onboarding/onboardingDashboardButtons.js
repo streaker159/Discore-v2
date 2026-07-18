@@ -185,6 +185,9 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     // Show a modal for creating an application type
     const {
       ModalBuilder,
@@ -277,6 +280,9 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
     // Clear panel message ID and republish
@@ -300,20 +306,25 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     const config = await db.getConfig(guildId);
     const newEnabled = !config?.enabled;
 
-    await db.updateConfig(guildId, { enabled: newEnabled });
-
-    await interaction.update({
-      content: `Onboarding applications ${newEnabled ? "enabled" : "disabled"}.`,
+    const updatedConfig = await db.updateConfig(guildId, {
+      enabled: newEnabled,
     });
 
-    // Refresh the dashboard
-    await interaction.followUp({
-      content: "Refreshing dashboard...",
-      flags: [MessageFlags.Ephemeral],
-    });
+    await interaction.deferUpdate().catch(() => {});
+
+    // Refresh the dashboard in place
+    await showDashboard(
+      interaction,
+      client,
+      updatedConfig || { ...config, enabled: newEnabled },
+      await isOnboardingPremiumActive(guildId),
+    );
     return;
   }
 
@@ -713,6 +724,12 @@ async function handle(interaction, client) {
 
   // Add Permission Role
   if (customId === "onboarding:perm:add") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     await interaction.reply({
       content: "Select a role to add onboarding permissions to:",
       components: [
@@ -739,8 +756,9 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
-    const config = await db.getConfig(guildId);
-    const newEnabled = !config?.enabled;
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     await db.updateConfig(guildId, { enabled: true });
 
     await interaction.reply({
@@ -835,6 +853,12 @@ async function handle(interaction, client) {
 
   /** ── Type Toggle ── **/
   if (customId.startsWith("onboarding:type:toggle:")) {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     const appTypeId = customId.split(":")[3];
     const appType = await db.getApplicationType(appTypeId);
     if (!appType) {
@@ -906,6 +930,12 @@ async function handle(interaction, client) {
 
   /** ── Type Delete ── **/
   if (customId.startsWith("onboarding:type:delete:")) {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     const appTypeId = customId.split(":")[3];
     const appType = await db.getApplicationType(appTypeId);
     if (!appType) {
@@ -958,6 +988,12 @@ async function handle(interaction, client) {
 
   // Remove Permission Role
   if (customId === "onboarding:perm:remove") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const canManage = await requirePermission(interaction, "canManage");
+    if (!canManage) return;
+
     const permRoles = await db.getPermissionRoles(guildId);
     if (!permRoles.length) {
       await interaction.reply({

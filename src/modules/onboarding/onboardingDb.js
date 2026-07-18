@@ -10,6 +10,131 @@ function cuid() {
     : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * Filters an `updates` object down to only the keys present in `allowList`,
+ * before it is used to build a dynamic SQL SET clause. This prevents any
+ * caller (current or future) from injecting arbitrary column identifiers
+ * into raw SQL via Object.keys(updates) — the actual values are still safely
+ * parameterized, but the *column names* themselves were previously taken
+ * from caller input with no validation.
+ */
+function sanitizeUpdates(updates, allowList, context) {
+  const safe = {};
+  for (const key of Object.keys(updates || {})) {
+    if (allowList.includes(key)) {
+      safe[key] = updates[key];
+    } else {
+      logger.error("[Onboarding] Rejected disallowed update column", {
+        context,
+        key,
+      });
+    }
+  }
+  return safe;
+}
+
+const CONFIG_UPDATABLE_FIELDS = [
+  "enabled",
+  "premiumLockedAt",
+  "lastPremiumActiveAt",
+  "panelChannelId",
+  "panelMessageId",
+  "defaultReviewChannelId",
+  "fallbackToAppealsChannel",
+  "useServerIcon",
+  "useServerBanner",
+  "showDiscoreBranding",
+  "maxApplicationTypes",
+  "allowDmFlow",
+  "allowThreadFallback",
+  "draftExpiryHours",
+  "keepSubmittedApplications",
+  "panelEmbedTitle",
+  "panelEmbedDescription",
+  "panelEmbedFooter",
+  "panelEmbedColor",
+  "panelThumbnailUrl",
+  "panelImageUrl",
+];
+
+const APPLICATION_TYPE_UPDATABLE_FIELDS = [
+  "name",
+  "publicTitle",
+  "publicDescription",
+  "instructions",
+  "buttonLabel",
+  "buttonEmoji",
+  "buttonStyle",
+  "enabled",
+  "sortOrder",
+  "reviewChannelId",
+  "themeColor",
+  "thumbnailUrl",
+  "imageUrl",
+  "allowFiles",
+  "allowRequestChanges",
+  "allowApplicantEdit",
+  "allowReviewThread",
+  "allowPullApplicantIntoThread",
+  "acceptRoleIds",
+  "removeRoleIds",
+  "denyAction",
+  "denyRoleId",
+  "pendingRoleId",
+  "kickOnDeny",
+  "banOnDeny",
+  "sendDmOnDecision",
+];
+
+const FORM_PAGE_UPDATABLE_FIELDS = ["title", "description", "sortOrder"];
+
+const FORM_FIELD_UPDATABLE_FIELDS = [
+  "fieldType",
+  "label",
+  "helpText",
+  "placeholder",
+  "required",
+  "minLength",
+  "maxLength",
+  "minChoices",
+  "maxChoices",
+  "allowedFileTypes",
+  "maxFileSize",
+  "sortOrder",
+];
+
+const FIELD_OPTION_UPDATABLE_FIELDS = [
+  "label",
+  "value",
+  "emoji",
+  "sortOrder",
+  "linkedRoleIds",
+];
+
+const APPLICATION_UPDATABLE_FIELDS = [
+  "applicationTypeId",
+  "status",
+  "serverMemberStatus",
+  "submittedAt",
+  "decidedAt",
+  "decidedById",
+  "decisionReason",
+  "reviewChannelId",
+  "reviewMessageId",
+  "reviewThreadId",
+  "reviewThreadStatus",
+  "receiptGeneratedAt",
+  "threadTranscriptCreatedAt",
+];
+
+const SESSION_UPDATABLE_FIELDS = [
+  "applicationTypeId",
+  "applicationId",
+  "currentPage",
+  "stateJson",
+  "expiresAt",
+];
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 async function getConfig(guildId) {
@@ -51,10 +176,15 @@ async function ensureConfig(guildId) {
 
 async function updateConfig(guildId, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      CONFIG_UPDATABLE_FIELDS,
+      "updateConfig",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 2}`);
-    const values = keys.map((k) => updates[k]);
+    const values = keys.map((k) => safeUpdates[k]);
     const sql = `UPDATE "OnboardingConfig" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "guildId" = $1`;
     await prisma.$queryRawUnsafe(sql, guildId, ...values);
   } catch (e) {
@@ -158,10 +288,15 @@ async function createApplicationType(data) {
 
 async function updateApplicationType(id, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      APPLICATION_TYPE_UPDATABLE_FIELDS,
+      "updateApplicationType",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 2}`);
-    const values = keys.map((k) => updates[k]);
+    const values = keys.map((k) => safeUpdates[k]);
     const sql = `UPDATE "OnboardingApplicationType" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "id" = $1`;
     await prisma.$queryRawUnsafe(sql, id, ...values);
   } catch (e) {
@@ -245,10 +380,15 @@ async function createFormPage(data) {
 
 async function updateFormPage(id, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      FORM_PAGE_UPDATABLE_FIELDS,
+      "updateFormPage",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 2}`);
-    const values = keys.map((k) => updates[k]);
+    const values = keys.map((k) => safeUpdates[k]);
     await prisma.$queryRawUnsafe(
       `UPDATE "OnboardingFormPage" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "id" = $1`,
       id,
@@ -333,10 +473,15 @@ async function createFormField(data) {
 
 async function updateFormField(id, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      FORM_FIELD_UPDATABLE_FIELDS,
+      "updateFormField",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 2}`);
-    const values = keys.map((k) => updates[k]);
+    const values = keys.map((k) => safeUpdates[k]);
     await prisma.$queryRawUnsafe(
       `UPDATE "OnboardingFormField" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "id" = $1`,
       id,
@@ -399,10 +544,15 @@ async function createFieldOption(data) {
 
 async function updateFieldOption(id, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      FIELD_OPTION_UPDATABLE_FIELDS,
+      "updateFieldOption",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 2}`);
-    const values = keys.map((k) => updates[k]);
+    const values = keys.map((k) => safeUpdates[k]);
     await prisma.$queryRawUnsafe(
       `UPDATE "OnboardingFieldOption" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "id" = $1`,
       id,
@@ -596,10 +746,15 @@ async function getLatestApplications(guildId, limit = 20) {
 
 async function updateApplication(id, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      APPLICATION_UPDATABLE_FIELDS,
+      "updateApplication",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 2}`);
-    const values = keys.map((k) => updates[k]);
+    const values = keys.map((k) => safeUpdates[k]);
     await prisma.$queryRawUnsafe(
       `UPDATE "OnboardingApplication" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "id" = $1`,
       id,
@@ -830,14 +985,21 @@ async function createSession(data) {
 
 async function updateSession(id, updates) {
   try {
-    const keys = Object.keys(updates);
+    const safeUpdates = sanitizeUpdates(
+      updates,
+      SESSION_UPDATABLE_FIELDS,
+      "updateSession",
+    );
+    const keys = Object.keys(safeUpdates);
     if (!keys.length) return;
     const setClauses = keys.map((k, i) => {
       if (k === "stateJson") return `"stateJson" = $${i + 2}::jsonb`;
       return `"${k}" = $${i + 2}`;
     });
     const values = keys.map((k) =>
-      k === "stateJson" && updates[k] ? JSON.stringify(updates[k]) : updates[k],
+      k === "stateJson" && safeUpdates[k]
+        ? JSON.stringify(safeUpdates[k])
+        : safeUpdates[k],
     );
     await prisma.$queryRawUnsafe(
       `UPDATE "OnboardingSession" SET ${setClauses.join(", ")}, "updatedAt" = NOW() WHERE "id" = $1`,

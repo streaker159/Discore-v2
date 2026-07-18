@@ -1606,3 +1606,272 @@ model AssassinPlayerStats {
   @@unique([guildId, userId])
   @@index([guildId, gamesWon])
 }
+
+// ── Onboarding Applications Centre ──────────────────────────────────────────
+// NOTE: These models document tables created directly via raw SQL in
+// prisma/migrations/20260718000000_add_onboarding_system/migration.sql.
+// The app layer (src/modules/onboarding/onboardingDb.js) continues to read
+// and write through prisma.$queryRawUnsafe rather than the generated Prisma
+// Client for these tables, so no FK/@relation constraints are declared here
+// (the underlying tables have none either) — this block exists purely to
+// keep schema.prisma in sync with the real database shape for tooling,
+// introspection and type-safety review purposes.
+
+model OnboardingConfig {
+  id                        String    @id @default(cuid())
+  guildId                   String    @unique
+  enabled                   Boolean   @default(false)
+  premiumLockedAt           DateTime? @db.Timestamptz(6)
+  lastPremiumActiveAt       DateTime? @db.Timestamptz(6)
+  panelChannelId            String?
+  panelMessageId            String?
+  defaultReviewChannelId    String?
+  fallbackToAppealsChannel  Boolean   @default(false)
+  useServerIcon             Boolean   @default(true)
+  useServerBanner           Boolean   @default(false)
+  showDiscoreBranding       Boolean   @default(true)
+  maxApplicationTypes       Int       @default(3)
+  allowDmFlow               Boolean   @default(true)
+  allowThreadFallback       Boolean   @default(false)
+  draftExpiryHours          Int       @default(72)
+  keepSubmittedApplications Boolean   @default(true)
+  panelEmbedTitle           String?
+  panelEmbedDescription     String?
+  panelEmbedFooter          String?
+  panelEmbedColor           String?
+  panelThumbnailUrl         String?
+  panelImageUrl             String?
+  createdAt                 DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt                 DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([guildId])
+}
+
+model OnboardingApplicationType {
+  id                           String   @id @default(cuid())
+  guildId                      String
+  name                         String
+  publicTitle                  String
+  publicDescription            String?
+  instructions                 String?
+  buttonLabel                  String   @default("Apply")
+  buttonEmoji                  String?
+  buttonStyle                  String   @default("PRIMARY")
+  enabled                      Boolean  @default(true)
+  sortOrder                    Int      @default(0)
+  reviewChannelId              String?
+  themeColor                   String?
+  thumbnailUrl                 String?
+  imageUrl                     String?
+  allowFiles                   Boolean  @default(false)
+  allowRequestChanges          Boolean  @default(true)
+  allowApplicantEdit           Boolean  @default(false)
+  allowReviewThread            Boolean  @default(true)
+  allowPullApplicantIntoThread Boolean  @default(true)
+  acceptRoleIds                String[] @default([])
+  removeRoleIds                String[] @default([])
+  denyAction                   String   @default("DM_ONLY")
+  denyRoleId                   String?
+  pendingRoleId                String?
+  kickOnDeny                   Boolean  @default(false)
+  banOnDeny                    Boolean  @default(false)
+  sendDmOnDecision             Boolean  @default(true)
+  createdAt                    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt                    DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([guildId])
+}
+
+model OnboardingFormPage {
+  id                String   @id @default(cuid())
+  applicationTypeId String
+  title             String   @default("Page")
+  description       String?
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([applicationTypeId])
+}
+
+model OnboardingFormField {
+  id                String   @id @default(cuid())
+  pageId            String
+  applicationTypeId String
+  fieldType         String   @default("TEXT_SHORT")
+  label             String
+  helpText          String?
+  placeholder       String?
+  required          Boolean  @default(true)
+  minLength         Int?
+  maxLength         Int?
+  minChoices        Int?
+  maxChoices        Int?
+  allowedFileTypes  String[] @default([])
+  maxFileSize       Int?
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([pageId])
+  @@index([applicationTypeId])
+}
+
+model OnboardingFieldOption {
+  id            String   @id @default(cuid())
+  fieldId       String
+  label         String
+  value         String
+  emoji         String?
+  sortOrder     Int      @default(0)
+  linkedRoleIds String[] @default([])
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([fieldId])
+}
+
+model OnboardingRoleRule {
+  id                    String   @id @default(cuid())
+  guildId               String
+  applicationTypeId     String?
+  triggerType           String   @default("DECISION")
+  triggerFieldId        String?
+  triggerOptionValue    String?
+  applyWhen             String   @default("APPROVED")
+  rolesToAdd            String[] @default([])
+  rolesToRemove         String[] @default([])
+  requiresStaffConfirm  Boolean  @default(false)
+  createdAt             DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([guildId])
+  @@index([applicationTypeId])
+}
+
+model OnboardingApplication {
+  id                           String    @id @default(cuid())
+  guildId                      String
+  applicationNumber            Int
+  applicationTypeId            String?
+  applicantId                  String
+  applicantUsernameSnapshot    String?
+  applicantDisplayNameSnapshot String?
+  status                       String    @default("DRAFT")
+  serverMemberStatus           String    @default("IN_SERVER")
+  submittedAt                  DateTime? @db.Timestamptz(6)
+  decidedAt                    DateTime? @db.Timestamptz(6)
+  decidedById                  String?
+  decisionReason               String?
+  reviewChannelId              String?
+  reviewMessageId              String?
+  reviewThreadId               String?
+  reviewThreadStatus           String    @default("NONE")
+  receiptGeneratedAt           DateTime? @db.Timestamptz(6)
+  threadTranscriptCreatedAt    DateTime? @db.Timestamptz(6)
+  createdAt                    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt                    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([guildId, applicationNumber])
+  @@index([guildId])
+  @@index([applicantId])
+  @@index([status])
+  @@index([applicationTypeId])
+}
+
+model OnboardingAnswer {
+  id                   String   @id @default(cuid())
+  applicationId        String
+  fieldId              String?
+  fieldLabelSnapshot   String?
+  fieldType            String?
+  answerText           String?
+  answerJson           Json?
+  selectedOptionValues String[] @default([])
+  selectedRoleIds      String[] @default([])
+  fileRefs             Json?
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([applicationId])
+}
+
+model OnboardingStaffNote {
+  id            String    @id @default(cuid())
+  applicationId String
+  guildId       String
+  authorId      String
+  noteText      String
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime? @db.Timestamptz(6)
+  deletedAt     DateTime? @db.Timestamptz(6)
+
+  @@index([applicationId])
+  @@index([guildId])
+}
+
+model OnboardingDecisionLog {
+  id            String   @id @default(cuid())
+  applicationId String
+  guildId       String
+  action        String
+  actorId       String
+  reason        String?
+  detailsJson   Json?
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([applicationId])
+  @@index([guildId])
+}
+
+model OnboardingApplicationTranscript {
+  id             String   @id @default(cuid())
+  applicationId  String
+  guildId        String
+  threadId       String?
+  fileName       String
+  contentType    String   @default("text/plain")
+  storageRef     String?
+  transcriptText String?
+  messageCount   Int      @default(0)
+  createdBy      String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([applicationId])
+  @@index([guildId])
+}
+
+model OnboardingSession {
+  id                String   @id @default(cuid())
+  guildId           String
+  applicationTypeId String?
+  applicantId       String
+  applicationId     String?
+  currentPage       Int      @default(0)
+  stateJson         Json?
+  expiresAt         DateTime @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([guildId])
+  @@index([applicantId])
+  @@index([expiresAt])
+}
+
+model OnboardingPermissionRole {
+  id             String   @id @default(cuid())
+  guildId        String
+  roleId         String
+  canManage      Boolean  @default(false)
+  canBuildForms  Boolean  @default(false)
+  canReview      Boolean  @default(false)
+  canApproveDeny Boolean  @default(false)
+  canOpenThreads Boolean  @default(false)
+  canDownload    Boolean  @default(false)
+  canDelete      Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([guildId, roleId])
+  @@index([guildId])
+  @@index([roleId])
+}

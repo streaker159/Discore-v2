@@ -186,6 +186,19 @@ async function submitApplication(applicationId, client) {
       return { success: false, error: "Application not found." };
 
     const guildId = application.guildId;
+
+    // Premium re-check: block new submissions from reaching review if
+    // premium lapsed while the applicant was mid-flow.
+    const premiumActive = await isOnboardingPremiumActive(guildId);
+    if (!premiumActive) {
+      await db.updateApplication(applicationId, { status: "CANCELLED" });
+      return {
+        success: false,
+        error:
+          "Premium has expired for this server. Applications can no longer be submitted.",
+      };
+    }
+
     const guild = client.guilds.cache.get(guildId);
     if (!guild) return { success: false, error: "Guild not found." };
 
@@ -675,21 +688,29 @@ async function denyApplication(applicationId, staffId, reason, client) {
 /**
  * Apply pending role on submission.
  */
-async function applyPendingRole(guildId, userId, pendingRoleId) {
+async function applyPendingRole(guildId, userId, pendingRoleId, client) {
   try {
-    if (!pendingRoleId) return;
-    const guild =
-      await require("discord.js").Client.prototype.guilds?.cache?.get(guildId);
+    if (!pendingRoleId || !client) return;
+    const guild = client.guilds.cache.get(guildId);
     if (!guild) return;
     const member = await guild.members.fetch(userId).catch(() => null);
     if (!member) return;
     const role = guild.roles.cache.get(pendingRoleId);
-    if (role && role.position < guild.members.me.roles.highest.position) {
+    if (
+      role &&
+      guild.members.me &&
+      role.position < guild.members.me.roles.highest.position
+    ) {
       await member.roles
         .add(pendingRoleId, "Application submitted")
         .catch(() => {});
     }
-  } catch {}
+  } catch (e) {
+    logger.error("[Onboarding] applyPendingRole failed", {
+      guildId,
+      error: e.message,
+    });
+  }
 }
 
 module.exports = {

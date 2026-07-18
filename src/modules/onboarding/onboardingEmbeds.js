@@ -212,7 +212,9 @@ function buildReviewCardEmbed(application, appType, answers, notes, guild) {
       : "✅ In Server";
   const reviewThreadStatus =
     application?.reviewThreadStatus === "OPEN" ? "🧵 Open" : "❌ None";
-  const receiptStatus = "📎 Available";
+  const receiptStatus = application?.receiptGeneratedAt
+    ? "📎 Available"
+    : "➖ Not generated yet";
 
   // Gather selected roles from answers
   const selectedRoles = [];
@@ -347,7 +349,11 @@ function buildFullViewEmbed(
       if (val.length > 1024) val = val.slice(0, 1021) + "...";
 
       const fieldType = a.fieldType ? ` [${a.fieldType}]` : "";
-      embed.addFields({ name: `${label}${fieldType}`, value, inline: false });
+      embed.addFields({
+        name: `${label}${fieldType}`,
+        value: val,
+        inline: false,
+      });
     }
   }
 

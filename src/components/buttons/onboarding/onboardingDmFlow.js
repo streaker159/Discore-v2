@@ -9,127 +9,93 @@ const {
   TextInputBuilder,
   TextInputStyle,
   EmbedBuilder,
+  StringSelectMenuBuilder,
+  UserSelectMenuBuilder,
+  RoleSelectMenuBuilder,
+  ChannelSelectMenuBuilder,
 } = require("discord.js");
 const db = require("../../../modules/onboarding/onboardingDb");
 const {
   submitApplication,
   applyPendingRole,
 } = require("../../../modules/onboarding/onboardingService");
+const {
+  isOnboardingPremiumActive,
+} = require("../../../modules/onboarding/onboardingPremium");
+
+/**
+ * NOTE ON DESIGN:
+ * Every interaction handled by this file (except "continue"/"tryagain",
+ * which originate from an ephemeral message in the guild) happens inside a
+ * DM channel, where `interaction.guildId` is always `null`. All session
+ * lookups therefore go through `db.getSessionById(sessionId)` — the
+ * sessionId is embedded directly in every customId — never through
+ * guildId+userId+appTypeId composite lookups, which cannot work in DMs.
+ */
 
 module.exports = {
   customIdPrefix: "onboarding:dm:",
+  buildFormPagePayload,
+  showFormPage,
 
   async execute(interaction, client) {
     const customId = interaction.customId;
     const parts = customId.split(":");
-    const action = parts[2]; // start, cancelapp, tryagain, continue, cancel
-    const targetId = parts[3]; // appTypeId or sessionId
+    const action = parts[2];
+    const targetId = parts[3]; // always a sessionId in this file
+
+    if (!targetId) return;
 
     /** ── Start Application Form (DM) ── **/
-    if (action === "start" && targetId) {
-      const appTypeId = targetId;
-      const guildId = interaction.message?.guildId || interaction.guildId;
-      if (!guildId) {
-        // This is a DM interaction, need to get guildId from session
-        const sessions = await db.getExpiredSessions(); // not ideal but...
-        // Better: parse from message
+    if (action === "start") {
+      const session = await db.getSessionById(targetId);
+      if (!session || session.applicantId !== interaction.user.id) {
         return interaction
           .reply({
-            content: "Please use this command from the server.",
+            content:
+              "This application session was not found or has expired. Please use the panel in the server to apply again.",
             flags: [MessageFlags.Ephemeral],
           })
           .catch(() => {});
       }
 
-      // Get or create session
-      let session = await db.getSession(
-        guildId,
-        interaction.user.id,
-        appTypeId,
-      );
-      if (!session) {
-        // Create new
-        const config = await db.getConfig(guildId);
-        const expiryHours = config?.draftExpiryHours || 72;
-        const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
-        const sessionId = await db.createSession({
-          guildId,
-          applicationTypeId: appTypeId,
-          applicantId: interaction.user.id,
-          currentPage: 0,
-          stateJson: { answers: [] },
-          expiresAt,
-        });
-        session = await db.getSession(guildId, interaction.user.id, appTypeId);
-      }
-
-      if (!session) {
-        return interaction
-          .reply({
-            content: "Failed to create application session. Please try again.",
-            flags: [MessageFlags.Ephemeral],
-          })
-          .catch(() => {});
-      }
-
-      await showFormPage(interaction, session, 0, client);
-      return;
-    }
-
-    /** ── Cancel Application (DM) ── **/
-    if (action === "cancelapp" && targetId) {
-      const appTypeId = targetId;
-      // Delete session
-      const session = await db.getSession(
-        interaction.guildId || interaction.message?.guild?.id || "unknown",
-        interaction.user.id,
-        appTypeId,
-      );
-      if (session) {
+      if (isSessionExpired(session)) {
         await db.deleteSession(session.id);
+        return interaction
+          .update({
+            content:
+              "⌛ This application draft has expired. Please start a new one from the server panel.",
+            embeds: [],
+            components: [],
+          })
+          .catch(() => {});
       }
 
-      await interaction
-        .update({
-          content:
-            "❌ Application cancelled. You can start a new one anytime from the server panel.",
-          embeds: [],
-          components: [],
-        })
-        .catch(() => {});
-      return;
-    }
-
-    /** ── Try Again (DM failed) ── **/
-    if (action === "tryagain" && targetId) {
-      // Re-trigger the apply flow
-      await interaction.reply({
-        content: "Attempting to send DM again...",
-        flags: [MessageFlags.Ephemeral],
-      });
-      // Simulate clicking the apply button
-      const fakeInteraction = {
-        ...interaction,
-        customId: `onboarding:apply:${targetId}`,
-      };
-      await require("./onboardingApplyButton").execute(fakeInteraction, client);
-      return;
-    }
-
-    /** ── Continue Draft ── **/
-    if (action === "continue" && targetId) {
-      const sessionId = targetId;
-      const session = await db.getSession(
-        interaction.guildId,
-        interaction.user.id,
-        sessionId,
-      );
-      if (!session) {
-        return interaction.reply({
-          content: "Session not found. It may have expired.",
-          flags: [MessageFlags.Ephemeral],
-        });
+      const premiumActive = await isOnboardingPremiumActive(session.guildId);
+      if (!premiumActive) {
+        await db.deleteSession(session.id);
+        return interaction
+          .update({
+            content:
+              "🔒 Applications are currently unavailable because Premium has expired for this server.",
+            embeds: [],
+            components: [],
+          })
+          .catch(() => {});
       }
+
+      const appType = await db.getApplicationType(session.applicationTypeId);
+      if (!appType || !appType.enabled) {
+        return interaction
+          .update({
+            content:
+              "This application type is no longer available. Please contact staff.",
+            embeds: [],
+            components: [],
+          })
+          .catch(() => {});
+      }
+
       await showFormPage(
         interaction,
         session,
@@ -139,82 +105,224 @@ module.exports = {
       return;
     }
 
-    /** ── Cancel Draft ── **/
-    if (action === "cancel" && targetId) {
-      const sessionId = targetId;
-      await db.deleteSession(sessionId);
+    /** ── Cancel Application / Draft ── **/
+    if (action === "cancel") {
+      const session = await db.getSessionById(targetId);
+      if (session && session.applicantId === interaction.user.id) {
+        await db.deleteSession(session.id);
+      }
+      await respondForm(interaction, {
+        content:
+          "❌ Application cancelled. You can start a new one anytime from the server panel.",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+
+    /** ── Try Again (DM failed) ── **/
+    if (action === "tryagain") {
+      const session = await db.getSessionById(targetId);
+      if (!session) {
+        return interaction
+          .reply({
+            content:
+              "This session no longer exists. Please use the panel to apply again.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      await interaction.deferUpdate().catch(() => {});
+
+      const appType = await db.getApplicationType(session.applicationTypeId);
+      if (!appType) {
+        return interaction
+          .editReply({
+            content: "That application type no longer exists.",
+            components: [],
+          })
+          .catch(() => {});
+      }
+
+      const user = await client.users
+        .fetch(session.applicantId)
+        .catch(() => null);
+      if (!user) {
+        return interaction
+          .editReply({
+            content: "Could not find your user account.",
+            components: [],
+          })
+          .catch(() => {});
+      }
+
+      const guild = client.guilds.cache.get(session.guildId);
+      const { sendSessionStartDm } = require("./onboardingApplyButton");
+      const result = await sendSessionStartDm(
+        user,
+        session,
+        appType,
+        guild?.name,
+      );
+
+      if (result.success) {
+        await interaction
+          .editReply({
+            content: "✅ Sent! Please check your DMs to continue.",
+            components: [],
+          })
+          .catch(() => {});
+      } else {
+        await interaction
+          .editReply({
+            content:
+              "❌ I still couldn't DM you. Please make sure you allow direct messages from server members, then try again.",
+            components: [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`onboarding:dm:tryagain:${session.id}`)
+                  .setLabel("Try Again")
+                  .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                  .setCustomId(`onboarding:dm:cancel:${session.id}`)
+                  .setLabel("Cancel")
+                  .setStyle(ButtonStyle.Secondary),
+              ),
+            ],
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    /** ── Continue Draft (offered in the guild) ── **/
+    if (action === "continue") {
+      const session = await db.getSessionById(targetId);
+      if (!session) {
+        return interaction
+          .reply({
+            content: "Session not found. It may have expired.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
       await interaction
         .update({
-          content:
-            "Draft cancelled. You can start fresh from the server panel.",
+          content: "📬 Check your DMs to continue your application.",
           embeds: [],
           components: [],
         })
         .catch(() => {});
+
+      const user = await client.users
+        .fetch(session.applicantId)
+        .catch(() => null);
+      if (user) {
+        const payload = await buildFormPagePayload(
+          session,
+          session.currentPage || 0,
+          client,
+        );
+        await user.send(payload).catch(() => {});
+      }
       return;
     }
 
     /** ── Next Page ── **/
     if (action === "next") {
-      const sessionId = targetId;
-      await handleNextPage(interaction, sessionId, client);
+      await handleNextPage(interaction, targetId, client);
       return;
     }
 
     /** ── Previous Page ── **/
     if (action === "prev") {
-      const sessionId = targetId;
-      await handlePrevPage(interaction, sessionId, client);
+      await handlePrevPage(interaction, targetId, client);
       return;
     }
 
     /** ── Submit ── **/
     if (action === "submit") {
-      const sessionId = targetId;
-      await handleSubmit(interaction, sessionId, client);
+      await handleSubmit(interaction, targetId, client);
       return;
     }
 
-    /** ── Answer Short Text ── **/
+    /** ── Answer Short/Paragraph Text (opens modal) ── **/
     if (action === "answer") {
-      const sessionId = targetId;
       const fieldIndex = parseInt(parts[4], 10);
-      await handleShortAnswer(interaction, sessionId, fieldIndex, client);
+      await handleTextAnswerButton(interaction, targetId, fieldIndex, client);
+      return;
+    }
+
+    /** ── File Upload ── **/
+    if (action === "upload") {
+      const fieldIndex = parseInt(parts[4], 10);
+      await handleUploadButton(interaction, targetId, fieldIndex, client);
       return;
     }
 
     /** ── Toggle Yes/No ── **/
     if (action === "yesno") {
-      const sessionId = targetId;
       const fieldIndex = parseInt(parts[4], 10);
-      const value = parts[5]; // yes or no
-      await handleYesNo(interaction, sessionId, fieldIndex, value, client);
+      const value = parts[5];
+      await handleYesNo(interaction, targetId, fieldIndex, value, client);
       return;
     }
 
-    /** ── Select Option ── **/
+    /** ── Select Option (string/user/role/channel selects) ── **/
     if (action === "select") {
-      const parts2 = customId.split(":");
-      const sessionId = parts2[3];
-      const fieldIndex = parseInt(parts2[4], 10);
-      if (!interaction.isStringSelectMenu()) return;
-      const values = interaction.values;
-      await handleSelectOption(
-        interaction,
-        sessionId,
-        fieldIndex,
-        values,
-        client,
-      );
+      const fieldIndex = parseInt(parts[4], 10);
+      const isSelect =
+        interaction.isStringSelectMenu?.() ||
+        interaction.isUserSelectMenu?.() ||
+        interaction.isRoleSelectMenu?.() ||
+        interaction.isChannelSelectMenu?.() ||
+        interaction.isMentionableSelectMenu?.();
+      if (!isSelect) return;
+      await handleSelectOption(interaction, targetId, fieldIndex, client);
       return;
     }
   },
 };
 
 /**
- * Show a form page to the user in DM.
+ * Whether a session's draft has expired.
  */
-async function showFormPage(interaction, session, pageIndex, client) {
+function isSessionExpired(session) {
+  return (
+    session?.expiresAt && new Date(session.expiresAt).getTime() < Date.now()
+  );
+}
+
+/**
+ * Reply to a component interaction the safe way, regardless of whether it
+ * has already been deferred/replied. Avoids the "reply after reply" crash
+ * and the "duplicate DM message" bug that came from reply().catch(followUp).
+ */
+async function respondForm(interaction, payload) {
+  try {
+    if (interaction.deferred) return await interaction.editReply(payload);
+    if (interaction.replied) return await interaction.followUp(payload);
+    return await interaction.update(payload);
+  } catch {
+    try {
+      return await interaction.reply({
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Build the {embeds, components, content} payload for a given form page.
+ * Pure data — does not touch any interaction, so it can be sent as a fresh
+ * DM message (user.send) or used to update an existing one.
+ */
+async function buildFormPagePayload(session, pageIndex, client) {
   const appTypeId = session.applicationTypeId;
   const guildId = session.guildId;
   const guild = client.guilds.cache.get(guildId);
@@ -223,34 +331,30 @@ async function showFormPage(interaction, session, pageIndex, client) {
   const pages = await db.getFormPages(appTypeId);
 
   if (!pages.length) {
-    // No form pages defined - use simple modal approach
-    // For now, show a message that the server hasn't configured the form yet
-    return interaction
-      .reply({
-        content:
-          "This application type uses the default question format.\n\n" +
-          "The server hasn't configured custom form pages yet.\n" +
-          "Please contact staff if you have questions.",
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`onboarding:dm:submit:${session.id}`)
-              .setLabel("Submit Simple Application")
-              .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-              .setCustomId(`onboarding:dm:cancelapp:${appTypeId}`)
-              .setLabel("Cancel")
-              .setStyle(ButtonStyle.Danger),
-          ),
-        ],
-      })
-      .catch(() => {});
+    return {
+      content:
+        "This application type uses the default question format.\n\n" +
+        "The server hasn't configured custom form pages yet.\n" +
+        "Please contact staff if you have questions.",
+      embeds: [],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`onboarding:dm:submit:${session.id}`)
+            .setLabel("Submit Simple Application")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:dm:cancel:${session.id}`)
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Danger),
+        ),
+      ],
+    };
   }
 
   const page = pages[pageIndex];
   if (!page) {
-    // Show preview/submit
-    return showPreview(interaction, session, client);
+    return buildPreviewPayload(session, client);
   }
 
   const fields = await db.getFormFields(page.id);
@@ -266,7 +370,6 @@ async function showFormPage(interaction, session, pageIndex, client) {
     text: `${guild?.name || "Application"} • Page ${pageIndex + 1} of ${pages.length}`,
   });
 
-  // Show current fields summary
   if (fields.length) {
     let fieldDesc = "";
     for (let i = 0; i < fields.length; i++) {
@@ -275,12 +378,11 @@ async function showFormPage(interaction, session, pageIndex, client) {
         (a) => a.fieldId === f.id,
       );
       const answered = existingAnswer ? "✅" : "❌";
-      fieldDesc += `${answered} **${f.label}**`;
+      fieldDesc += `${answered} **${f.label}**${f.required === false ? " _(optional)_" : ""}`;
 
       if (f.fieldType === "SINGLE_SELECT" || f.fieldType === "MULTI_SELECT") {
         const options = await db.getFieldOptions(f.id);
         if (options.length <= 5) {
-          // Can show as buttons
           fieldDesc += `\n_Choose from: ${options.map((o) => o.label).join(", ")}_`;
         }
       }
@@ -298,7 +400,7 @@ async function showFormPage(interaction, session, pageIndex, client) {
     });
   }
 
-  // Build answer buttons for each field
+  // Build answer components for each field
   const rows = [];
   for (let i = 0; i < fields.length; i++) {
     const f = fields[i];
@@ -332,27 +434,67 @@ async function showFormPage(interaction, session, pageIndex, client) {
       f.fieldType === "MULTI_SELECT"
     ) {
       const options = await db.getFieldOptions(f.id);
-      if (options.length <= 25) {
-        // Show select menu
-        const { StringSelectMenuBuilder } = require("discord.js");
+      if (options.length) {
         const select = new StringSelectMenuBuilder()
           .setCustomId(`onboarding:dm:select:${session.id}:${i}`)
-          .setPlaceholder(f.label)
+          .setPlaceholder(f.label.slice(0, 150))
           .setMaxValues(
-            f.fieldType === "MULTI_SELECT" ? Math.min(options.length, 25) : 1,
+            f.fieldType === "MULTI_SELECT"
+              ? Math.min(options.length, f.maxChoices || options.length, 25)
+              : 1,
           )
-          .setMinValues(f.required ? 1 : 0)
+          .setMinValues(
+            f.required !== false ? Math.max(1, f.minChoices || 1) : 0,
+          )
           .addOptions(
-            options.map((o) => ({
+            options.slice(0, 25).map((o) => ({
               label: o.label.slice(0, 100),
               value: o.value.slice(0, 100),
               emoji: o.emoji || undefined,
+              default: !!existingAnswer?.selectedOptionValues?.includes(
+                o.value,
+              ),
             })),
           );
         row.addComponents(select);
       }
+    } else if (f.fieldType === "USER_SELECT") {
+      row.addComponents(
+        new UserSelectMenuBuilder()
+          .setCustomId(`onboarding:dm:select:${session.id}:${i}`)
+          .setPlaceholder(f.label.slice(0, 150))
+          .setMinValues(f.required !== false ? 1 : 0)
+          .setMaxValues(f.maxChoices || 1),
+      );
+    } else if (f.fieldType === "ROLE_SELECT") {
+      row.addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(`onboarding:dm:select:${session.id}:${i}`)
+          .setPlaceholder(f.label.slice(0, 150))
+          .setMinValues(f.required !== false ? 1 : 0)
+          .setMaxValues(f.maxChoices || 1),
+      );
+    } else if (f.fieldType === "CHANNEL_SELECT") {
+      row.addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(`onboarding:dm:select:${session.id}:${i}`)
+          .setPlaceholder(f.label.slice(0, 150))
+          .setMinValues(f.required !== false ? 1 : 0)
+          .setMaxValues(f.maxChoices || 1),
+      );
+    } else if (f.fieldType === "FILE_UPLOAD") {
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`onboarding:dm:upload:${session.id}:${i}`)
+          .setLabel(
+            `${existingAnswer ? "📎 Replace" : "📎 Upload"} — ${f.label.slice(0, 60)}`,
+          )
+          .setStyle(
+            existingAnswer ? ButtonStyle.Primary : ButtonStyle.Secondary,
+          ),
+      );
     } else {
-      // Text fields - show answer button
+      // TEXT_SHORT / TEXT_PARAGRAPH (default)
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`onboarding:dm:answer:${session.id}:${i}`)
@@ -382,29 +524,20 @@ async function showFormPage(interaction, session, pageIndex, client) {
       .setLabel("Next ▶️")
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(`onboarding:dm:cancelapp:${appTypeId}`)
+      .setCustomId(`onboarding:dm:cancel:${session.id}`)
       .setLabel("Cancel")
       .setStyle(ButtonStyle.Danger),
   );
 
   rows.push(navRow);
 
-  await interaction
-    .reply({
-      embeds: [embed],
-      components: rows.slice(0, 5), // Max 5 action rows
-    })
-    .catch(async () => {
-      await interaction
-        .followUp({
-          embeds: [embed],
-          components: rows.slice(0, 5),
-        })
-        .catch(() => {});
-    });
+  return { embeds: [embed], components: rows.slice(0, 5) };
 }
 
-async function showPreview(interaction, session, client) {
+/**
+ * Build the {embeds, components} preview payload before final submission.
+ */
+async function buildPreviewPayload(session, client) {
   const appType = await db.getApplicationType(session.applicationTypeId);
   const guild = client.guilds.cache.get(session.guildId);
 
@@ -426,7 +559,11 @@ async function showPreview(interaction, session, client) {
         val = a.selectedOptionValues.join(", ");
       if (!val) val = "*(not answered)*";
       if (val.length > 1024) val = val.slice(0, 1021) + "...";
-      embed.addFields({ name: a.fieldLabel || "Answer", value, inline: false });
+      embed.addFields({
+        name: a.fieldLabel || "Answer",
+        value: val,
+        inline: false,
+      });
     }
   } else {
     embed.addFields({
@@ -435,59 +572,44 @@ async function showPreview(interaction, session, client) {
     });
   }
 
-  await interaction
-    .reply({
-      embeds: [embed],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`onboarding:dm:submit:${session.id}`)
-            .setLabel("✅ Submit")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:dm:prev:${session.id}`)
-            .setLabel("◀️ Edit Answers")
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:dm:cancelapp:${session.applicationTypeId}`)
-            .setLabel("Cancel")
-            .setStyle(ButtonStyle.Danger),
-        ),
-      ],
-    })
-    .catch(async () => {
-      await interaction
-        .followUp({
-          embeds: [embed],
-          components: [
-            new ActionRowBuilder().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`onboarding:dm:submit:${session.id}`)
-                .setLabel("✅ Submit")
-                .setStyle(ButtonStyle.Success),
-              new ButtonBuilder()
-                .setCustomId(`onboarding:dm:prev:${session.id}`)
-                .setLabel("◀️ Edit Answers")
-                .setStyle(ButtonStyle.Secondary),
-              new ButtonBuilder()
-                .setCustomId(
-                  `onboarding:dm:cancelapp:${session.applicationTypeId}`,
-                )
-                .setLabel("Cancel")
-                .setStyle(ButtonStyle.Danger),
-            ),
-          ],
-        })
-        .catch(() => {});
-    });
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`onboarding:dm:submit:${session.id}`)
+          .setLabel("✅ Submit")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`onboarding:dm:prev:${session.id}`)
+          .setLabel("◀️ Edit Answers")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`onboarding:dm:cancel:${session.id}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger),
+      ),
+    ],
+  };
+}
+
+/**
+ * Show a form page to the user, updating the message the interaction fired
+ * from (works for both a fresh click and a deferred one, DM or guild).
+ */
+async function showFormPage(interaction, session, pageIndex, client) {
+  const payload = await buildFormPagePayload(session, pageIndex, client);
+  await respondForm(interaction, payload);
+}
+
+async function showPreview(interaction, session, client) {
+  const payload = await buildPreviewPayload(session, client);
+  await respondForm(interaction, payload);
 }
 
 async function handleSubmit(interaction, sessionId, client) {
-  const session = await db.getSession(
-    interaction.guildId || interaction.message?.guild?.id || "unknown",
-    interaction.user.id,
-  );
-  if (!session) {
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) {
     return interaction
       .reply({
         content: "Session expired. Please start a new application.",
@@ -496,39 +618,64 @@ async function handleSubmit(interaction, sessionId, client) {
       .catch(() => {});
   }
 
-  // Replace: look up session by ID
-  const sessions = await db.getExpiredSessions(); // won't work; we'll query directly
-  // Since this is a DM interaction, we need to find by ID
-  // Let's store sessions differently actually
-  // For simplicity, we'll create the application and submit
-
   await interaction.deferUpdate().catch(() => {});
 
-  const appType = await db.getApplicationType(session.applicationTypeId);
-  const guild = client.guilds.cache.get(session.guildId);
+  // Re-verify premium + application type are still valid at the moment of
+  // submission, per spec ("Block new application submissions" on expiry).
+  const premiumActive = await isOnboardingPremiumActive(session.guildId);
+  if (!premiumActive) {
+    await interaction
+      .editReply({
+        content:
+          "🔒 Premium has expired for this server. Your application could not be submitted. Please contact staff.",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => {});
+    return;
+  }
 
-  // Create application record
+  const appType = await db.getApplicationType(session.applicationTypeId);
+  if (!appType || !appType.enabled) {
+    await interaction
+      .editReply({
+        content: "This application type is no longer available.",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const guild = client.guilds.cache.get(session.guildId);
   const member = guild
-    ? await guild.members.fetch(interaction.user.id).catch(() => null)
+    ? await guild.members.fetch(session.applicantId).catch(() => null)
     : null;
+  const user = await client.users
+    .fetch(session.applicantId)
+    .catch(() => interaction.user);
+
   const application = await db.createApplication({
     guildId: session.guildId,
     applicationTypeId: session.applicationTypeId,
-    applicantId: interaction.user.id,
-    applicantUsernameSnapshot: interaction.user.username,
-    applicantDisplayNameSnapshot:
-      member?.displayName || interaction.user.displayName,
+    applicantId: session.applicantId,
+    applicantUsernameSnapshot: user?.username,
+    applicantDisplayNameSnapshot: member?.displayName || user?.displayName,
     status: "DRAFT",
     serverMemberStatus: member ? "IN_SERVER" : "LEFT_SERVER",
   });
 
   if (!application) {
-    return interaction.editReply({
-      content: "Failed to create application. Please try again.",
-    });
+    await interaction
+      .editReply({
+        content: "Failed to create application. Please try again.",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => {});
+    return;
   }
 
-  // Save answers
   const answers = session.stateJson?.answers || [];
   for (const a of answers) {
     await db.saveAnswer({
@@ -543,19 +690,17 @@ async function handleSubmit(interaction, sessionId, client) {
     });
   }
 
-  // Submit to review
   const result = await submitApplication(application.id, client);
 
-  // Apply pending role if configured
   if (appType?.pendingRoleId && member) {
     await applyPendingRole(
       session.guildId,
-      interaction.user.id,
+      session.applicantId,
       appType.pendingRoleId,
+      client,
     );
   }
 
-  // Clean up session
   await db.deleteSession(session.id);
 
   if (result.success) {
@@ -584,15 +729,20 @@ async function handleSubmit(interaction, sessionId, client) {
   }
 }
 
-async function handleShortAnswer(interaction, sessionId, fieldIndex, client) {
-  const session = await db.getSession(interaction.guildId, interaction.user.id);
-  if (!session)
+async function handleTextAnswerButton(
+  interaction,
+  sessionId,
+  fieldIndex,
+  client,
+) {
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) {
     return interaction
       .reply({ content: "Session expired.", flags: [MessageFlags.Ephemeral] })
       .catch(() => {});
+  }
 
-  const appTypeId = session.applicationTypeId;
-  const pages = await db.getFormPages(appTypeId);
+  const pages = await db.getFormPages(session.applicationTypeId);
   const page = pages[session.currentPage || 0];
   if (!page) return;
 
@@ -600,7 +750,10 @@ async function handleShortAnswer(interaction, sessionId, fieldIndex, client) {
   const field = fields[fieldIndex];
   if (!field) return;
 
-  // Show modal for text input
+  const existingAnswer = (session.stateJson?.answers || []).find(
+    (a) => a.fieldId === field.id,
+  );
+
   const modal = new ModalBuilder()
     .setCustomId(`onboarding:modal:field:${session.id}:${fieldIndex}`)
     .setTitle(field.label.slice(0, 45));
@@ -608,32 +761,38 @@ async function handleShortAnswer(interaction, sessionId, fieldIndex, client) {
   const textInput = new TextInputBuilder()
     .setCustomId("value")
     .setLabel(field.label.slice(0, 45))
-    .setPlaceholder(field.placeholder || "Enter your answer...")
+    .setPlaceholder(
+      (field.helpText || field.placeholder || "Enter your answer...").slice(
+        0,
+        100,
+      ),
+    )
     .setStyle(
       field.fieldType === "TEXT_PARAGRAPH"
         ? TextInputStyle.Paragraph
         : TextInputStyle.Short,
     )
-    .setRequired(field.required)
+    .setRequired(field.required !== false)
     .setMaxLength(Math.min(field.maxLength || 1000, 4000))
     .setMinLength(field.minLength || 0);
 
-  if (field.helpText) {
-    textInput.setPlaceholder(field.helpText);
+  if (existingAnswer?.answerText) {
+    textInput.setValue(existingAnswer.answerText.slice(0, 4000));
   }
 
   modal.addComponents(new ActionRowBuilder().addComponents(textInput));
   await interaction.showModal(modal);
 }
 
-async function handleYesNo(interaction, sessionId, fieldIndex, value, client) {
-  await interaction.deferUpdate().catch(() => {});
+async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) {
+    return interaction
+      .reply({ content: "Session expired.", flags: [MessageFlags.Ephemeral] })
+      .catch(() => {});
+  }
 
-  const session = await db.getSession(interaction.guildId, interaction.user.id);
-  if (!session) return;
-
-  const appTypeId = session.applicationTypeId;
-  const pages = await db.getFormPages(appTypeId);
+  const pages = await db.getFormPages(session.applicationTypeId);
   const page = pages[session.currentPage || 0];
   if (!page) return;
 
@@ -641,7 +800,105 @@ async function handleYesNo(interaction, sessionId, fieldIndex, value, client) {
   const field = fields[fieldIndex];
   if (!field) return;
 
-  // Save answer
+  await interaction
+    .reply({
+      content:
+        `📎 Please send **${field.label}** as a file attachment in this DM within the next 5 minutes.` +
+        (field.allowedFileTypes?.length
+          ? `\nAllowed types: ${field.allowedFileTypes.join(", ")}`
+          : ""),
+    })
+    .catch(() => {});
+
+  let collected;
+  try {
+    collected = await interaction.channel.awaitMessages({
+      filter: (m) =>
+        m.author.id === interaction.user.id && m.attachments.size > 0,
+      max: 1,
+      time: 5 * 60 * 1000,
+      errors: ["time"],
+    });
+  } catch {
+    await interaction
+      .followUp({
+        content:
+          "⌛ Timed out waiting for a file. Please press the upload button again.",
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const msg = collected.first();
+  const attachment = msg?.attachments?.first();
+  if (!attachment) return;
+
+  if (field.maxFileSize && attachment.size > field.maxFileSize) {
+    await interaction
+      .followUp({
+        content: `❌ That file is too large. Max size: ${(field.maxFileSize / 1024 / 1024).toFixed(1)} MB.`,
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const fileRefs = [
+    {
+      url: attachment.url,
+      name: attachment.name,
+      size: attachment.size,
+      contentType: attachment.contentType || null,
+    },
+  ];
+
+  const freshSession = await db.getSessionById(sessionId);
+  if (!freshSession) return;
+
+  const answers = freshSession.stateJson?.answers || [];
+  const existing = answers.findIndex((a) => a.fieldId === field.id);
+  const answerEntry = {
+    fieldId: field.id,
+    fieldLabel: field.label,
+    fieldType: field.fieldType,
+    answerText: attachment.name,
+    fileRefs,
+  };
+  if (existing >= 0) answers[existing] = answerEntry;
+  else answers.push(answerEntry);
+
+  await db.updateSession(sessionId, {
+    stateJson: { ...freshSession.stateJson, answers },
+  });
+
+  await interaction
+    .followUp({ content: `✅ File received: **${attachment.name}**` })
+    .catch(() => {});
+
+  const user = await client.users.fetch(session.applicantId).catch(() => null);
+  if (user) {
+    const payload = await buildFormPagePayload(
+      { ...freshSession, stateJson: { answers } },
+      freshSession.currentPage || 0,
+      client,
+    );
+    await user.send(payload).catch(() => {});
+  }
+}
+
+async function handleYesNo(interaction, sessionId, fieldIndex, value, client) {
+  await interaction.deferUpdate().catch(() => {});
+
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) return;
+
+  const pages = await db.getFormPages(session.applicationTypeId);
+  const page = pages[session.currentPage || 0];
+  if (!page) return;
+
+  const fields = await db.getFormFields(page.id);
+  const field = fields[fieldIndex];
+  if (!field) return;
+
   const answers = session.stateJson?.answers || [];
   const existing = answers.findIndex((a) => a.fieldId === field.id);
   const answerEntry = {
@@ -651,17 +908,13 @@ async function handleYesNo(interaction, sessionId, fieldIndex, value, client) {
     answerText: value === "yes" ? "Yes" : "No",
   };
 
-  if (existing >= 0) {
-    answers[existing] = answerEntry;
-  } else {
-    answers.push(answerEntry);
-  }
+  if (existing >= 0) answers[existing] = answerEntry;
+  else answers.push(answerEntry);
 
   await db.updateSession(sessionId, {
     stateJson: { ...session.stateJson, answers },
   });
 
-  // Refresh the page
   await showFormPage(
     interaction,
     { ...session, stateJson: { answers } },
@@ -670,20 +923,13 @@ async function handleYesNo(interaction, sessionId, fieldIndex, value, client) {
   );
 }
 
-async function handleSelectOption(
-  interaction,
-  sessionId,
-  fieldIndex,
-  values,
-  client,
-) {
+async function handleSelectOption(interaction, sessionId, fieldIndex, client) {
   await interaction.deferUpdate().catch(() => {});
 
-  const session = await db.getSession(interaction.guildId, interaction.user.id);
-  if (!session) return;
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) return;
 
-  const appTypeId = session.applicationTypeId;
-  const pages = await db.getFormPages(appTypeId);
+  const pages = await db.getFormPages(session.applicationTypeId);
   const page = pages[session.currentPage || 0];
   if (!page) return;
 
@@ -691,35 +937,70 @@ async function handleSelectOption(
   const field = fields[fieldIndex];
   if (!field) return;
 
-  // Get option labels and linked roles
-  const options = await db.getFieldOptions(field.id);
-  const selectedOptions = options.filter((o) => values.includes(o.value));
-  const selectedRoleIds = selectedOptions
-    .flatMap((o) => o.linkedRoleIds || [])
-    .filter(Boolean);
+  const values = interaction.values || [];
+  let answerEntry;
+
+  if (
+    field.fieldType === "SINGLE_SELECT" ||
+    field.fieldType === "MULTI_SELECT"
+  ) {
+    const options = await db.getFieldOptions(field.id);
+    const selectedOptions = options.filter((o) => values.includes(o.value));
+    const selectedRoleIds = selectedOptions
+      .flatMap((o) => o.linkedRoleIds || [])
+      .filter(Boolean);
+    answerEntry = {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldType: field.fieldType,
+      answerText: selectedOptions.map((o) => o.label).join(", ") || null,
+      selectedOptionValues: values,
+      selectedRoleIds,
+    };
+  } else if (field.fieldType === "USER_SELECT") {
+    answerEntry = {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldType: field.fieldType,
+      answerText: values.map((id) => `<@${id}>`).join(", "),
+      selectedOptionValues: values,
+    };
+  } else if (field.fieldType === "ROLE_SELECT") {
+    answerEntry = {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldType: field.fieldType,
+      answerText: values.map((id) => `<@&${id}>`).join(", "),
+      selectedOptionValues: values,
+      selectedRoleIds: values,
+    };
+  } else if (field.fieldType === "CHANNEL_SELECT") {
+    answerEntry = {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldType: field.fieldType,
+      answerText: values.map((id) => `<#${id}>`).join(", "),
+      selectedOptionValues: values,
+    };
+  } else {
+    answerEntry = {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldType: field.fieldType,
+      answerText: values.join(", "),
+      selectedOptionValues: values,
+    };
+  }
 
   const answers = session.stateJson?.answers || [];
   const existing = answers.findIndex((a) => a.fieldId === field.id);
-  const answerEntry = {
-    fieldId: field.id,
-    fieldLabel: field.label,
-    fieldType: field.fieldType,
-    answerText: null,
-    selectedOptionValues: values,
-    selectedRoleIds,
-  };
-
-  if (existing >= 0) {
-    answers[existing] = answerEntry;
-  } else {
-    answers.push(answerEntry);
-  }
+  if (existing >= 0) answers[existing] = answerEntry;
+  else answers.push(answerEntry);
 
   await db.updateSession(sessionId, {
     stateJson: { ...session.stateJson, answers },
   });
 
-  // Refresh
   await showFormPage(
     interaction,
     { ...session, stateJson: { answers } },
@@ -729,18 +1010,19 @@ async function handleSelectOption(
 }
 
 async function handleNextPage(interaction, sessionId, client) {
-  const session = await db.getSession(interaction.guildId, interaction.user.id);
-  if (!session)
-    return interaction
-      .reply({ content: "Session expired.", flags: [MessageFlags.Ephemeral] })
-      .catch(() => {});
+  await interaction.deferUpdate().catch(() => {});
 
-  const appTypeId = session.applicationTypeId;
-  const pages = await db.getFormPages(appTypeId);
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) {
+    return interaction
+      .editReply({ content: "Session expired.", embeds: [], components: [] })
+      .catch(() => {});
+  }
+
+  const pages = await db.getFormPages(session.applicationTypeId);
   const nextPage = (session.currentPage || 0) + 1;
 
   if (nextPage >= pages.length) {
-    // Show preview
     await showPreview(interaction, session, client);
   } else {
     await db.updateSession(sessionId, { currentPage: nextPage });
@@ -754,11 +1036,14 @@ async function handleNextPage(interaction, sessionId, client) {
 }
 
 async function handlePrevPage(interaction, sessionId, client) {
-  const session = await db.getSession(interaction.guildId, interaction.user.id);
-  if (!session)
+  await interaction.deferUpdate().catch(() => {});
+
+  const session = await db.getSessionById(sessionId);
+  if (!session || session.applicantId !== interaction.user.id) {
     return interaction
-      .reply({ content: "Session expired.", flags: [MessageFlags.Ephemeral] })
+      .editReply({ content: "Session expired.", embeds: [], components: [] })
       .catch(() => {});
+  }
 
   const prevPage = Math.max(0, (session.currentPage || 0) - 1);
   await db.updateSession(sessionId, { currentPage: prevPage });
