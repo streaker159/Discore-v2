@@ -507,4 +507,5 @@ module.exports = {
   updateStats,
   findTopPlayers,
   deleteOldGames,
+  deletePlayersByGame,
 };

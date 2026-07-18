@@ -280,22 +280,44 @@ async function beginHunt(guildId, client) {
     } catch {}
   }
 
-  // Post gameboard (hide player names by default — only show counts)
+  // Post live gameboard to the LEADERBOARD channel (separate from game channel)
+  const liveChannelId = config.leaderboardChannelId || config.gameChannelId;
+  const liveChannel = guild.channels.cache.get(liveChannelId);
+
   const gameboardEmbed = buildGameboardEmbed(game, players, [], guild);
-  const startedImage = getGameStartedAttachment();
 
   let gameboardMsg;
-  try {
-    gameboardMsg = await channel.send({
-      embeds: [gameboardEmbed],
-      files: [startedImage],
-    });
-  } catch (err) {
-    logger.error("[Assassin] Failed to post gameboard", { error: err.message });
-    return { success: false, reason: "Failed to post gameboard." };
+  if (liveChannel && liveChannelId !== config.gameChannelId) {
+    // Post to separate leaderboard channel
+    try {
+      gameboardMsg = await liveChannel.send({ embeds: [gameboardEmbed] });
+    } catch {}
+  }
+  // Also post a compact version in the game channel
+  if (channel) {
+    try {
+      await channel.send({ embeds: [gameboardEmbed] });
+    } catch {}
   }
 
-  await db.updateGame(game.id, { gameboardMessageId: gameboardMsg.id });
+  // If no separate leaderboard channel, use game channel for the live board
+  if (!gameboardMsg && channel) {
+    try {
+      const startedImage = getGameStartedAttachment();
+      gameboardMsg = await channel.send({
+        embeds: [gameboardEmbed],
+        files: [startedImage],
+      });
+    } catch {
+      try {
+        gameboardMsg = await channel.send({ embeds: [gameboardEmbed] });
+      } catch {}
+    }
+  }
+
+  await db.updateGame(game.id, {
+    gameboardMessageId: gameboardMsg?.id || null,
+  });
 
   if (DEBUG)
     logger.info("[Assassin] Hunt begun", {
@@ -555,30 +577,49 @@ async function updateGameboard(guildId, client) {
   const game = await db.findActiveGame(guildId);
   if (!game || !game.gameboardMessageId) return;
 
-  const guild = client.guilds.cache.get(guildId);
+  const config = await getConfig(guildId);
+  const guild = client?.guilds?.cache?.get(guildId);
   if (!guild) return;
-
-  const channel = guild.channels.cache.get(game.gameChannelId);
-  if (!channel) return;
 
   const alivePlayers = await db.findAlivePlayers(game.id);
   const allPlayers = await db.findPlayersByGame(game.id);
   const deadPlayers = allPlayers.filter((p) => p.status === "DEAD");
-
   const embed = buildGameboardEmbed(game, alivePlayers, deadPlayers, guild);
 
-  try {
-    const msg = await channel.messages
-      .fetch(game.gameboardMessageId)
-      .catch(() => null);
-    if (msg) {
-      await msg.edit({ embeds: [embed] }).catch(() => {});
-    } else {
-      // Message deleted — repost
-      const newMsg = await channel.send({ embeds: [embed] });
-      await db.updateGame(game.id, { gameboardMessageId: newMsg.id });
+  // Try to find the gameboard message in the leaderboard channel first,
+  // then fall back to the game channel
+  const channelsToTry = [
+    config?.leaderboardChannelId,
+    game.gameChannelId,
+  ].filter(Boolean);
+
+  let updated = false;
+  for (const chanId of channelsToTry) {
+    const channel = guild.channels.cache.get(chanId);
+    if (!channel) continue;
+    try {
+      const msg = await channel.messages
+        .fetch(game.gameboardMessageId)
+        .catch(() => null);
+      if (msg) {
+        await msg.edit({ embeds: [embed] }).catch(() => {});
+        updated = true;
+        break;
+      }
+    } catch {}
+  }
+
+  if (!updated) {
+    // Message not found anywhere — repost to leaderboard channel if available
+    const fallbackChanId = config?.leaderboardChannelId || game.gameChannelId;
+    const fallbackChannel = guild.channels.cache.get(fallbackChanId);
+    if (fallbackChannel) {
+      try {
+        const newMsg = await fallbackChannel.send({ embeds: [embed] });
+        await db.updateGame(game.id, { gameboardMessageId: newMsg.id });
+      } catch {}
     }
-  } catch {}
+  }
 }
 
 // ── Cancel Game ────────────────────────────────────────────────────────────
