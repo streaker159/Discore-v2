@@ -8,6 +8,7 @@ const {
   EmbedBuilder,
 } = require("discord.js");
 const db = require("../../../modules/onboarding/onboardingDb");
+const adminUi = require("../../../modules/onboarding/onboardingAdminUi");
 const {
   approveApplication,
   denyApplication,
@@ -162,6 +163,216 @@ module.exports = {
               .setStyle(ButtonStyle.Secondary),
           ),
         ],
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Add Form Field ── **/
+    if (action === "addfield" && targetId) {
+      const pageId = targetId;
+      const fieldType = parts[4];
+      const label = interaction.fields.getTextInputValue("label");
+      const helpText = interaction.fields.getTextInputValue("helpText") || null;
+      const requiredRaw =
+        interaction.fields.getTextInputValue("required") || "yes";
+      const settingsRaw =
+        interaction.fields.getTextInputValue("settings") || "";
+      const optionsRaw = interaction.fields.getTextInputValue("options") || "";
+
+      const prisma = require("../../../lib/prisma");
+      const pageRows = await prisma
+        .$queryRawUnsafe(
+          `SELECT * FROM "OnboardingFormPage" WHERE "id" = $1`,
+          pageId,
+        )
+        .catch(() => []);
+      const page = pageRows?.[0];
+      if (!page) {
+        return interaction.reply({
+          content: "Page not found.",
+          flags: [MessageFlags.Ephemeral],
+        });
+      }
+
+      const fields = await db.getFormFields(pageId);
+      if (fields.length >= 5) {
+        return interaction.reply({
+          content:
+            "This page already has 5 fields. Delete or edit an existing field first.",
+          flags: [MessageFlags.Ephemeral],
+        });
+      }
+
+      const parsedSettings = parseFieldSettings(settingsRaw);
+      const storedType = fieldType === "CONFIRMATION" ? "YES_NO" : fieldType;
+      const fieldId = await db.createFormField({
+        pageId,
+        applicationTypeId: page.applicationTypeId,
+        fieldType: storedType,
+        label,
+        helpText,
+        placeholder: parsedSettings.placeholder || null,
+        required: !/^no|false|optional$/i.test(requiredRaw.trim()),
+        minLength: parsedSettings.min,
+        maxLength: parsedSettings.max,
+        minChoices: parsedSettings.min,
+        maxChoices: parsedSettings.max,
+        allowedFileTypes: parsedSettings.types || [],
+        maxFileSize: parsedSettings.maxmb
+          ? parsedSettings.maxmb * 1024 * 1024
+          : null,
+        sortOrder: fields.length,
+      });
+
+      if (!fieldId) {
+        return interaction.reply({
+          content: "Failed to create field.",
+          flags: [MessageFlags.Ephemeral],
+        });
+      }
+
+      if (storedType === "SINGLE_SELECT" || storedType === "MULTI_SELECT") {
+        const options = parseOptions(optionsRaw);
+        for (let index = 0; index < options.length; index++) {
+          await db.createFieldOption({
+            fieldId,
+            label: options[index].label,
+            value: options[index].value,
+            emoji: options[index].emoji,
+            sortOrder: index,
+            linkedRoleIds: [],
+          });
+        }
+      }
+
+      const payload = await adminUi.buildPageBuilderPayload(pageId);
+      await interaction.reply({
+        content:
+          `Added ${adminUi.fieldTypeLabel(storedType)} field: **${label}**` +
+          (fieldType === "FILE_UPLOAD"
+            ? "\nFile upload uses the DM attachment prompt fallback in this Discord.js build; raw files are not stored."
+            : ""),
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Edit Field ── **/
+    if (action === "editfield" && targetId) {
+      const fieldId = targetId;
+      const label = interaction.fields.getTextInputValue("label");
+      const helpText = interaction.fields.getTextInputValue("helpText") || null;
+      const requiredRaw =
+        interaction.fields.getTextInputValue("required") || "yes";
+      await db.updateFormField(fieldId, {
+        label,
+        helpText,
+        required: !/^no|false|optional$/i.test(requiredRaw.trim()),
+      });
+      const payload = await adminUi.buildFieldManagerPayload(fieldId);
+      await interaction.reply({
+        content: "Field updated.",
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Replace Field Options ── **/
+    if (action === "fieldoptions" && targetId) {
+      const fieldId = targetId;
+      const optionsRaw = interaction.fields.getTextInputValue("options");
+      const oldOptions = await db.getFieldOptions(fieldId);
+      for (const option of oldOptions) await db.deleteFieldOption(option.id);
+      const options = parseOptions(optionsRaw);
+      for (let index = 0; index < options.length; index++) {
+        await db.createFieldOption({
+          fieldId,
+          label: options[index].label,
+          value: options[index].value,
+          emoji: options[index].emoji,
+          sortOrder: index,
+          linkedRoleIds: [],
+        });
+      }
+      const payload = await adminUi.buildFieldManagerPayload(fieldId);
+      await interaction.reply({
+        content: `Saved ${options.length} option(s). Use Role Routing to map answers to roles after approval.`,
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Application Type Button ── **/
+    if (action === "typebutton" && targetId) {
+      const buttonLabel = interaction.fields.getTextInputValue("buttonLabel");
+      const buttonEmoji =
+        interaction.fields.getTextInputValue("buttonEmoji") || null;
+      await db.updateApplicationType(targetId, { buttonLabel, buttonEmoji });
+      const payload = await adminUi.buildTypeManagerPayload(guildId, targetId);
+      await interaction.reply({
+        content: "Button label/emoji saved.",
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Application Type Instructions ── **/
+    if (action === "typeinstructions" && targetId) {
+      const instructions =
+        interaction.fields.getTextInputValue("instructions") || null;
+      await db.updateApplicationType(targetId, { instructions });
+      const payload = await adminUi.buildTypeManagerPayload(guildId, targetId);
+      await interaction.reply({
+        content: "Instructions saved.",
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Panel Embed Text ── **/
+    if (action === "panelembed") {
+      await db.updateConfig(guildId, {
+        panelEmbedTitle: interaction.fields.getTextInputValue("title") || null,
+        panelEmbedDescription:
+          interaction.fields.getTextInputValue("description") || null,
+        panelEmbedFooter:
+          interaction.fields.getTextInputValue("footer") || null,
+      });
+      const config = await db.getConfig(guildId);
+      const payload = await adminUi.buildPanelDesignPayload(
+        interaction.guild,
+        config,
+      );
+      await interaction.reply({
+        content: "Panel embed text saved.",
+        ...payload,
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    /** ── Panel Media / Color ── **/
+    if (action === "panelmedia") {
+      await db.updateConfig(guildId, {
+        panelEmbedColor: interaction.fields.getTextInputValue("color") || null,
+        panelThumbnailUrl:
+          interaction.fields.getTextInputValue("thumbnail") || null,
+        panelImageUrl: interaction.fields.getTextInputValue("image") || null,
+      });
+      const config = await db.getConfig(guildId);
+      const payload = await adminUi.buildPanelDesignPayload(
+        interaction.guild,
+        config,
+      );
+      await interaction.reply({
+        content: "Panel media/color saved.",
+        ...payload,
         flags: [MessageFlags.Ephemeral],
       });
       return;
@@ -412,3 +623,44 @@ module.exports = {
     }
   },
 };
+
+function parseFieldSettings(raw) {
+  const settings = {};
+  for (const token of String(raw || "").split(/\s+/)) {
+    const [key, value] = token.split("=");
+    if (!key || value === undefined) continue;
+    const normalized = key.toLowerCase();
+    if (normalized === "min") settings.min = parseInt(value, 10) || null;
+    if (normalized === "max") settings.max = parseInt(value, 10) || null;
+    if (normalized === "maxmb") settings.maxmb = parseInt(value, 10) || null;
+    if (normalized === "types") {
+      settings.types = value
+        .split(",")
+        .map((v) => v.trim().replace(/^\./, "").toLowerCase())
+        .filter(Boolean);
+    }
+    if (normalized === "placeholder") settings.placeholder = value;
+  }
+  return settings;
+}
+
+function parseOptions(raw) {
+  return String(raw || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 25)
+    .map((line) => {
+      const [emojiOrLabel, maybeLabel, maybeValue] = line
+        .split("|")
+        .map((s) => s.trim());
+      const hasEmoji = maybeValue !== undefined;
+      const label = hasEmoji ? maybeLabel : emojiOrLabel;
+      const value = (hasEmoji ? maybeValue : maybeLabel) || label;
+      return {
+        emoji: hasEmoji ? emojiOrLabel : null,
+        label: label.slice(0, 100),
+        value: value.slice(0, 100),
+      };
+    });
+}

@@ -262,6 +262,18 @@ async function submitApplication(applicationId, client) {
       submittedAt: new Date(),
     });
 
+    const member = await guild.members
+      .fetch(application.applicantId)
+      .catch(() => null);
+    if (member) {
+      await applyAnswerRoleRules({
+        guild,
+        application,
+        answers,
+        applyWhen: "SUBMITTED",
+      });
+    }
+
     // Add decision log
     await db.addDecisionLog({
       applicationId,
@@ -520,6 +532,15 @@ async function approveApplication(applicationId, staffId, reason, client) {
             }
           }
         }
+
+        const ruleResult = await applyAnswerRoleRules({
+          guild,
+          application,
+          answers,
+          applyWhen: "APPROVED",
+        });
+        rolesApplied.push(...ruleResult.rolesApplied);
+        rolesFailed.push(...ruleResult.rolesFailed);
       }
     }
 
@@ -562,6 +583,80 @@ async function approveApplication(applicationId, staffId, reason, client) {
     });
     return { success: false, error: e.message };
   }
+}
+
+async function applyAnswerRoleRules({
+  guild,
+  application,
+  answers,
+  applyWhen,
+}) {
+  const rolesApplied = [];
+  const rolesFailed = [];
+  const member = await guild.members
+    .fetch(application.applicantId)
+    .catch(() => null);
+  if (!member) return { rolesApplied, rolesFailed };
+
+  const rules = await db.getRoleRules(
+    application.guildId,
+    application.applicationTypeId,
+  );
+  const matchingRules = rules.filter(
+    (rule) =>
+      (rule.applyWhen || "APPROVED") === applyWhen &&
+      rule.triggerType === "ANSWER" &&
+      !rule.requiresStaffConfirm,
+  );
+
+  for (const rule of matchingRules) {
+    const answer = answers.find((a) => a.fieldId === rule.triggerFieldId);
+    if (!answerMatchesRule(answer, rule)) continue;
+
+    for (const roleId of rule.rolesToAdd || []) {
+      try {
+        const role = guild.roles.cache.get(roleId);
+        if (role && role.position < guild.members.me.roles.highest.position) {
+          await member.roles.add(
+            roleId,
+            `Application ${applyWhen.toLowerCase()} answer rule`,
+          );
+          rolesApplied.push(roleId);
+        } else {
+          rolesFailed.push(roleId);
+        }
+      } catch {
+        rolesFailed.push(roleId);
+      }
+    }
+
+    for (const roleId of rule.rolesToRemove || []) {
+      try {
+        const role = guild.roles.cache.get(roleId);
+        if (role && role.position < guild.members.me.roles.highest.position) {
+          await member.roles.remove(
+            roleId,
+            `Application ${applyWhen.toLowerCase()} answer rule`,
+          );
+        }
+      } catch {}
+    }
+  }
+
+  return { rolesApplied, rolesFailed };
+}
+
+function answerMatchesRule(answer, rule) {
+  if (!answer) return false;
+  const condition = rule.triggerOptionValue || "__ANY__";
+  if (condition === "__ANY__") return true;
+  if (answer.selectedOptionValues?.includes(condition)) return true;
+  if (
+    String(answer.answerText || "").toLowerCase() === condition.toLowerCase()
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**

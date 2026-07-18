@@ -13,6 +13,7 @@ const {
   UserSelectMenuBuilder,
   RoleSelectMenuBuilder,
   ChannelSelectMenuBuilder,
+  MentionableSelectMenuBuilder,
 } = require("discord.js");
 const db = require("../../../modules/onboarding/onboardingDb");
 const {
@@ -410,11 +411,11 @@ async function buildFormPagePayload(session, pageIndex, client) {
 
     const row = new ActionRowBuilder();
 
-    if (f.fieldType === "YES_NO") {
+    if (f.fieldType === "YES_NO" || f.fieldType === "CONFIRMATION") {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`onboarding:dm:yesno:${session.id}:${i}:yes`)
-          .setLabel("Yes")
+          .setLabel(f.fieldType === "CONFIRMATION" ? "I Agree" : "Yes")
           .setStyle(
             existingAnswer?.answerText === "Yes"
               ? ButtonStyle.Success
@@ -422,7 +423,7 @@ async function buildFormPagePayload(session, pageIndex, client) {
           ),
         new ButtonBuilder()
           .setCustomId(`onboarding:dm:yesno:${session.id}:${i}:no`)
-          .setLabel("No")
+          .setLabel(f.fieldType === "CONFIRMATION" ? "I Do Not Agree" : "No")
           .setStyle(
             existingAnswer?.answerText === "No"
               ? ButtonStyle.Danger
@@ -482,13 +483,19 @@ async function buildFormPagePayload(session, pageIndex, client) {
           .setMinValues(f.required !== false ? 1 : 0)
           .setMaxValues(f.maxChoices || 1),
       );
+    } else if (f.fieldType === "MENTIONABLE_SELECT") {
+      row.addComponents(
+        new MentionableSelectMenuBuilder()
+          .setCustomId(`onboarding:dm:select:${session.id}:${i}`)
+          .setPlaceholder(f.label.slice(0, 150))
+          .setMinValues(f.required !== false ? 1 : 0)
+          .setMaxValues(f.maxChoices || 1),
+      );
     } else if (f.fieldType === "FILE_UPLOAD") {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`onboarding:dm:upload:${session.id}:${i}`)
-          .setLabel(
-            `${existingAnswer ? "📎 Replace" : "📎 Upload"} — ${f.label.slice(0, 60)}`,
-          )
+          .setLabel(`${existingAnswer ? "Replace File" : "Upload File"}`)
           .setStyle(
             existingAnswer ? ButtonStyle.Primary : ButtonStyle.Secondary,
           ),
@@ -640,6 +647,20 @@ async function handleSubmit(interaction, sessionId, client) {
     await interaction
       .editReply({
         content: "This application type is no longer available.",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const missing = await getMissingRequiredFields(session);
+  if (missing.length) {
+    await interaction
+      .editReply({
+        content:
+          "Please complete the required fields before submitting:\n" +
+          missing.map((field) => `- ${field.label}`).join("\n"),
         embeds: [],
         components: [],
       })
@@ -982,6 +1003,14 @@ async function handleSelectOption(interaction, sessionId, fieldIndex, client) {
       answerText: values.map((id) => `<#${id}>`).join(", "),
       selectedOptionValues: values,
     };
+  } else if (field.fieldType === "MENTIONABLE_SELECT") {
+    answerEntry = {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldType: field.fieldType,
+      answerText: values.map((id) => `<@${id}>`).join(", "),
+      selectedOptionValues: values,
+    };
   } else {
     answerEntry = {
       fieldId: field.id,
@@ -1022,6 +1051,21 @@ async function handleNextPage(interaction, sessionId, client) {
   const pages = await db.getFormPages(session.applicationTypeId);
   const nextPage = (session.currentPage || 0) + 1;
 
+  const page = pages[session.currentPage || 0];
+  const missing = page ? await getMissingRequiredFields(session, page.id) : [];
+  if (missing.length) {
+    await interaction
+      .editReply({
+        content:
+          "Please answer required fields before continuing:\n" +
+          missing.map((field) => `- ${field.label}`).join("\n"),
+        embeds: [],
+        components: [],
+      })
+      .catch(() => {});
+    return;
+  }
+
   if (nextPage >= pages.length) {
     await showPreview(interaction, session, client);
   } else {
@@ -1033,6 +1077,31 @@ async function handleNextPage(interaction, sessionId, client) {
       client,
     );
   }
+}
+
+async function getMissingRequiredFields(session, pageId = null) {
+  const answers = session.stateJson?.answers || [];
+  const pages = pageId
+    ? [{ id: pageId }]
+    : await db.getFormPages(session.applicationTypeId);
+  const missing = [];
+
+  for (const page of pages) {
+    const fields = await db.getFormFields(page.id);
+    for (const field of fields) {
+      if (field.required === false) continue;
+      const answer = answers.find((a) => a.fieldId === field.id);
+      const hasText = !!answer?.answerText;
+      const hasOptions = !!answer?.selectedOptionValues?.length;
+      const hasFile = !!answer?.fileRefs?.length;
+      if (!hasText && !hasOptions && !hasFile) missing.push(field);
+      if (field.fieldType === "CONFIRMATION" && answer?.answerText !== "Yes") {
+        missing.push(field);
+      }
+    }
+  }
+
+  return missing;
 }
 
 async function handlePrevPage(interaction, sessionId, client) {

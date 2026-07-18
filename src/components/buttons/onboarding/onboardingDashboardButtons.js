@@ -8,8 +8,10 @@ const {
   EmbedBuilder,
   ChannelSelectMenuBuilder,
   ChannelType,
+  StringSelectMenuBuilder,
 } = require("discord.js");
 const db = require("../../../modules/onboarding/onboardingDb");
+const adminUi = require("../../../modules/onboarding/onboardingAdminUi");
 const {
   showDashboard,
 } = require("../../../commands/public/onboarding/onboarding");
@@ -60,51 +62,14 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
+    const config = await db.ensureConfig(guildId);
+    const payload = await adminUi.buildWizardPayload(
+      interaction.guild,
+      config,
+      1,
+    );
     await interaction.reply({
-      embeds: [
-        buildSimpleEmbed(
-          "🧙 Setup Wizard",
-          "The Setup Wizard will guide you through configuring onboarding applications.\n\n" +
-            "**Steps:**\n" +
-            "1. Enable Applications\n" +
-            "2. Choose Panel Channel\n" +
-            "3. Choose Review Channel\n" +
-            "4. Configure Permissions\n" +
-            "5. Create Application Types\n" +
-            "6. Build Forms\n" +
-            "7. Configure Roles\n" +
-            "8. Review Behaviour\n" +
-            "9. Panel Design\n" +
-            "10. Publish\n\n" +
-            "Use the buttons below to navigate through setup.",
-        ),
-      ],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:wizard:step1")
-            .setLabel("Start Setup")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("▶️"),
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:configpanel")
-            .setLabel("Set Panel Channel")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("📌"),
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:configreview")
-            .setLabel("Set Review Channel")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("📋"),
-        ),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:back")
-            .setLabel("Back to Dashboard")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⬅️"),
-        ),
-      ],
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
     return;
@@ -115,66 +80,9 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
-    const appTypes = await db.getApplicationTypes(guildId);
-    const rows = [];
-
-    for (const at of appTypes) {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:edit:${at.id}`)
-            .setLabel(`${at.enabled ? "✅" : "⛔"} ${at.name}`)
-            .setStyle(at.enabled ? ButtonStyle.Primary : ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:toggle:${at.id}`)
-            .setLabel(at.enabled ? "Disable" : "Enable")
-            .setStyle(at.enabled ? ButtonStyle.Danger : ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:form:${at.id}`)
-            .setLabel("Form Builder")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("📝"),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:delete:${at.id}`)
-            .setLabel("Delete")
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji("🗑️"),
-        ),
-      );
-    }
-
-    // Add New button
-    const currentCount = appTypes.filter((t) => t.enabled).length;
-    const maxTypes = 3;
-    rows.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("onboarding:type:create")
-          .setLabel(`Create Application Type (${currentCount}/${maxTypes})`)
-          .setStyle(ButtonStyle.Success)
-          .setEmoji("➕")
-          .setDisabled(currentCount >= maxTypes),
-      ),
-    );
-
-    rows.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("onboarding:dash:back")
-          .setLabel("Back to Dashboard")
-          .setStyle(ButtonStyle.Secondary)
-          .setEmoji("⬅️"),
-      ),
-    );
-
+    const payload = await adminUi.buildApplicationTypesPayload(guildId);
     await interaction.reply({
-      embeds: [
-        buildSimpleEmbed(
-          "📋 Application Types",
-          `Manage your application types below.\n**${currentCount}/${maxTypes}** active application types used.\n\nClick a type to edit it, toggle it on/off, build its form, or delete it.`,
-        ),
-      ],
-      components: rows,
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
     return;
@@ -500,49 +408,65 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
-    const permRoles = await db.getPermissionRoles(guildId);
-
-    let desc = "**Configured Permission Roles:**\n";
-    if (permRoles.length) {
-      for (const pr of permRoles) {
-        const perms = [];
-        if (pr.canManage) perms.push("Manage");
-        if (pr.canBuildForms) perms.push("Build Forms");
-        if (pr.canReview) perms.push("Review");
-        if (pr.canApproveDeny) perms.push("Approve/Deny");
-        if (pr.canOpenThreads) perms.push("Threads");
-        if (pr.canDownload) perms.push("Download");
-        if (pr.canDelete) perms.push("Delete");
-        desc += `- <@&${pr.roleId}>: ${perms.join(", ") || "None"}\n`;
-      }
-    } else {
-      desc +=
-        "No role-based permissions configured.\nServer Owner, Admin, and Manage Guild have full access.";
-    }
-
+    const payload = await adminUi.buildPermissionsPayload(guildId);
     await interaction.reply({
-      embeds: [buildSimpleEmbed("🔑 Permissions", desc)],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:perm:add")
-            .setLabel("Add Permission Role")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("➕"),
-          new ButtonBuilder()
-            .setCustomId("onboarding:perm:remove")
-            .setLabel("Remove Permission Role")
-            .setStyle(ButtonStyle.Danger)
-            .setEmoji("➖"),
-        ),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:back")
-            .setLabel("Back to Dashboard")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⬅️"),
-        ),
-      ],
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  // Role Routing
+  if (customId === "onboarding:dash:routing") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const payload = await adminUi.buildRoleRoutingPayload(guildId);
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  // Accepted / Denied Action Builder
+  if (customId === "onboarding:dash:actions") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const payload = await adminUi.buildActionsPayload(guildId);
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  // Review Behaviour
+  if (customId === "onboarding:dash:reviewsettings") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const payload = await adminUi.buildReviewBehaviourPayload(guildId);
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  // Panel Design
+  if (customId === "onboarding:dash:paneldesign") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const config = await db.getConfig(guildId);
+    const payload = await adminUi.buildPanelDesignPayload(
+      interaction.guild,
+      config,
+    );
+    await interaction.reply({
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
     return;
@@ -614,21 +538,13 @@ async function handle(interaction, client) {
   // Preview User Flow
   if (customId === "onboarding:dash:preview") {
     const config = await db.getConfig(guildId);
-    const appTypes = await db.getApplicationTypes(guildId);
-    const {
-      buildPublicPanelEmbed,
-    } = require("../../../modules/onboarding/onboardingEmbeds");
-
-    const embed = buildPublicPanelEmbed(
-      config,
+    const payload = await adminUi.buildPreviewFlowPayload(
       interaction.guild,
-      appTypes,
-      false,
+      config,
     );
 
     await interaction.reply({
-      content: "👁️ **Public Panel Preview** (what users will see):",
-      embeds: [embed],
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
     return;
@@ -753,6 +669,35 @@ async function handle(interaction, client) {
 
   /** ── Wizard Step 1: Enable ── */
   if (customId === "onboarding:wizard:step1") {
+    const config = await db.getConfig(guildId);
+    const payload = await adminUi.buildWizardPayload(
+      interaction.guild,
+      config,
+      1,
+    );
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:wizard:step:")) {
+    const step = parseInt(customId.split(":")[3], 10) || 1;
+    const config = await db.getConfig(guildId);
+    const payload = await adminUi.buildWizardPayload(
+      interaction.guild,
+      config,
+      step,
+    );
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId === "onboarding:wizard:enable") {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
@@ -760,92 +705,51 @@ async function handle(interaction, client) {
     if (!canManage) return;
 
     await db.updateConfig(guildId, { enabled: true });
+    const config = await db.getConfig(guildId);
+    const payload = await adminUi.buildWizardPayload(
+      interaction.guild,
+      config,
+      2,
+    );
 
     await interaction.reply({
-      embeds: [
-        buildSimpleEmbed(
-          "✅ Step 1 — Applications Enabled",
-          "Onboarding applications have been enabled.\n\n" +
-            "**Next:** Set your Panel Channel using the button below, or use **Back to Dashboard**.",
-          "#57f287",
-        ),
-      ],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:configpanel")
-            .setLabel("Set Panel Channel")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("📌"),
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:configreview")
-            .setLabel("Set Review Channel")
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji("📋"),
-        ),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:back")
-            .setLabel("Back to Dashboard")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⬅️"),
-        ),
-      ],
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
+    return;
+  }
+
+  if (customId === "onboarding:wizard:save") {
+    await interaction.reply({
+      content:
+        "Saved. This wizard persists each setting as soon as you configure it.",
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId === "onboarding:wizard:cancel") {
+    await interaction
+      .update({
+        content: "Setup wizard cancelled.",
+        embeds: [],
+        components: [],
+      })
+      .catch(async () => {
+        await interaction.reply({
+          content: "Setup wizard cancelled.",
+          flags: [MessageFlags.Ephemeral],
+        });
+      });
     return;
   }
 
   /** ── Type Edit ── **/
   if (customId.startsWith("onboarding:type:edit:")) {
     const appTypeId = customId.split(":")[3];
-    const appType = await db.getApplicationType(appTypeId);
-    if (!appType) {
-      await interaction.reply({
-        content: "Application type not found.",
-        flags: [MessageFlags.Ephemeral],
-      });
-      return;
-    }
-
+    const payload = await adminUi.buildTypeManagerPayload(guildId, appTypeId);
     await interaction.reply({
-      embeds: [
-        buildSimpleEmbed(
-          `✏️ Edit: ${appType.name}`,
-          `**Public Title:** ${appType.publicTitle}\n` +
-            `**Description:** ${appType.publicDescription || "None"}\n` +
-            `**Button Label:** ${appType.buttonLabel}\n` +
-            `**Button Emoji:** ${appType.buttonEmoji || "None"}\n` +
-            `**Button Style:** ${appType.buttonStyle}\n` +
-            `**Enabled:** ${appType.enabled ? "Yes" : "No"}\n\n` +
-            `Use the buttons below to edit settings or build the form.`,
-        ),
-      ],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:form:${appType.id}`)
-            .setLabel("📝 Form Builder")
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:toggle:${appType.id}`)
-            .setLabel(appType.enabled ? "⛔ Disable" : "✅ Enable")
-            .setStyle(
-              appType.enabled ? ButtonStyle.Danger : ButtonStyle.Success,
-            ),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:delete:${appType.id}`)
-            .setLabel("🗑️ Delete")
-            .setStyle(ButtonStyle.Danger),
-        ),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("onboarding:dash:types")
-            .setLabel("Back to Types")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⬅️"),
-        ),
-      ],
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
     return;
@@ -880,49 +784,537 @@ async function handle(interaction, client) {
   /** ── Type Form Builder ── **/
   if (customId.startsWith("onboarding:type:form:")) {
     const appTypeId = customId.split(":")[3];
-    const appType = await db.getApplicationType(appTypeId);
-    if (!appType) {
-      await interaction.reply({
-        content: "Application type not found.",
-        flags: [MessageFlags.Ephemeral],
-      });
-      return;
-    }
+    const payload = await adminUi.buildFormBuilderPayload(appTypeId);
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
 
+  if (customId.startsWith("onboarding:type:previewform:")) {
+    const appTypeId = customId.split(":")[3];
     const pages = await db.getFormPages(appTypeId);
-    let desc = `**Form pages for: ${appType.publicTitle || appType.name}**\n\n`;
-    if (pages.length) {
-      for (const p of pages) {
-        const fields = await db.getFormFields(p.id);
-        desc += `📄 **${p.title}** (${fields.length} fields)\n`;
-      }
-    } else {
-      desc += "No pages configured yet.\n";
+    const appType = await db.getApplicationType(appTypeId);
+    let desc = `**Application:** ${appType?.publicTitle || appType?.name}\n\n`;
+    for (const page of pages) {
+      const fields = await db.getFormFields(page.id);
+      desc += `**${page.title}**\n`;
+      desc += fields.length
+        ? fields
+            .map((f) => `- ${adminUi.fieldTypeLabel(f.fieldType)}: ${f.label}`)
+            .join("\n")
+        : "- No fields";
+      desc += "\n\n";
     }
-    desc += "\nUse **Add Page** to create your first form page.";
+    await interaction.reply({
+      embeds: [buildSimpleEmbed("Form Preview", desc || "No pages yet.")],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:button:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) return;
 
     await interaction.reply({
-      embeds: [buildSimpleEmbed("📝 Form Builder", desc)],
+      embeds: [
+        buildSimpleEmbed(
+          "Configure Application Button",
+          `**Current label:** ${appType.buttonLabel || "Apply"}\n` +
+            `**Current emoji:** ${appType.buttonEmoji || "None"}\n` +
+            `**Current style:** ${appType.buttonStyle || "PRIMARY"}\n\n` +
+            "Discord supports Primary/Blue, Secondary/Grey, Success/Green, and Danger/Red button styles.",
+        ),
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`onboarding:select:typestyle:${appTypeId}`)
+            .setPlaceholder("Choose button style")
+            .addOptions([
+              { label: "Primary / Blue", value: "PRIMARY" },
+              { label: "Secondary / Grey", value: "SECONDARY" },
+              { label: "Success / Green", value: "SUCCESS" },
+              { label: "Danger / Red", value: "DANGER" },
+            ]),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:buttonmodal:${appTypeId}`)
+            .setLabel("Edit Label / Emoji")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:edit:${appTypeId}`)
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:buttonmodal:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) return;
+    const {
+      ModalBuilder,
+      TextInputBuilder,
+      TextInputStyle,
+    } = require("discord.js");
+    const modal = new ModalBuilder()
+      .setCustomId(`onboarding:modal:typebutton:${appTypeId}`)
+      .setTitle("Application Button");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("buttonLabel")
+          .setLabel("Button label")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(80)
+          .setValue(appType.buttonLabel || "Apply"),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("buttonEmoji")
+          .setLabel("Button emoji (optional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(40)
+          .setValue(appType.buttonEmoji || ""),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:instructions:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) return;
+    const {
+      ModalBuilder,
+      TextInputBuilder,
+      TextInputStyle,
+    } = require("discord.js");
+    const modal = new ModalBuilder()
+      .setCustomId(`onboarding:modal:typeinstructions:${appTypeId}`)
+      .setTitle("Application Instructions");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("instructions")
+          .setLabel("Instructions shown before start")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(1000)
+          .setValue(appType.instructions || ""),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:reviewchannel:")) {
+    const appTypeId = customId.split(":")[3];
+    await interaction.reply({
+      content: "Select the review channel override for this application type:",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ChannelSelectMenuBuilder()
+            .setCustomId(`onboarding:select:typereview:${appTypeId}`)
+            .setPlaceholder("Per-type review channel")
+            .setChannelTypes([ChannelType.GuildText]),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:edit:${appTypeId}`)
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:actions:")) {
+    const appTypeId = customId.split(":")[3];
+    const payload = await adminUi.buildActionsPayload(guildId, appTypeId);
+    await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:routing:")) {
+    const appTypeId = customId.split(":")[3];
+    const payload = await adminUi.buildRoleRoutingPayload(guildId, appTypeId);
+    await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:review:")) {
+    const appTypeId = customId.split(":")[3];
+    const payload = await adminUi.buildReviewBehaviourPayload(
+      guildId,
+      appTypeId,
+    );
+    await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:setroles:")) {
+    const [, , , roleKind, appTypeId] = customId.split(":");
+    const maxValues = roleKind === "pending" || roleKind === "denied" ? 1 : 10;
+    await interaction.reply({
+      content: "Select role(s) to save for this action:",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new (require("discord.js").RoleSelectMenuBuilder)()
+            .setCustomId(`onboarding:select:setroles:${roleKind}:${appTypeId}`)
+            .setPlaceholder("Select roles")
+            .setMinValues(0)
+            .setMaxValues(maxValues),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:denytoggles:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) return;
+    await interaction.reply({
+      embeds: [
+        buildSimpleEmbed(
+          "Denied Action Toggles",
+          `**DM applicant:** ${appType.sendDmOnDecision !== false ? "Yes" : "No"}\n` +
+            `**Kick on deny:** ${appType.kickOnDeny ? "Yes" : "No"}\n` +
+            `**Ban on deny:** ${appType.banOnDeny ? "Yes" : "No"}\n\n` +
+            "Kick/ban stay disabled by default and must be explicitly toggled here.",
+        ),
+      ],
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`onboarding:type:addpage:${appTypeId}`)
-            .setLabel("Add Page")
-            .setStyle(ButtonStyle.Success)
-            .setEmoji("➕"),
-          new ButtonBuilder()
-            .setCustomId(`onboarding:type:edit:${appTypeId}`)
-            .setLabel("Back to Type Settings")
+            .setCustomId(
+              `onboarding:type:toggleflag:sendDmOnDecision:${appTypeId}`,
+            )
+            .setLabel("Toggle DM")
             .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:toggleflag:kickOnDeny:${appTypeId}`)
+            .setLabel("Toggle Kick")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:toggleflag:banOnDeny:${appTypeId}`)
+            .setLabel("Toggle Ban")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:actions:${appTypeId}`)
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:type:toggleflag:")) {
+    const [, , , flag, appTypeId] = customId.split(":");
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) return;
+    const allowed = ["sendDmOnDecision", "kickOnDeny", "banOnDeny"];
+    if (!allowed.includes(flag)) return;
+    await db.updateApplicationType(appTypeId, { [flag]: !appType[flag] });
+    const payload = await adminUi.buildActionsPayload(guildId, appTypeId);
+    await interaction.reply({
+      content: `Saved ${flag}: ${!appType[flag] ? "Yes" : "No"}`,
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:page:open:")) {
+    const pageId = customId.split(":")[3];
+    const payload = await adminUi.buildPageBuilderPayload(pageId);
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:page:addfield:")) {
+    const pageId = customId.split(":")[3];
+    await interaction.reply({
+      content: "Choose the field type to add to this page:",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`onboarding:select:fieldtype:${pageId}`)
+            .setPlaceholder("Select field type...")
+            .addOptions(
+              adminUi.FIELD_TYPES.map((fieldType) => ({
+                label: fieldType.label,
+                value: fieldType.value,
+                description: fieldType.description,
+              })),
+            ),
         ),
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId("onboarding:dash:back")
-            .setLabel("Dashboard")
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji("⬅️"),
+            .setCustomId(`onboarding:page:open:${pageId}`)
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
         ),
       ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:page:preview:")) {
+    const pageId = customId.split(":")[3];
+    const payload = await adminUi.buildPageBuilderPayload(pageId);
+    await interaction.reply({
+      content:
+        "Page preview uses the same configured field order the applicant will see.",
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:field:view:")) {
+    const fieldId = customId.split(":")[3];
+    const payload = await adminUi.buildFieldManagerPayload(fieldId);
+    await interaction.reply({
+      ...payload,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:field:edit:")) {
+    const fieldId = customId.split(":")[3];
+    const {
+      ModalBuilder,
+      TextInputBuilder,
+      TextInputStyle,
+    } = require("discord.js");
+    const modal = new ModalBuilder()
+      .setCustomId(`onboarding:modal:editfield:${fieldId}`)
+      .setTitle("Edit Field");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("label")
+          .setLabel("Question / Label")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(100),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("helpText")
+          .setLabel("Help text")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(300),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("required")
+          .setLabel("Required? yes/no")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(5),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId.startsWith("onboarding:field:options:")) {
+    const fieldId = customId.split(":")[3];
+    const {
+      ModalBuilder,
+      TextInputBuilder,
+      TextInputStyle,
+    } = require("discord.js");
+    const modal = new ModalBuilder()
+      .setCustomId(`onboarding:modal:fieldoptions:${fieldId}`)
+      .setTitle("Set Field Options");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("options")
+          .setLabel("Options, one per line")
+          .setPlaceholder("Mobile\nPC\nBoth")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1000),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId.startsWith("onboarding:field:delete:")) {
+    const fieldId = customId.split(":")[3];
+    await db.deleteFormField(fieldId);
+    await interaction.reply({
+      content: "Field deleted.",
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId === "onboarding:panel:embed") {
+    const config = await db.getConfig(guildId);
+    const {
+      ModalBuilder,
+      TextInputBuilder,
+      TextInputStyle,
+    } = require("discord.js");
+    const modal = new ModalBuilder()
+      .setCustomId("onboarding:modal:panelembed")
+      .setTitle("Panel Embed Text");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("title")
+          .setLabel("Panel title")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(100)
+          .setValue(config?.panelEmbedTitle || ""),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Panel description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(1500)
+          .setValue(config?.panelEmbedDescription || ""),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("footer")
+          .setLabel("Footer")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(100)
+          .setValue(config?.panelEmbedFooter || ""),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId === "onboarding:panel:media") {
+    const config = await db.getConfig(guildId);
+    const {
+      ModalBuilder,
+      TextInputBuilder,
+      TextInputStyle,
+    } = require("discord.js");
+    const modal = new ModalBuilder()
+      .setCustomId("onboarding:modal:panelmedia")
+      .setTitle("Panel Media / Color");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("color")
+          .setLabel("Embed color hex")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(7)
+          .setValue(config?.panelEmbedColor || ""),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("thumbnail")
+          .setLabel("Thumbnail URL")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(300)
+          .setValue(config?.panelThumbnailUrl || ""),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("image")
+          .setLabel("Main image/banner URL")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(300)
+          .setValue(config?.panelImageUrl || ""),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  if (customId === "onboarding:panel:toggles") {
+    const config = await db.getConfig(guildId);
+    await interaction.reply({
+      embeds: [
+        buildSimpleEmbed(
+          "Panel Design Toggles",
+          `**Use server icon:** ${config?.useServerIcon !== false ? "Yes" : "No"}\n` +
+            `**Use server banner:** ${config?.useServerBanner ? "Yes" : "No"}\n` +
+            `**Show Discore branding:** ${config?.showDiscoreBranding !== false ? "Yes" : "No"}`,
+        ),
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("onboarding:panel:toggle:useServerIcon")
+            .setLabel("Toggle Icon")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("onboarding:panel:toggle:useServerBanner")
+            .setLabel("Toggle Banner")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("onboarding:panel:toggle:showDiscoreBranding")
+            .setLabel("Toggle Branding")
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId("onboarding:dash:paneldesign")
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  if (customId.startsWith("onboarding:panel:toggle:")) {
+    const field = customId.split(":")[3];
+    const config = await db.getConfig(guildId);
+    const allowed = ["useServerIcon", "useServerBanner", "showDiscoreBranding"];
+    if (!allowed.includes(field)) return;
+    await db.updateConfig(guildId, { [field]: !config?.[field] });
+    const updated = await db.getConfig(guildId);
+    const payload = await adminUi.buildPanelDesignPayload(
+      interaction.guild,
+      updated,
+    );
+    await interaction.reply({
+      content: `Saved ${field}: ${!config?.[field] ? "Yes" : "No"}`,
+      ...payload,
       flags: [MessageFlags.Ephemeral],
     });
     return;
@@ -1052,6 +1444,9 @@ module.exports = [
   { customIdPrefix: "onboarding:dash:", execute: handle },
   { customIdPrefix: "onboarding:view:", execute: handle },
   { customIdPrefix: "onboarding:type:", execute: handle },
+  { customIdPrefix: "onboarding:page:", execute: handle },
+  { customIdPrefix: "onboarding:field:", execute: handle },
+  { customIdPrefix: "onboarding:panel:", execute: handle },
   { customIdPrefix: "onboarding:perm:", execute: handle },
   { customIdPrefix: "onboarding:wizard:", execute: handle },
 ];
