@@ -14,11 +14,9 @@ module.exports = {
     const guildId = interaction.guildId;
     const userId = interaction.user.id;
     const customId = interaction.customId;
-
-    const state = wizard.get(userId, guildId) || { step: 1 };
+    const channelId = interaction.values?.[0];
 
     if (customId === "assassin:select:game_channel") {
-      const channelId = interaction.values?.[0];
       if (!channelId) {
         return interaction.reply({
           content: "No channel selected.",
@@ -26,39 +24,36 @@ module.exports = {
         });
       }
 
-      state.gameChannelId = channelId;
-      await db.upsertConfig(guildId, { gameChannelId: channelId });
-      wizard.set(userId, guildId, state);
+      await db.upsertConfig(guildId, {
+        gameChannelId: channelId,
+        enabled: true,
+      });
+      wizard.patch(userId, guildId, { gameChannelId: channelId });
 
-      const embed = buildWizardStepEmbed(state.step, state);
-      const {
-        buildWizardButtons,
-      } = require("../../buttons/assassin/assassinDashboardButtons");
-      const components = buildWizardButtons(state.step, state);
-
-      return interaction.update({ embeds: [embed], components });
+      return interaction.update({
+        content: `✅ Game channel set to <#${channelId}>. Use the wizard to continue.`,
+        components: [],
+      });
     }
 
     if (customId === "assassin:select:winner_role") {
-      const roleId = interaction.values?.[0];
-      if (!roleId) {
+      if (!channelId) {
         return interaction.reply({
           content: "No role selected.",
           flags: [MessageFlags.Ephemeral],
         });
       }
 
-      state.winnerRoleId = roleId;
-      await db.upsertConfig(guildId, { winnerRoleId: roleId });
-      wizard.set(userId, guildId, state);
+      await db.upsertConfig(guildId, {
+        winnerRoleId: channelId,
+        enabled: true,
+      });
+      wizard.patch(userId, guildId, { winnerRoleId: channelId });
 
-      const embed = buildWizardStepEmbed(state.step, state);
-      const {
-        buildWizardButtons,
-      } = require("../../buttons/assassin/assassinDashboardButtons");
-      const components = buildWizardButtons(state.step, state);
-
-      return interaction.update({ embeds: [embed], components });
+      return interaction.update({
+        content: `✅ Winner role set to <@&${channelId}>. Use the wizard to continue.`,
+        components: [],
+      });
     }
 
     return interaction.reply({

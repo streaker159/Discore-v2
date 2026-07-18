@@ -88,6 +88,10 @@ module.exports = {
       case "wiz_6":
         return handleWizardNav(interaction, guildId, userId, action);
 
+      // ── Wizard finish ──
+      case "setup_finish":
+        return handleSetupFinish(interaction, guildId, userId);
+
       // ── Settings quick-edit buttons ──
       case "edit_channel":
       case "edit_role":
@@ -95,6 +99,7 @@ module.exports = {
       case "edit_cooldown":
       case "edit_dm":
       case "edit_timer":
+      case "edit_role_none":
         return handleQuickEdit(interaction, guildId, userId, action);
 
       // ── Reset confirm ──
@@ -383,6 +388,35 @@ async function handleResetConfirm(interaction, guildId, client) {
     .setColor(0x00ff00);
 
   return interaction.update({ embeds: [embed], components: [] });
+}
+
+// ── Setup Finish ───────────────────────────────────────────────────────────
+
+async function handleSetupFinish(interaction, guildId, userId) {
+  const state = wizard.get(userId, guildId) || {};
+  await db.upsertConfig(guildId, {
+    enabled: true,
+    gameChannelId: state.gameChannelId,
+    winnerRoleId: state.winnerRoleId,
+    minPlayers: state.minPlayers ?? 4,
+    killCooldownSeconds: state.killCooldownSeconds ?? 120,
+    dmEnabled: state.dmEnabled ?? true,
+    timeLimitHours: state.timeLimitHours ?? null,
+  });
+
+  wizard.del(userId, guildId);
+
+  const { EmbedBuilder } = require("discord.js");
+  const embed = new EmbedBuilder()
+    .setTitle("✅ Assassin Enabled!")
+    .setDescription("Assassin is now configured. You can now start a new game.")
+    .setColor(0x00ff00);
+
+  const config = await getConfig(guildId);
+  const game = await db.findActiveGame(guildId);
+  const dashEmbed = buildDashboardEmbed(config, game, interaction.guild);
+
+  return interaction.update({ embeds: [dashEmbed], components: [] });
 }
 
 // ── Quick Edit Handlers ────────────────────────────────────────────────────
