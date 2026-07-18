@@ -734,6 +734,228 @@ async function handle(interaction, client) {
     return;
   }
 
+  /** ── Wizard Step 1: Enable ── */
+  if (customId === "onboarding:wizard:step1") {
+    const hasPremium = await requireOnboardingPremium(interaction);
+    if (!hasPremium) return;
+
+    const config = await db.getConfig(guildId);
+    const newEnabled = !config?.enabled;
+    await db.updateConfig(guildId, { enabled: true });
+
+    await interaction.reply({
+      embeds: [
+        buildSimpleEmbed(
+          "✅ Step 1 — Applications Enabled",
+          "Onboarding applications have been enabled.\n\n" +
+            "**Next:** Set your Panel Channel using the button below, or use **Back to Dashboard**.",
+          "#57f287",
+        ),
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("onboarding:dash:configpanel")
+            .setLabel("Set Panel Channel")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("📌"),
+          new ButtonBuilder()
+            .setCustomId("onboarding:dash:configreview")
+            .setLabel("Set Review Channel")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("📋"),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("onboarding:dash:back")
+            .setLabel("Back to Dashboard")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("⬅️"),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  /** ── Type Edit ── **/
+  if (customId.startsWith("onboarding:type:edit:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) {
+      await interaction.reply({
+        content: "Application type not found.",
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    await interaction.reply({
+      embeds: [
+        buildSimpleEmbed(
+          `✏️ Edit: ${appType.name}`,
+          `**Public Title:** ${appType.publicTitle}\n` +
+            `**Description:** ${appType.publicDescription || "None"}\n` +
+            `**Button Label:** ${appType.buttonLabel}\n` +
+            `**Button Emoji:** ${appType.buttonEmoji || "None"}\n` +
+            `**Button Style:** ${appType.buttonStyle}\n` +
+            `**Enabled:** ${appType.enabled ? "Yes" : "No"}\n\n` +
+            `Use the buttons below to edit settings or build the form.`,
+        ),
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:form:${appType.id}`)
+            .setLabel("📝 Form Builder")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:toggle:${appType.id}`)
+            .setLabel(appType.enabled ? "⛔ Disable" : "✅ Enable")
+            .setStyle(
+              appType.enabled ? ButtonStyle.Danger : ButtonStyle.Success,
+            ),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:delete:${appType.id}`)
+            .setLabel("🗑️ Delete")
+            .setStyle(ButtonStyle.Danger),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("onboarding:dash:types")
+            .setLabel("Back to Types")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("⬅️"),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  /** ── Type Toggle ── **/
+  if (customId.startsWith("onboarding:type:toggle:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) {
+      await interaction.reply({
+        content: "Application type not found.",
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    await db.updateApplicationType(appTypeId, { enabled: !appType.enabled });
+    await interaction.reply({
+      content: `${appType.enabled ? "⛔ Disabled" : "✅ Enabled"} **${appType.publicTitle || appType.name}**.`,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  /** ── Type Form Builder ── **/
+  if (customId.startsWith("onboarding:type:form:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) {
+      await interaction.reply({
+        content: "Application type not found.",
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    const pages = await db.getFormPages(appTypeId);
+    let desc = `**Form pages for: ${appType.publicTitle || appType.name}**\n\n`;
+    if (pages.length) {
+      for (const p of pages) {
+        const fields = await db.getFormFields(p.id);
+        desc += `📄 **${p.title}** (${fields.length} fields)\n`;
+      }
+    } else {
+      desc += "No pages configured yet.\n";
+    }
+    desc += "\nUse **Add Page** to create your first form page.";
+
+    await interaction.reply({
+      embeds: [buildSimpleEmbed("📝 Form Builder", desc)],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:addpage:${appTypeId}`)
+            .setLabel("Add Page")
+            .setStyle(ButtonStyle.Success)
+            .setEmoji("➕"),
+          new ButtonBuilder()
+            .setCustomId(`onboarding:type:edit:${appTypeId}`)
+            .setLabel("Back to Type Settings")
+            .setStyle(ButtonStyle.Secondary),
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("onboarding:dash:back")
+            .setLabel("Dashboard")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("⬅️"),
+        ),
+      ],
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  /** ── Type Delete ── **/
+  if (customId.startsWith("onboarding:type:delete:")) {
+    const appTypeId = customId.split(":")[3];
+    const appType = await db.getApplicationType(appTypeId);
+    if (!appType) {
+      await interaction.reply({
+        content: "Application type not found.",
+        flags: [MessageFlags.Ephemeral],
+      });
+      return;
+    }
+
+    await db.deleteApplicationType(appTypeId);
+    await interaction.reply({
+      content: `🗑️ Deleted **${appType.publicTitle || appType.name}**.`,
+      flags: [MessageFlags.Ephemeral],
+    });
+    return;
+  }
+
+  /** ── Type Add Page ── **/
+  if (customId.startsWith("onboarding:type:addpage:")) {
+    const appTypeId = customId.split(":")[3];
+    const modal = new (require("discord.js").ModalBuilder)()
+      .setCustomId(`onboarding:modal:addpage:${appTypeId}`)
+      .setTitle("Add Form Page");
+
+    const titleInput = new (require("discord.js").TextInputBuilder)()
+      .setCustomId("title")
+      .setLabel("Page Title")
+      .setPlaceholder("e.g., Basic Info")
+      .setStyle(require("discord.js").TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(80);
+
+    const descInput = new (require("discord.js").TextInputBuilder)()
+      .setCustomId("description")
+      .setLabel("Page Description (optional)")
+      .setPlaceholder("Fill in your basic information...")
+      .setStyle(require("discord.js").TextInputStyle.Paragraph)
+      .setRequired(false)
+      .setMaxLength(200);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(titleInput),
+      new ActionRowBuilder().addComponents(descInput),
+    );
+
+    await interaction.showModal(modal);
+    return;
+  }
+
   // Remove Permission Role
   if (customId === "onboarding:perm:remove") {
     const permRoles = await db.getPermissionRoles(guildId);
