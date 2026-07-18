@@ -8,8 +8,7 @@ const {
 const { MessageFlags } = require("discord.js");
 
 module.exports = {
-  customId: "assassin:select:",
-  match: "prefix",
+  customIdPrefix: "assassin:select:",
 
   async execute(interaction) {
     const guildId = interaction.guildId;

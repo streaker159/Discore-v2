@@ -31,8 +31,7 @@ const {
 } = require("discord.js");
 
 module.exports = {
-  customId: "assassin:dash:",
-  match: "prefix",
+  customIdPrefix: "assassin:dash:",
 
   async execute(interaction, client) {
     if (!(await isAssassinAdmin(interaction))) {
