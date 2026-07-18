@@ -143,26 +143,28 @@ function buildGameboardEmbed(game, alivePlayers, deadPlayers, guild) {
     .setTitle("🔪 ASSASSIN — LIVE")
     .setColor(THEME_COLOR);
 
-  // Alive section
-  const aliveNames = alivePlayers.map((p) => `<@${p.userId}>`);
-  embed.addFields({
-    name: `🟢 ALIVE (${alivePlayers.length}):`,
-    value: aliveNames.length > 0 ? aliveNames.join(", ") : "—",
-    inline: false,
-  });
+  // Do NOT show player names — only counts. Players are anonymous.
+  const total = game.totalPlayers ?? 0;
+  const alive = alivePlayers.length;
+  const dead = deadPlayers.length;
 
-  // Dead section
-  if (deadPlayers.length > 0) {
-    const deadEntries = deadPlayers.map(
-      (p) =>
-        `<@${p.userId}>${p.killedById ? ` — ❌ wrong target (eliminated)` : ""}`,
-    );
-    embed.addFields({
-      name: `💀 ELIMINATED (${deadPlayers.length}):`,
-      value: deadEntries.join("\n"),
-      inline: false,
-    });
-  }
+  embed.addFields(
+    {
+      name: "👥 Players",
+      value: `${total} total`,
+      inline: true,
+    },
+    {
+      name: "🟢 Alive",
+      value: `${alive} remaining`,
+      inline: true,
+    },
+    {
+      name: "💀 Eliminated",
+      value: `${dead} out`,
+      inline: true,
+    },
+  );
 
   // Stats footer
   const now = new Date();
@@ -171,9 +173,16 @@ function buildGameboardEmbed(game, alivePlayers, deadPlayers, guild) {
 
   embed.addFields({
     name: "━━━━━━━━━━━━━━━━━",
-    value: `🕐 Started: ${elapsed} ago\n🔪 Total kills: ${game.totalPlayers - game.playersAlive}`,
+    value: `🕐 Started: ${elapsed} ago\n🔪 Total kills: ${total - alive}`,
     inline: false,
   });
+
+  if (game.status === "COMPLETED") {
+    embed.setTitle("🔪 ASSASSIN — GAME OVER");
+    if (game.winnerId) {
+      embed.setDescription(`🏆 Winner: <@${game.winnerId}>`);
+    }
+  }
 
   return embed;
 }

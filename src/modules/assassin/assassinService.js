@@ -270,7 +270,17 @@ async function beginHunt(guildId, client) {
     }
   }
 
-  // Post gameboard
+  // Delete the signup message
+  if (game.signupMessageId) {
+    try {
+      const signupMsg = await channel.messages
+        .fetch(game.signupMessageId)
+        .catch(() => null);
+      if (signupMsg) await signupMsg.delete().catch(() => {});
+    } catch {}
+  }
+
+  // Post gameboard (hide player names by default — only show counts)
   const gameboardEmbed = buildGameboardEmbed(game, players, [], guild);
   const startedImage = getGameStartedAttachment();
 
@@ -351,10 +361,10 @@ async function handleKill(reaction, user, client) {
 
     // Post winner announcement
     try {
-      const channel = client.channels.cache.get(game.gameChannelId);
+      const channel = client?.channels?.cache?.get(game.gameChannelId);
       if (channel) {
         const winnerEmbed = buildAssassinWinnerEmbed(userId, messageAuthorId);
-        const guild = client.guilds.cache.get(guildId);
+        const guild = client?.guilds?.cache?.get(guildId);
         let championAttachment;
         if (guild) {
           const member = await guild.members.fetch(userId).catch(() => null);
@@ -377,7 +387,7 @@ async function handleKill(reaction, user, client) {
     const config = await getConfig(guildId);
     if (config?.winnerRoleId) {
       try {
-        const guild = client.guilds.cache.get(guildId);
+        const guild = client?.guilds?.cache?.get(guildId);
         if (guild) {
           const member = await guild.members.fetch(userId).catch(() => null);
           if (member)
