@@ -542,10 +542,10 @@ async function endGameTargetSurvived(gameId, guildId, targetId, client) {
 
   // Post winner announcement
   try {
-    const channel = client.channels.cache.get(game.gameChannelId);
+    const channel = client?.channels?.cache?.get(game.gameChannelId);
     if (channel) {
       const winnerEmbed = buildTargetSurvivedEmbed(targetId);
-      const guild = client.guilds.cache.get(guildId);
+      const guild = client?.guilds?.cache?.get(guildId);
       let survivedAttachment;
       if (guild) {
         const member = await guild.members.fetch(targetId).catch(() => null);
@@ -564,7 +564,7 @@ async function endGameTargetSurvived(gameId, guildId, targetId, client) {
   const config = await getConfig(guildId);
   if (config?.winnerRoleId) {
     try {
-      const guild = client.guilds.cache.get(guildId);
+      const guild = client?.guilds?.cache?.get(guildId);
       if (guild) {
         const member = await guild.members.fetch(targetId).catch(() => null);
         if (member) await member.roles.add(config.winnerRoleId).catch(() => {});
