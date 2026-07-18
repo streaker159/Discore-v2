@@ -1454,6 +1454,73 @@ enum SourceType {
   MANUAL
 }
 
+enum SniperChallengeStatus {
+  ACTIVE
+  WON
+  EXPIRED
+  CANCELLED
+}
+
+model SniperChallengeConfig {
+  id               String    @id @default(cuid())
+  guildId          String    @unique
+  enabled          Boolean   @default(false)
+  paused           Boolean   @default(false)
+  challengeChannelIds String[] @default([])
+  leaderboardChannelId String?
+  notificationChannelId String?
+  rewardRoleId     String?
+  teaserRoleId     String?
+  currentChampionId String?
+  currentChampionSince DateTime?
+  minDelayMs       Int       @default(3600000)
+  maxDelayMs       Int       @default(10800000)
+  activeDurationMs Int       @default(180000)
+  nextRunAt        DateTime?
+  leaderboardMessageId String?
+  totalChallengesCompleted Int @default(0)
+  lastWinnerId     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([guildId])
+  @@map("SniperChallengeConfig")
+}
+
+model SniperChallengeRun {
+  id            String                  @id @default(cuid())
+  guildId       String
+  channelId     String
+  messageId     String?
+  status        SniperChallengeStatus
+  spawnedAt     DateTime                @default(now())
+  expiresAt     DateTime
+  winnerId      String?
+  wonAt         DateTime?
+  reactionTimeMs Int?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@index([guildId])
+  @@map("SniperChallengeRun")
+}
+
+model SniperPlayerStats {
+  id           String    @id @default(cuid())
+  guildId      String
+  userId       String
+  totalWins    Int       @default(0)
+  currentStreak Int      @default(0)
+  bestStreak   Int       @default(0)
+  lastWinAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([guildId, userId])
+  @@index([guildId])
+  @@map("SniperPlayerStats")
+}
+
 enum AssassinGameStatus {
   SIGNUPS
   ACTIVE
