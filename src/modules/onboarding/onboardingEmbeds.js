@@ -5,9 +5,9 @@ const { EmbedBuilder } = require("discord.js");
 /**
  * Build the admin dashboard embed.
  */
-function buildDashboardEmbed(config, guild, appTypes, stats) {
+function buildDashboardEmbed(config, guild, appTypes, stats, premiumActive) {
   const enabled = config?.enabled ?? false;
-  const hasPremium = true; // checked before calling this
+  const hasPremium = premiumActive ?? false;
   const panelChannelId = config?.panelChannelId;
   const reviewChannelId = config?.defaultReviewChannelId;
   const panelMessageId = config?.panelMessageId;

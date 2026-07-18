@@ -79,14 +79,36 @@ async function showDashboard(interaction, client, config, premiumActive) {
   const appTypes = await db.getApplicationTypes(guildId);
   const stats = await getDashboardStats(guildId);
 
-  const embed = buildDashboardEmbed(config, interaction.guild, appTypes, stats);
+  const embed = buildDashboardEmbed(
+    config,
+    interaction.guild,
+    appTypes,
+    stats,
+    premiumActive,
+  );
   const components = buildDashboardButtons(config, premiumActive);
 
-  await interaction.reply({
-    embeds: [embed],
-    components,
-    flags: [MessageFlags.Ephemeral],
-  });
+  // Use update if the interaction was already replied/deferred, otherwise reply
+  if (interaction.deferred || interaction.replied) {
+    await interaction
+      .editReply({
+        embeds: [embed],
+        components,
+      })
+      .catch(async () => {
+        await interaction.followUp({
+          embeds: [embed],
+          components,
+          flags: [MessageFlags.Ephemeral],
+        });
+      });
+  } else {
+    await interaction.reply({
+      embeds: [embed],
+      components,
+      flags: [MessageFlags.Ephemeral],
+    });
+  }
 }
 
 function buildDashboardButtons(config, premiumActive) {

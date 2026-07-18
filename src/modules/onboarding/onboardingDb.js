@@ -772,6 +772,25 @@ async function getDecisionLogs(applicationId) {
 
 // ── Sessions / Drafts ───────────────────────────────────────────────────────
 
+async function getSessionById(sessionId) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT * FROM "OnboardingSession" WHERE "id" = $1`,
+      sessionId,
+    );
+    const s = rows?.[0];
+    if (s?.stateJson && typeof s.stateJson === "string") {
+      try {
+        s.stateJson = JSON.parse(s.stateJson);
+      } catch {}
+    }
+    return s || null;
+  } catch (e) {
+    logger.error("[Onboarding] getSessionById failed", { error: e.message });
+    return null;
+  }
+}
+
 async function getSession(guildId, applicantId, applicationTypeId) {
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -1077,6 +1096,7 @@ module.exports = {
   addDecisionLog,
   getDecisionLogs,
   // Sessions
+  getSessionById,
   getSession,
   createSession,
   updateSession,
