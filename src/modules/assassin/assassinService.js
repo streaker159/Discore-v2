@@ -476,6 +476,7 @@ async function handleKill(reaction, user, client) {
     // Update gameboard to final state
     await updateGameboard(guildId, client);
 
+    // Clean up players + old game after a short delay
     setImmediate(() => cleanupGameAfterDelay(guildId, game.id, client));
 
     if (DEBUG)
@@ -722,15 +723,36 @@ async function cancelGame(guildId, client) {
   return true;
 }
 
-// ── Cleanup (delete old games) ─────────────────────────────────────────────
+// ── Cleanup (delete old games + players after completion) ──────────────────
 
 async function cleanupGameAfterDelay(guildId, gameId, client) {
-  // Update gameboard one final time
+  // Update gameboard one final time, then clean old data
   setTimeout(async () => {
     try {
       await updateGameboard(guildId, client);
     } catch {}
-  }, 2000);
+    // Delete players for this game (stats are already in AssassinPlayerStats)
+    try {
+      await db.deletePlayersByGame(gameId);
+    } catch {}
+    // Delete old COMPLETED/CANCELLED games (keep only the most recent 2 for records)
+    try {
+      const prisma = require("../../lib/prisma");
+      const oldGames = await prisma.$queryRawUnsafe(
+        `SELECT id FROM "AssassinGame" WHERE "guildId" = $1 AND "status" IN ('COMPLETED','CANCELLED') ORDER BY "endedAt" DESC NULLS LAST OFFSET 2`,
+        guildId,
+      );
+      if (oldGames && oldGames.length > 0) {
+        for (const g of oldGames) {
+          await db.deletePlayersByGame(g.id);
+          await prisma.$executeRawUnsafe(
+            `DELETE FROM "AssassinGame" WHERE "id" = $1`,
+            g.id,
+          );
+        }
+      }
+    } catch {}
+  }, 5000);
 }
 
 // ── Reset ──────────────────────────────────────────────────────────────────
