@@ -56,6 +56,9 @@ module.exports = {
       case "open":
         return openDashboard(interaction, config, game, client);
       case "close":
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferUpdate().catch(() => {});
+        }
         return interaction.message.delete().catch(() => {});
 
       // ── Games ──
@@ -198,31 +201,39 @@ function b(id, label, style, disabled = false) {
 async function handleStartGame(interaction, guildId, client) {
   await interaction.deferUpdate().catch(() => {});
   const r = await createSignup(guildId, client);
-  if (!r)
-    return interaction.followUp({
-      content: "❌ Failed. Is the game channel set?",
-      flags: [MessageFlags.Ephemeral],
-    });
+  if (!r) {
+    try {
+      await interaction.editReply({
+        content: "❌ Failed. Is the game channel set?",
+      });
+    } catch {}
+    return;
+  }
   const config = await getConfig(guildId);
   const game = await db.findActiveGame(guildId);
   const embed = buildDashboardEmbed(config, game, interaction.guild);
   const rows = buildDashRows(config, game);
-  return interaction.update({ embeds: [embed], components: rows });
+  try {
+    await interaction.editReply({ embeds: [embed], components: rows });
+  } catch {}
 }
 
 async function handleBeginHunt(interaction, guildId, client) {
   await interaction.deferUpdate().catch(() => {});
   const r = await beginHunt(guildId, client);
-  if (!r.success)
-    return interaction.followUp({
-      content: `❌ ${r.reason}`,
-      flags: [MessageFlags.Ephemeral],
-    });
+  if (!r.success) {
+    try {
+      await interaction.editReply({ content: `❌ ${r.reason}` });
+    } catch {}
+    return;
+  }
   const config = await getConfig(guildId);
   const game = await db.findActiveGame(guildId);
   const embed = buildDashboardEmbed(config, game, interaction.guild);
   const rows = buildDashRows(config, game);
-  return interaction.update({ embeds: [embed], components: rows });
+  try {
+    await interaction.editReply({ embeds: [embed], components: rows });
+  } catch {}
 }
 
 async function handleCancelGame(interaction, guildId, client) {
