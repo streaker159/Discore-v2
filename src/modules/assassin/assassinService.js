@@ -331,11 +331,19 @@ async function beginHunt(guildId, client) {
 // ── Handle Kill (called from messageReactionAdd) ───────────────────────────
 
 async function handleKill(reaction, user, client) {
+  // Fetch partials so message and guild are available
+  try {
+    if (reaction.partial) await reaction.fetch();
+    if (reaction.message.partial) await reaction.message.fetch();
+  } catch {
+    return;
+  }
+
   const guildId = reaction.message.guild?.id;
   const messageAuthorId = reaction.message.author?.id;
 
-  if (!guildId || !messageAuthorId) return;
   if (user.bot) return;
+  if (!guildId || !messageAuthorId) return;
 
   const userId = user.id;
 
@@ -359,6 +367,9 @@ async function handleKill(reaction, user, client) {
   // Find the target (message author) in the game
   const targetPlayer = await db.findPlayer(game.id, messageAuthorId);
   if (!targetPlayer || targetPlayer.status !== "ALIVE") return;
+
+  // Must be a different player in the same game
+  if (reactor.id === targetPlayer.id) return;
 
   // Set cooldown for the attempt
   setCooldown(guildId, userId);

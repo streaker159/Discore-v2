@@ -20,6 +20,14 @@ module.exports = {
 
     if (user.bot || !guildId) return;
 
+    // Fetch partials early so all handlers have full message data
+    try {
+      if (reaction.partial) await reaction.fetch();
+      if (reaction.message.partial) await reaction.message.fetch();
+    } catch {
+      // Continue anyway — some handlers may still work
+    }
+
     try {
       await trackReaction(guildId, user.id, emojiName);
     } catch {}
@@ -36,13 +44,6 @@ module.exports = {
 
     const flagInfo = getLanguageForFlag(emojiName);
     if (!flagInfo) return;
-
-    try {
-      if (reaction.partial) await reaction.fetch();
-      if (reaction.message.partial) await reaction.message.fetch();
-    } catch {
-      return;
-    }
 
     if (reaction.message.author?.id === client.user?.id) return;
 
