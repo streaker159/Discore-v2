@@ -88,20 +88,28 @@ async function createSignup(guildId, client) {
   const row = new ActionRowBuilder().addComponents(joinButton);
 
   const embed = buildSignupEmbed(game, 0, config.minPlayers ?? 4);
-  const signOnImage = getSignOnAttachment();
 
   let message;
   try {
+    const signOnImage = getSignOnAttachment();
     message = await channel.send({
       embeds: [embed],
       components: [row],
       files: [signOnImage],
     });
-  } catch (err) {
-    logger.error("[Assassin] Failed to send signup message", {
-      error: err.message,
-    });
-    return null;
+  } catch {
+    // If image fails, retry without it
+    try {
+      message = await channel.send({
+        embeds: [embed],
+        components: [row],
+      });
+    } catch (err) {
+      logger.error("[Assassin] Failed to send signup message", {
+        error: err.message,
+      });
+      return null;
+    }
   }
 
   await db.updateGame(game.id, { signupMessageId: message.id });
@@ -201,21 +209,21 @@ async function beginHunt(guildId, client) {
   const shuffled = players.sort(() => Math.random() - 0.5);
   const target = shuffled[0];
 
-  // Update target's role
-  await db.updateGame(game.id, { startedAt: new Date(), status: "ACTIVE" });
+  const guild = client?.guilds?.cache?.get(guildId);
+  if (!guild) return { success: false, reason: "Guild not found." };
 
-  // Use a raw query to update target's role
+  const channel = guild.channels.cache.get(config.gameChannelId);
+  if (!channel) return { success: false, reason: "Game channel not found." };
+
+  // ── DO ALL PERSISTENT WORK BEFORE CHANGING STATUS ──
+  // If anything fails, the game stays in SIGNUPS and admin can retry.
+
+  // Update target's role
   const prisma = require("../../lib/prisma");
   await prisma.$executeRawUnsafe(
     `UPDATE "AssassinPlayer" SET "role" = CAST('TARGET' AS "AssassinRole") WHERE "id" = $1`,
     target.id,
   );
-
-  const guild = client.guilds.cache.get(guildId);
-  if (!guild) return { success: false, reason: "Guild not found." };
-
-  const channel = guild.channels.cache.get(config.gameChannelId);
-  if (!channel) return { success: false, reason: "Game channel not found." };
 
   // Get display names for the DM (only show names, not who is target)
   const playerMentions = [];
@@ -242,7 +250,6 @@ async function beginHunt(guildId, client) {
       if (config.dmEnabled) {
         try {
           await member.send({ embeds: [embed] }).catch(async () => {
-            // DM failed — send ephemeral in game channel
             if (channel) {
               await channel
                 .send({
@@ -254,7 +261,6 @@ async function beginHunt(guildId, client) {
           });
         } catch {}
       } else {
-        // DMs disabled — send in channel
         await channel
           .send({
             content: `<@${p.userId}> Here are your Assassin instructions:`,
@@ -280,43 +286,44 @@ async function beginHunt(guildId, client) {
     } catch {}
   }
 
-  // Post live gameboard to the LEADERBOARD channel (separate from game channel)
-  const liveChannelId = config.leaderboardChannelId || config.gameChannelId;
-  const liveChannel = guild.channels.cache.get(liveChannelId);
-
   const gameboardEmbed = buildGameboardEmbed(game, players, [], guild);
 
+  // Post the gameboard with the "game started" image
   let gameboardMsg;
-  if (liveChannel && liveChannelId !== config.gameChannelId) {
-    // Post to separate leaderboard channel
+  try {
+    const startedImage = getGameStartedAttachment();
+    gameboardMsg = await channel.send({
+      embeds: [gameboardEmbed],
+      files: [startedImage],
+    });
+  } catch {
     try {
-      gameboardMsg = await liveChannel.send({ embeds: [gameboardEmbed] });
-    } catch {}
-  }
-  // Also post a compact version in the game channel
-  if (channel) {
-    try {
-      await channel.send({ embeds: [gameboardEmbed] });
+      gameboardMsg = await channel.send({ embeds: [gameboardEmbed] });
     } catch {}
   }
 
-  // If no separate leaderboard channel, use game channel for the live board
-  if (!gameboardMsg && channel) {
-    try {
-      const startedImage = getGameStartedAttachment();
-      gameboardMsg = await channel.send({
-        embeds: [gameboardEmbed],
-        files: [startedImage],
-      });
-    } catch {
+  if (!gameboardMsg) {
+    return { success: false, reason: "Failed to post gameboard." };
+  }
+
+  // Mirror to leaderboard channel if set
+  if (
+    config.leaderboardChannelId &&
+    config.leaderboardChannelId !== config.gameChannelId
+  ) {
+    const lbChannel = guild.channels.cache.get(config.leaderboardChannelId);
+    if (lbChannel) {
       try {
-        gameboardMsg = await channel.send({ embeds: [gameboardEmbed] });
+        await lbChannel.send({ embeds: [gameboardEmbed] });
       } catch {}
     }
   }
 
+  // ── ONLY NOW SET THE GAME TO ACTIVE — everything above succeeded ──
   await db.updateGame(game.id, {
-    gameboardMessageId: gameboardMsg?.id || null,
+    startedAt: new Date(),
+    status: "ACTIVE",
+    gameboardMessageId: gameboardMsg.id,
   });
 
   if (DEBUG)
@@ -325,7 +332,7 @@ async function beginHunt(guildId, client) {
       gameId: game.id,
       targetId: target.userId,
     });
-  return { success: true, game };
+  return { success: true, game: await db.findGame(game.id) };
 }
 
 // ── Handle Kill (called from messageReactionAdd) ───────────────────────────
@@ -641,13 +648,39 @@ async function cancelGame(guildId, client) {
 
   await db.updateGame(game.id, { status: "CANCELLED", endedAt: new Date() });
 
-  // Notify channel
+  const guild = client?.guilds?.cache?.get(guildId);
+
+  // DM all signed-up players
   try {
-    const channel = client.channels.cache.get(game.gameChannelId);
+    const players = await db.findPlayersByGame(game.id);
+    for (const p of players) {
+      try {
+        const member = guild
+          ? await guild.members.fetch(p.userId).catch(() => null)
+          : null;
+        if (member) {
+          await member
+            .send(
+              `🚫 **The Assassin game has been cancelled.**\nThank you for signing up — keep an eye out for the next game!`,
+            )
+            .catch(() => {});
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // Notify game channel
+  try {
+    const channel = client?.channels?.cache?.get(game.gameChannelId);
     if (channel) {
-      await channel
-        .send("🚫 The Assassin game has been cancelled by an admin.")
-        .catch(() => {});
+      const { EmbedBuilder } = require("discord.js");
+      const embed = new EmbedBuilder()
+        .setTitle("🚫 Game Cancelled")
+        .setDescription(
+          "The Assassin game has been cancelled by an admin. All players have been notified.\n\nKeep an eye out for the next game!",
+        )
+        .setColor(0xff0000);
+      await channel.send({ embeds: [embed] }).catch(() => {});
     }
   } catch {}
 
