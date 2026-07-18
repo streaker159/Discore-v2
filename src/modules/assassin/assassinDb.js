@@ -409,6 +409,18 @@ async function findTopPlayers(guildId, limit = 10) {
 
 // ── Cleanup ────────────────────────────────────────────────────────────────
 
+async function deletePlayersByGame(gameId) {
+  try {
+    return await prisma.$executeRawUnsafe(
+      `DELETE FROM "AssassinPlayer" WHERE "gameId" = $1`,
+      gameId,
+    );
+  } catch (e) {
+    logger.error("[Assassin] deletePlayersByGame failed", { error: e.message });
+    return 0;
+  }
+}
+
 async function deleteOldGames(guildId, statuses, olderThan) {
   try {
     const statusList = statuses.map((s) => `'${s}'`).join(", ");
