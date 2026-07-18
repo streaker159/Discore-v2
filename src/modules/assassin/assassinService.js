@@ -355,7 +355,13 @@ async function handleKill(reaction, user, client) {
   const messageAuthorId = reaction.message.author?.id;
 
   if (user.bot) return;
-  if (!guildId || !messageAuthorId) return;
+  if (!guildId || !messageAuthorId) {
+    logger.warn("[Assassin] handleKill: no guild or author", {
+      guildId,
+      messageAuthorId,
+    });
+    return;
+  }
 
   const userId = user.id;
 
@@ -364,21 +370,44 @@ async function handleKill(reaction, user, client) {
 
   // Find active game
   const game = await db.findActiveGame(guildId);
-  if (!game || game.status !== "ACTIVE") return;
+  if (!game || game.status !== "ACTIVE") {
+    logger.warn("[Assassin] handleKill: no active game", {
+      guildId,
+      status: game?.status,
+    });
+    return;
+  }
 
   // Find the reactor (killer) in the game
   const reactor = await db.findPlayer(game.id, userId);
-  if (!reactor || reactor.status !== "ALIVE") return;
+  if (!reactor || reactor.status !== "ALIVE") {
+    logger.warn("[Assassin] handleKill: reactor not found or dead", {
+      userId,
+      status: reactor?.status,
+    });
+    return;
+  }
 
   // Only ASSASSINS can kill
-  if (reactor.role !== "ASSASSIN") return;
+  if (reactor.role !== "ASSASSIN") {
+    logger.warn("[Assassin] handleKill: reactor not assassin", {
+      userId,
+      role: reactor.role,
+    });
+    return;
+  }
 
   // Can't kill yourself
   if (userId === messageAuthorId) return;
 
   // Find the target (message author) in the game
   const targetPlayer = await db.findPlayer(game.id, messageAuthorId);
-  if (!targetPlayer || targetPlayer.status !== "ALIVE") return;
+  if (!targetPlayer || targetPlayer.status !== "ALIVE") {
+    logger.warn("[Assassin] handleKill: target not found or dead", {
+      target: messageAuthorId,
+    });
+    return;
+  }
 
   // Must be a different player in the same game
   if (reactor.id === targetPlayer.id) return;

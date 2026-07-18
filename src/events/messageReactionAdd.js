@@ -38,7 +38,12 @@ module.exports = {
     // ── Assassin: 🔪 elimination check ──
     if (emojiName === "🔪" && guildId) {
       const { handleKill } = require("../modules/assassin/assassinService");
-      handleKill(reaction, user, client).catch(() => {});
+      handleKill(reaction, user, client).catch((err) => {
+        const logger = require("../lib/logger");
+        logger.error("[Assassin] handler crashed", {
+          error: err?.message || err,
+        });
+      });
       // Don't return — let other handlers run too
     }
 
