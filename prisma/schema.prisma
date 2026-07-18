@@ -1481,7 +1481,7 @@ model SniperChallengeConfig {
   totalChallengesCompleted Int @default(0)
   lastWinnerId     String?
   createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  updatedAt        DateTime  @default(now()) @updatedAt
 
   @@index([guildId])
   @@map("SniperChallengeConfig")
@@ -1499,7 +1499,7 @@ model SniperChallengeRun {
   wonAt         DateTime?
   reactionTimeMs Int?
   createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
+  updatedAt     DateTime                @default(now()) @updatedAt
 
   @@index([guildId])
   @@map("SniperChallengeRun")
@@ -1514,7 +1514,7 @@ model SniperPlayerStats {
   bestStreak   Int       @default(0)
   lastWinAt    DateTime?
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  updatedAt    DateTime  @default(now()) @updatedAt
 
   @@unique([guildId, userId])
   @@index([guildId])
@@ -1550,7 +1550,7 @@ model AssassinGameConfig {
   timeLimitHours     Int?
   leaderboardChannelId String?
   createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  updatedAt          DateTime @default(now()) @updatedAt
 
   @@index([guildId])
 }
@@ -1601,7 +1601,7 @@ model AssassinPlayerStats {
   survivedGames Int      @default(0)
   lastPlayedAt  DateTime?
   createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  updatedAt     DateTime @default(now()) @updatedAt
 
   @@unique([guildId, userId])
   @@index([guildId, gamesWon])
