@@ -14,6 +14,25 @@ const {
   formatAppNumber,
 } = require("../../../modules/onboarding/onboardingEmbeds");
 
+async function respondAdmin(interaction, payload) {
+  const cleanPayload = {
+    content: payload.content || "",
+    embeds: payload.embeds || [],
+    components: payload.components || [],
+  };
+
+  if (interaction.isMessageComponent?.()) {
+    try {
+      return await interaction.update(cleanPayload);
+    } catch {}
+  }
+
+  return interaction.reply({
+    ...cleanPayload,
+    flags: [MessageFlags.Ephemeral],
+  });
+}
+
 module.exports = {
   customIdPrefix: "onboarding:select:",
 
@@ -184,12 +203,11 @@ module.exports = {
       }
 
       const payload = await adminUi.buildPermissionsPayload(guildId);
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: roleIds.length
           ? `Saved ${roleIds.length} role(s) for ${group} permissions.`
           : "No roles selected. Existing permission roles were not removed.",
         ...payload,
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -199,10 +217,7 @@ module.exports = {
       if (!interaction.isStringSelectMenu()) return;
       const appTypeId = interaction.values?.[0];
       const payload = await adminUi.buildTypeManagerPayload(guildId, appTypeId);
-      await interaction.reply({
-        ...payload,
-        flags: [MessageFlags.Ephemeral],
-      });
+      await respondAdmin(interaction, payload);
       return;
     }
 
@@ -211,10 +226,7 @@ module.exports = {
       if (!interaction.isStringSelectMenu()) return;
       const pageId = interaction.values?.[0];
       const payload = await adminUi.buildPageBuilderPayload(pageId);
-      await interaction.reply({
-        ...payload,
-        flags: [MessageFlags.Ephemeral],
-      });
+      await respondAdmin(interaction, payload);
       return;
     }
 
@@ -292,10 +304,7 @@ module.exports = {
       if (!interaction.isStringSelectMenu()) return;
       const fieldId = interaction.values?.[0];
       const payload = await adminUi.buildFieldManagerPayload(fieldId);
-      await interaction.reply({
-        ...payload,
-        flags: [MessageFlags.Ephemeral],
-      });
+      await respondAdmin(interaction, payload);
       return;
     }
 
@@ -305,19 +314,19 @@ module.exports = {
       const appTypeId = interaction.values?.[0];
       const fields = await db.getAllFormFieldsForType(appTypeId);
       if (!fields.length) {
-        await interaction.reply({
+        await respondAdmin(interaction, {
           content:
             "This application type has no fields yet. Build the form before adding answer-based role rules.",
-          flags: [MessageFlags.Ephemeral],
+          components: [],
         });
         return;
       }
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: "Select the field whose answer should trigger roles:",
         components: [
           new ActionRowBuilder().addComponents(
             new (require("discord.js").StringSelectMenuBuilder)()
-              .setCustomId(`onboarding:select:routingfield:${appTypeId}`)
+              .setCustomId("onboarding:select:routingfield")
               .setPlaceholder("Select trigger field")
               .addOptions(
                 fields.slice(0, 25).map((f) => ({
@@ -330,7 +339,6 @@ module.exports = {
               ),
           ),
         ],
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -338,7 +346,6 @@ module.exports = {
     /** ── Select field condition for role routing ── **/
     if (action === "routingfield") {
       if (!interaction.isStringSelectMenu()) return;
-      const appTypeId = parts[3];
       const fieldId = interaction.values?.[0];
       const options = await db.getFieldOptions(fieldId);
       const fieldRows = await require("../../../lib/prisma")
@@ -349,29 +356,26 @@ module.exports = {
         .catch(() => []);
       const field = fieldRows?.[0];
       const values = options.length
-        ? options.map((o) => ({
+        ? options.map((o, index) => ({
             label: o.label.slice(0, 100),
-            value: o.value.slice(0, 100),
+            value: `opt:${index}`,
           }))
         : [
-            { label: "Yes", value: "Yes" },
-            { label: "No", value: "No" },
-            { label: "Any answered value", value: "__ANY__" },
+            { label: "Yes", value: "yes" },
+            { label: "No", value: "no" },
+            { label: "Any answered value", value: "any" },
           ];
 
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: `Selected field: **${field?.label || "Field"}**. Choose the answer/option condition:`,
         components: [
           new ActionRowBuilder().addComponents(
             new (require("discord.js").StringSelectMenuBuilder)()
-              .setCustomId(
-                `onboarding:select:routingcondition:${appTypeId}:${fieldId}`,
-              )
+              .setCustomId(`onboarding:select:routingcondition:${fieldId}`)
               .setPlaceholder("Select answer condition")
               .addOptions(values.slice(0, 25)),
           ),
         ],
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -379,26 +383,22 @@ module.exports = {
     /** ── Select condition, then roles to add ── **/
     if (action === "routingcondition") {
       if (!interaction.isStringSelectMenu()) return;
-      const appTypeId = parts[3];
-      const fieldId = parts[4];
-      const condition = interaction.values?.[0] || "__ANY__";
-      await interaction.reply({
+      const fieldId = parts[3];
+      const conditionKey = interaction.values?.[0] || "any";
+      const condition = await resolveRoutingCondition(fieldId, conditionKey);
+      await respondAdmin(interaction, {
         content: `Condition saved: **${condition}**. Select role(s) to add when this condition matches. Rules apply on approval by default.`,
         components: [
           new ActionRowBuilder().addComponents(
             new (require("discord.js").RoleSelectMenuBuilder)()
               .setCustomId(
-                `onboarding:select:routingroles:${appTypeId}:${fieldId}:${encodeURIComponent(condition)}`.slice(
-                  0,
-                  100,
-                ),
+                `onboarding:select:routingroles:${fieldId}:${conditionKey}`,
               )
               .setPlaceholder("Roles to add on approval")
               .setMinValues(1)
               .setMaxValues(10),
           ),
         ],
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -406,11 +406,17 @@ module.exports = {
     /** ── Finalize role routing rule ── **/
     if (action === "routingroles") {
       if (!interaction.isRoleSelectMenu()) return;
-      const appTypeId = parts[3];
-      const fieldId = parts[4];
-      const condition =
-        decodeURIComponent(parts.slice(5).join(":")) || "__ANY__";
+      const fieldId = parts[3];
+      const conditionKey = parts[4] || "any";
+      const condition = await resolveRoutingCondition(fieldId, conditionKey);
       const roleIds = interaction.values || [];
+      const fieldRows = await require("../../../lib/prisma")
+        .$queryRawUnsafe(
+          `SELECT * FROM "OnboardingFormField" WHERE "id" = $1`,
+          fieldId,
+        )
+        .catch(() => []);
+      const appTypeId = fieldRows?.[0]?.applicationTypeId;
       await db.createRoleRule({
         guildId,
         applicationTypeId: appTypeId,
@@ -423,10 +429,9 @@ module.exports = {
         requiresStaffConfirm: false,
       });
       const payload = await adminUi.buildRoleRoutingPayload(guildId, appTypeId);
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: `Saved role rule. Add on approval: ${roleIds.map((id) => `<@&${id}>`).join(" ")}`,
         ...payload,
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -438,7 +443,7 @@ module.exports = {
         guildId,
         interaction.values?.[0],
       );
-      await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+      await respondAdmin(interaction, payload);
       return;
     }
 
@@ -448,7 +453,7 @@ module.exports = {
         guildId,
         interaction.values?.[0],
       );
-      await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+      await respondAdmin(interaction, payload);
       return;
     }
 
@@ -459,10 +464,9 @@ module.exports = {
       const style = interaction.values?.[0];
       await db.updateApplicationType(appTypeId, { buttonStyle: style });
       const payload = await adminUi.buildTypeManagerPayload(guildId, appTypeId);
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: `Saved button style: ${style}.`,
         ...payload,
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -477,10 +481,9 @@ module.exports = {
         guildId,
         appTypeId,
       );
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: `Saved review channel override: ${channelId ? `<#${channelId}>` : "default"}.`,
         ...payload,
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
@@ -499,12 +502,25 @@ module.exports = {
 
       await db.updateApplicationType(appTypeId, updates);
       const payload = await adminUi.buildActionsPayload(guildId, appTypeId);
-      await interaction.reply({
+      await respondAdmin(interaction, {
         content: "Saved action roles.",
         ...payload,
-        flags: [MessageFlags.Ephemeral],
       });
       return;
     }
   },
 };
+
+async function resolveRoutingCondition(fieldId, conditionKey) {
+  if (conditionKey === "any") return "__ANY__";
+  if (conditionKey === "yes") return "Yes";
+  if (conditionKey === "no") return "No";
+
+  if (conditionKey?.startsWith("opt:")) {
+    const index = parseInt(conditionKey.slice(4), 10);
+    const options = await db.getFieldOptions(fieldId);
+    return options[index]?.value || "__ANY__";
+  }
+
+  return "__ANY__";
+}

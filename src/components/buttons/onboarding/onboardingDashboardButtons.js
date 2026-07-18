@@ -34,6 +34,25 @@ const {
   generateApplicationReceipt,
 } = require("../../../modules/onboarding/onboardingReceipts");
 
+async function respondAdmin(interaction, payload) {
+  const cleanPayload = {
+    content: payload.content || "",
+    embeds: payload.embeds || [],
+    components: payload.components || [],
+  };
+
+  if (interaction.isMessageComponent?.()) {
+    try {
+      return await interaction.update(cleanPayload);
+    } catch {}
+  }
+
+  return interaction.reply({
+    ...cleanPayload,
+    flags: [MessageFlags.Ephemeral],
+  });
+}
+
 /**
  * Shared handler for all admin-centric onboarding button interactions.
  *
@@ -68,10 +87,7 @@ async function handle(interaction, client) {
       config,
       1,
     );
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -81,10 +97,7 @@ async function handle(interaction, client) {
     if (!hasPremium) return;
 
     const payload = await adminUi.buildApplicationTypesPayload(guildId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -409,10 +422,7 @@ async function handle(interaction, client) {
     if (!hasPremium) return;
 
     const payload = await adminUi.buildPermissionsPayload(guildId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -422,10 +432,7 @@ async function handle(interaction, client) {
     if (!hasPremium) return;
 
     const payload = await adminUi.buildRoleRoutingPayload(guildId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -435,10 +442,7 @@ async function handle(interaction, client) {
     if (!hasPremium) return;
 
     const payload = await adminUi.buildActionsPayload(guildId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -448,10 +452,7 @@ async function handle(interaction, client) {
     if (!hasPremium) return;
 
     const payload = await adminUi.buildReviewBehaviourPayload(guildId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -465,10 +466,7 @@ async function handle(interaction, client) {
       interaction.guild,
       config,
     );
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -486,7 +484,7 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: "Select a channel for the public application panel:",
       components: [
         new ActionRowBuilder().addComponents(
@@ -503,7 +501,6 @@ async function handle(interaction, client) {
             .setEmoji("⬅️"),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -513,7 +510,7 @@ async function handle(interaction, client) {
     const hasPremium = await requireOnboardingPremium(interaction);
     if (!hasPremium) return;
 
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: "Select a channel for the application review queue:",
       components: [
         new ActionRowBuilder().addComponents(
@@ -530,7 +527,6 @@ async function handle(interaction, client) {
             .setEmoji("⬅️"),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -543,10 +539,7 @@ async function handle(interaction, client) {
       config,
     );
 
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -675,10 +668,7 @@ async function handle(interaction, client) {
       config,
       1,
     );
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -690,10 +680,7 @@ async function handle(interaction, client) {
       config,
       step,
     );
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -712,18 +699,14 @@ async function handle(interaction, client) {
       2,
     );
 
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
   if (customId === "onboarding:wizard:save") {
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content:
         "Saved. This wizard persists each setting as soon as you configure it.",
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -748,10 +731,7 @@ async function handle(interaction, client) {
   if (customId.startsWith("onboarding:type:edit:")) {
     const appTypeId = customId.split(":")[3];
     const payload = await adminUi.buildTypeManagerPayload(guildId, appTypeId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -774,9 +754,9 @@ async function handle(interaction, client) {
     }
 
     await db.updateApplicationType(appTypeId, { enabled: !appType.enabled });
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: `${appType.enabled ? "⛔ Disabled" : "✅ Enabled"} **${appType.publicTitle || appType.name}**.`,
-      flags: [MessageFlags.Ephemeral],
+      components: [],
     });
     return;
   }
@@ -785,10 +765,7 @@ async function handle(interaction, client) {
   if (customId.startsWith("onboarding:type:form:")) {
     const appTypeId = customId.split(":")[3];
     const payload = await adminUi.buildFormBuilderPayload(appTypeId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -807,9 +784,8 @@ async function handle(interaction, client) {
         : "- No fields";
       desc += "\n\n";
     }
-    await interaction.reply({
+    await respondAdmin(interaction, {
       embeds: [buildSimpleEmbed("Form Preview", desc || "No pages yet.")],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -819,7 +795,7 @@ async function handle(interaction, client) {
     const appType = await db.getApplicationType(appTypeId);
     if (!appType) return;
 
-    await interaction.reply({
+    await respondAdmin(interaction, {
       embeds: [
         buildSimpleEmbed(
           "Configure Application Button",
@@ -852,7 +828,6 @@ async function handle(interaction, client) {
             .setStyle(ButtonStyle.Secondary),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -922,7 +897,7 @@ async function handle(interaction, client) {
 
   if (customId.startsWith("onboarding:type:reviewchannel:")) {
     const appTypeId = customId.split(":")[3];
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: "Select the review channel override for this application type:",
       components: [
         new ActionRowBuilder().addComponents(
@@ -938,7 +913,6 @@ async function handle(interaction, client) {
             .setStyle(ButtonStyle.Secondary),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -946,14 +920,14 @@ async function handle(interaction, client) {
   if (customId.startsWith("onboarding:type:actions:")) {
     const appTypeId = customId.split(":")[3];
     const payload = await adminUi.buildActionsPayload(guildId, appTypeId);
-    await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+    await respondAdmin(interaction, payload);
     return;
   }
 
   if (customId.startsWith("onboarding:type:routing:")) {
     const appTypeId = customId.split(":")[3];
     const payload = await adminUi.buildRoleRoutingPayload(guildId, appTypeId);
-    await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+    await respondAdmin(interaction, payload);
     return;
   }
 
@@ -963,14 +937,14 @@ async function handle(interaction, client) {
       guildId,
       appTypeId,
     );
-    await interaction.reply({ ...payload, flags: [MessageFlags.Ephemeral] });
+    await respondAdmin(interaction, payload);
     return;
   }
 
   if (customId.startsWith("onboarding:type:setroles:")) {
     const [, , , roleKind, appTypeId] = customId.split(":");
     const maxValues = roleKind === "pending" || roleKind === "denied" ? 1 : 10;
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: "Select role(s) to save for this action:",
       components: [
         new ActionRowBuilder().addComponents(
@@ -981,7 +955,6 @@ async function handle(interaction, client) {
             .setMaxValues(maxValues),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -990,7 +963,7 @@ async function handle(interaction, client) {
     const appTypeId = customId.split(":")[3];
     const appType = await db.getApplicationType(appTypeId);
     if (!appType) return;
-    await interaction.reply({
+    await respondAdmin(interaction, {
       embeds: [
         buildSimpleEmbed(
           "Denied Action Toggles",
@@ -1022,7 +995,6 @@ async function handle(interaction, client) {
             .setStyle(ButtonStyle.Secondary),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -1035,10 +1007,9 @@ async function handle(interaction, client) {
     if (!allowed.includes(flag)) return;
     await db.updateApplicationType(appTypeId, { [flag]: !appType[flag] });
     const payload = await adminUi.buildActionsPayload(guildId, appTypeId);
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: `Saved ${flag}: ${!appType[flag] ? "Yes" : "No"}`,
       ...payload,
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -1046,16 +1017,13 @@ async function handle(interaction, client) {
   if (customId.startsWith("onboarding:page:open:")) {
     const pageId = customId.split(":")[3];
     const payload = await adminUi.buildPageBuilderPayload(pageId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
   if (customId.startsWith("onboarding:page:addfield:")) {
     const pageId = customId.split(":")[3];
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content: "Choose the field type to add to this page:",
       components: [
         new ActionRowBuilder().addComponents(
@@ -1077,7 +1045,6 @@ async function handle(interaction, client) {
             .setStyle(ButtonStyle.Secondary),
         ),
       ],
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -1085,11 +1052,10 @@ async function handle(interaction, client) {
   if (customId.startsWith("onboarding:page:preview:")) {
     const pageId = customId.split(":")[3];
     const payload = await adminUi.buildPageBuilderPayload(pageId);
-    await interaction.reply({
+    await respondAdmin(interaction, {
       content:
         "Page preview uses the same configured field order the applicant will see.",
       ...payload,
-      flags: [MessageFlags.Ephemeral],
     });
     return;
   }
@@ -1097,10 +1063,7 @@ async function handle(interaction, client) {
   if (customId.startsWith("onboarding:field:view:")) {
     const fieldId = customId.split(":")[3];
     const payload = await adminUi.buildFieldManagerPayload(fieldId);
-    await interaction.reply({
-      ...payload,
-      flags: [MessageFlags.Ephemeral],
-    });
+    await respondAdmin(interaction, payload);
     return;
   }
 
