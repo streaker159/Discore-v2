@@ -5,7 +5,7 @@ const { rest, Routes } = require("./_commandDeployUtil");
 console.log("Clearing all global commands...");
 
 rest()
-  .put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), { body: [] })
+  .put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] })
   .then(() => {
     console.log("✅ All global commands cleared.");
   })

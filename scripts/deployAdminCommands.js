@@ -13,7 +13,7 @@ console.log(`Deploying ${commands.length} admin commands...`);
 rest()
   .put(
     Routes.applicationGuildCommands(
-      process.env.DISCORD_CLIENT_ID,
+      process.env.CLIENT_ID,
       process.env.ADMIN_GUILD_ID,
     ),
     { body: commands },

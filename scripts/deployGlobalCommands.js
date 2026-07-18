@@ -11,7 +11,7 @@ if (!commands.length) {
 console.log(`Deploying ${commands.length} public commands globally...`);
 
 rest()
-  .put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), {
+  .put(Routes.applicationCommands(process.env.CLIENT_ID), {
     body: commands,
   })
   .then((res) => {
