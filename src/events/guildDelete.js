@@ -37,6 +37,22 @@ module.exports = {
       });
     }
 
+    // Onboarding: delete all onboarding data for this guild
+    try {
+      const {
+        deleteAllGuildData,
+      } = require("../modules/onboarding/onboardingDb");
+      await deleteAllGuildData(guild.id);
+      logger.info("[Onboarding] Deleted all data for removed guild", {
+        guildId: guild.id,
+      });
+    } catch (err) {
+      logger.error("guildDelete: onboarding cleanup failed", {
+        guildId: guild.id,
+        error: err.message,
+      });
+    }
+
     // Send leave alert to official channel
     try {
       const client = guild.client;

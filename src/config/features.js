@@ -38,4 +38,7 @@ module.exports = {
   "xp.profileCosmetics": "PREMIUM",
   // Auto Posts
   autopost: "PREMIUM",
+  // Onboarding Applications (full system)
+  "onboarding.manage": "PREMIUM",
+  "onboarding.review": "PREMIUM",
 };
