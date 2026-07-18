@@ -23,10 +23,34 @@ const TARGET_SURVIVED_PATH = path.join(ASSETS_DIR, "target survived.png");
  * ⚠️ ADJUST THESE ONCE THE ACTUAL PNG DIMENSIONS ARE KNOWN.
  *    Load each PNG and measure the circle's position and size.
  */
+/**
+ * Exact pixel coordinates measured from the 1672×941 PNG images.
+ * The avatar is cropped into the large black inner circle on the right side,
+ * sitting inside a glowing outer ring.
+ *
+ * Image dimensions: 1672px wide × 941px high
+ * Circle radius: 295px
+ */
+const CARD_WIDTH = 1672;
+const CARD_HEIGHT = 941;
+const RADIUS = 295;
+
 const CIRCLE_CONFIGS = {
-  eliminated: { cxRatio: 0.5, cyRatio: 0.35, radiusRatio: 0.12 },
-  champion: { cxRatio: 0.5, cyRatio: 0.35, radiusRatio: 0.12 },
-  targetSurvived: { cxRatio: 0.5, cyRatio: 0.35, radiusRatio: 0.12 },
+  champion: {
+    cx: 1264,
+    cy: 453,
+    radius: RADIUS,
+  },
+  eliminated: {
+    cx: 1281,
+    cy: 451,
+    radius: RADIUS,
+  },
+  targetSurvived: {
+    cx: 1289,
+    cy: 452,
+    radius: RADIUS,
+  },
 };
 
 const RING_COLORS = {
@@ -66,12 +90,8 @@ async function compositeAvatarOverlay(
     // Draw the base card
     ctx.drawImage(baseImg, 0, 0, baseImg.width, baseImg.height);
 
-    // Calculate circle position
-    const cardW = baseImg.width;
-    const cardH = baseImg.height;
-    const cx = cardW * circle.cxRatio;
-    const cy = cardH * circle.cyRatio;
-    const radius = cardW * circle.radiusRatio;
+    // Use exact pixel positions from CIRCLE_CONFIGS
+    const { cx, cy, radius } = circle;
 
     // ── Avatar overlay ────────────────────────────────────────────
     if (avatarUrl) {
@@ -91,16 +111,8 @@ async function compositeAvatarOverlay(
       }
     }
 
-    // ── Colored ring border ────────────────────────────────────────
-    if (ringColor) {
-      ctx.save();
-      ctx.strokeStyle = ringColor;
-      ctx.lineWidth = Math.max(3, radius * 0.06); // ~3px or 6% of radius
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius + ctx.lineWidth / 2, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
+    // ⚠️ Do NOT draw a ring — the PNG already has the glowing outer ring.
+    // The avatar should sit inside the black inner circle cleanly.
 
     return canvas.toBuffer("image/png");
   } catch (e) {
