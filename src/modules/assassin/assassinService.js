@@ -56,7 +56,12 @@ async function createSignup(guildId, client) {
   if (!config || !config.enabled) return null;
 
   const existing = await db.findActiveGame(guildId);
-  if (existing) return null; // Already has an active game
+  // Only block if there's an ACTIVE or SIGNUPS game — completed/cancelled is fine
+  if (
+    existing &&
+    (existing.status === "SIGNUPS" || existing.status === "ACTIVE")
+  )
+    return null;
 
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return null;
