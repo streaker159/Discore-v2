@@ -236,6 +236,41 @@ module.exports = {
       // SniperChallengeRun table may not exist yet (before migration)
     }
 
+    // ── Assassin games (30-day retention for ended games) ──────────────
+    try {
+      const assassinPlayersDeleted = await prisma.assassinPlayer.deleteMany({
+        where: {
+          game: {
+            status: { in: ["COMPLETED", "CANCELLED"] },
+            createdAt: { lte: thirtyDaysAgo },
+          },
+        },
+      });
+      if (assassinPlayersDeleted.count) {
+        logger.info("dataCleanupJob: pruned orphaned assassin players", {
+          count: assassinPlayersDeleted.count,
+        });
+      }
+    } catch {
+      // AssassinPlayer table may not exist yet
+    }
+    try {
+      const assassinDel = await prisma.assassinGame.deleteMany({
+        where: {
+          status: { in: ["COMPLETED", "CANCELLED"] },
+          createdAt: { lte: thirtyDaysAgo },
+        },
+      });
+      if (assassinDel.count) {
+        totalDeleted += assassinDel.count;
+        logger.info("dataCleanupJob: pruned old assassin games", {
+          count: assassinDel.count,
+        });
+      }
+    } catch {
+      // AssassinGame table may not exist yet
+    }
+
     // ── Old AI usage logs (90-day retention) ───────────────
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     const oldLogsDel = await prisma.aiUsage.deleteMany({

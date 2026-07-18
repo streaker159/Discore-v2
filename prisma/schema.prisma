@@ -1453,3 +1453,89 @@ enum SourceType {
   HTML_FALLBACK
   MANUAL
 }
+
+enum AssassinGameStatus {
+  SIGNUPS
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum AssassinRole {
+  TARGET
+  ASSASSIN
+}
+
+enum AssassinPlayerStatus {
+  ALIVE
+  DEAD
+}
+
+model AssassinGameConfig {
+  id                 String   @id @default(cuid())
+  guildId            String   @unique
+  enabled            Boolean  @default(false)
+  gameChannelId      String?
+  winnerRoleId       String?
+  minPlayers         Int      @default(4)
+  killCooldownSeconds Int     @default(120)
+  dmEnabled          Boolean  @default(true)
+  timeLimitHours     Int?
+  leaderboardChannelId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([guildId])
+}
+
+model AssassinGame {
+  id              String              @id @default(cuid())
+  guildId         String
+  status          AssassinGameStatus  @default(SIGNUPS)
+  startedBy       String
+  gameChannelId   String
+  signupMessageId String?
+  gameboardMessageId String?
+  totalPlayers    Int                 @default(0)
+  playersAlive    Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  startedAt       DateTime?
+  endedAt         DateTime?
+  winnerId        String?
+  leaderboardMessageId String?
+
+  @@index([guildId, status])
+}
+
+model AssassinPlayer {
+  id        String              @id @default(cuid())
+  gameId    String
+  userId    String
+  role      AssassinRole
+  status    AssassinPlayerStatus @default(ALIVE)
+  kills     Int                 @default(0)
+  joinedAt  DateTime            @default(now())
+  killedAt  DateTime?
+  killedById String?
+
+  @@unique([gameId, userId])
+  @@index([gameId])
+}
+
+model AssassinPlayerStats {
+  id            String   @id @default(cuid())
+  guildId       String
+  userId        String
+  gamesPlayed   Int      @default(0)
+  gamesWon      Int      @default(0)
+  totalKills    Int      @default(0)
+  bestKillsInGame Int    @default(0)
+  wrongKills    Int      @default(0)
+  survivedGames Int      @default(0)
+  lastPlayedAt  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([guildId, userId])
+  @@index([guildId, gamesWon])
+}

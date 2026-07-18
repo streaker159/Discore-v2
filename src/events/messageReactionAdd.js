@@ -27,6 +27,13 @@ module.exports = {
     // ── Discore XP: Award reaction XP ──
     handleReactionXp(reaction, user, client).catch(() => {});
 
+    // ── Assassin: 🔪 elimination check ──
+    if (emojiName === "🔪" && guildId) {
+      const { handleKill } = require("../modules/assassin/assassinService");
+      handleKill(reaction, user, client).catch(() => {});
+      // Don't return — let other handlers run too
+    }
+
     const flagInfo = getLanguageForFlag(emojiName);
     if (!flagInfo) return;
 
