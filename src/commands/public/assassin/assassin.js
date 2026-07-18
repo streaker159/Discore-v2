@@ -71,7 +71,7 @@ function buildAdminDashboardButtons(config, game) {
     // Not set up yet
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId("assassin:dash:setup")
+        .setCustomId("assassin:dash:wiz_start")
         .setLabel("Setup Wizard")
         .setStyle(ButtonStyle.Primary)
         .setEmoji("🧙"),
@@ -94,7 +94,7 @@ function buildAdminDashboardButtons(config, game) {
         .setStyle(ButtonStyle.Success)
         .setEmoji("🔪"),
       new ButtonBuilder()
-        .setCustomId("assassin:dash:setup")
+        .setCustomId("assassin:dash:wiz_start")
         .setLabel("Setup Wizard")
         .setStyle(ButtonStyle.Primary)
         .setEmoji("🧙"),

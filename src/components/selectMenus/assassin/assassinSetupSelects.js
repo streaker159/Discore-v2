@@ -3,8 +3,8 @@
 const db = require("../../../modules/assassin/assassinDb");
 const wizard = require("../../../modules/assassin/assassinWizardState");
 const {
-  buildWizardStepEmbed,
-} = require("../../../modules/assassin/assassinEmbeds");
+  renderWizard,
+} = require("../../buttons/assassin/assassinDashboardButtons");
 const { MessageFlags } = require("discord.js");
 
 module.exports = {
@@ -14,46 +14,60 @@ module.exports = {
     const guildId = interaction.guildId;
     const userId = interaction.user.id;
     const customId = interaction.customId;
-    const channelId = interaction.values?.[0];
+    const value = interaction.values?.[0];
+    const state = wizard.get(userId, guildId);
+
+    if (!state) {
+      return interaction.update({
+        content: "Wizard session expired. Please start again.",
+        components: [],
+        embeds: [],
+      });
+    }
 
     if (customId === "assassin:select:game_channel") {
-      if (!channelId) {
+      if (!value)
         return interaction.reply({
           content: "No channel selected.",
           flags: [MessageFlags.Ephemeral],
         });
-      }
-
+      state.gameChannelId = value;
       await db.upsertConfig(guildId, {
-        gameChannelId: channelId,
-        enabled: true,
+        gameChannelId: value,
+        enabled: state.enabled ?? false,
       });
-      wizard.patch(userId, guildId, { gameChannelId: channelId });
-
-      return interaction.update({
-        content: `✅ Game channel set to <#${channelId}>. Use the wizard to continue.`,
-        components: [],
-      });
+      wizard.set(userId, guildId, state);
+      return renderWizard(interaction, state);
     }
 
     if (customId === "assassin:select:winner_role") {
-      if (!channelId) {
+      if (!value)
         return interaction.reply({
           content: "No role selected.",
           flags: [MessageFlags.Ephemeral],
         });
-      }
-
+      state.winnerRoleId = value;
       await db.upsertConfig(guildId, {
-        winnerRoleId: channelId,
-        enabled: true,
+        winnerRoleId: value,
+        enabled: state.enabled ?? false,
       });
-      wizard.patch(userId, guildId, { winnerRoleId: channelId });
+      wizard.set(userId, guildId, state);
+      return renderWizard(interaction, state);
+    }
 
-      return interaction.update({
-        content: `✅ Winner role set to <@&${channelId}>. Use the wizard to continue.`,
-        components: [],
+    if (customId === "assassin:select:lb_channel") {
+      if (!value)
+        return interaction.reply({
+          content: "No channel selected.",
+          flags: [MessageFlags.Ephemeral],
+        });
+      state.leaderboardChannelId = value;
+      await db.upsertConfig(guildId, {
+        leaderboardChannelId: value,
+        enabled: state.enabled ?? false,
       });
+      wizard.set(userId, guildId, state);
+      return renderWizard(interaction, state);
     }
 
     return interaction.reply({
