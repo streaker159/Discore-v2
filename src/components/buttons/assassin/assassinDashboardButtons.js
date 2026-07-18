@@ -361,7 +361,14 @@ function renderWizard(interaction, state) {
   embed.setDescription(descs[idx] || "");
 
   const rows = buildWizardRows(state);
-  return interaction.update({ embeds: [embed], components: rows });
+  try {
+    return interaction.editReply({ embeds: [embed], components: rows });
+  } catch {
+    // Fallback if editReply fails (unlikely in normal flow)
+    return interaction
+      .update({ embeds: [embed], components: rows })
+      .catch(() => {});
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
