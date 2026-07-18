@@ -51,10 +51,16 @@ module.exports = {
       if (!channelId) return;
 
       await db.updateConfig(guildId, { panelChannelId: channelId });
+      const config = await db.getConfig(guildId);
+      const payload = await adminUi.buildWizardPayload(
+        interaction.guild,
+        config,
+        3,
+      );
 
-      await interaction.reply({
-        content: `✅ Panel channel set to <#${channelId}>. Use **Publish Panel** to post the application panel.`,
-        flags: [MessageFlags.Ephemeral],
+      await respondAdmin(interaction, {
+        content: `Panel channel saved: <#${channelId}>`,
+        ...payload,
       });
       return;
     }
@@ -66,10 +72,16 @@ module.exports = {
       if (!channelId) return;
 
       await db.updateConfig(guildId, { defaultReviewChannelId: channelId });
+      const config = await db.getConfig(guildId);
+      const payload = await adminUi.buildWizardPayload(
+        interaction.guild,
+        config,
+        4,
+      );
 
-      await interaction.reply({
-        content: `✅ Review channel set to <#${channelId}>.`,
-        flags: [MessageFlags.Ephemeral],
+      await respondAdmin(interaction, {
+        content: `Review channel saved: <#${channelId}>`,
+        ...payload,
       });
       return;
     }

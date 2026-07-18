@@ -107,6 +107,83 @@ function fieldTypeLabel(type) {
   return FIELD_TYPES.find((f) => f.value === type)?.label || type || "Unknown";
 }
 
+function guideBlock(goal, doNow, next) {
+  return (
+    `**Goal:** ${goal}\n` + `**Do now:** ${doNow}\n` + `**Next:** ${next}\n\n`
+  );
+}
+
+function wizardStepGuide(step) {
+  const guides = {
+    enabled: [
+      "Turn the application system on for this server.",
+      "Click Save: Enable, then move to channel setup.",
+      "Choose where users will see the public application panel.",
+    ],
+    panel: [
+      "Choose the public channel where members start applications.",
+      "Select the channel that should hold the application panel.",
+      "Choose the private staff review channel.",
+    ],
+    review: [
+      "Choose where submitted applications are sent for staff review.",
+      "Select a staff-only review channel.",
+      "Configure which staff roles can manage, review, approve, and download.",
+    ],
+    permissions: [
+      "Give the right staff roles access without handing everyone full admin control.",
+      "Open Permissions and assign reviewer, approver, download, and admin roles.",
+      "Create the application type applicants will click on the panel.",
+    ],
+    types: [
+      "Create the public application choices users can start from the panel.",
+      "Create or select an application type, then configure its button and instructions.",
+      "Build the pages and questions for that application type.",
+    ],
+    forms: [
+      "Build the actual questions applicants answer in DMs.",
+      "Open a type, add up to 3 pages, then add fields to each page.",
+      "Configure role routing from answers such as games, platform, or yes/no choices.",
+    ],
+    routing: [
+      "Map answers to roles so approval can automatically grant the right access.",
+      "Select type, field, condition, then the roles to add on approval.",
+      "Configure accepted and denied decision actions.",
+    ],
+    actions: [
+      "Decide what happens when staff approves or denies an application.",
+      "Set accepted, pending, remove, and denied roles. Keep kick/ban off unless needed.",
+      "Tune review behaviour such as channels, request changes, and threads.",
+    ],
+    reviewBehaviour: [
+      "Control how staff reviews applications after users submit them.",
+      "Confirm the default/per-type review channels and review-thread behaviour.",
+      "Design the public application panel users will see.",
+    ],
+    panelDesign: [
+      "Make the public panel clear, branded, and easy for members to use.",
+      "Edit title, description, color, images, branding, and button presentation.",
+      "Preview the complete user and staff flow before publishing.",
+    ],
+    preview: [
+      "Review the full experience before exposing it to members.",
+      "Check panel, DM intro, form pages, submission preview, staff card, and decision flow.",
+      "Publish or repair the panel once the preview looks right.",
+    ],
+    publish: [
+      "Post or repair the live application panel.",
+      "Click Publish Panel for first setup, or Repair Panel if the tracked message is missing.",
+      "Run a test application from the public panel.",
+    ],
+  };
+  const [goal, doNow, next] = guides[step.key] || [
+    "Configure this setup step.",
+    "Use the controls below.",
+    "Move to the next step when ready.",
+  ];
+  return guideBlock(goal, doNow, next);
+}
+
 async function getWizardStatus(guildId, config, appTypes) {
   const permissionRoles = await db.getPermissionRoles(guildId);
   const roleRules = await db.getRoleRules(guildId);
@@ -171,7 +248,8 @@ async function buildWizardPayload(guild, config, stepNumber = 1) {
     .setTitle(`Setup Wizard — Step ${step.id} of ${WIZARD_STEPS.length}`)
     .setColor(done ? "#57f287" : "#fee75c")
     .setDescription(
-      `**Configuring:** ${step.title}\n` +
+      wizardStepGuide(step) +
+        `**Configuring:** ${step.title}\n` +
         `**Status:** ${statusLine(done, true)}\n\n` +
         wizardStepDescription(step, config, appTypes, status),
     )
@@ -359,7 +437,12 @@ async function buildPermissionsPayload(guildId) {
     .setTitle("Staff Permissions")
     .setColor("#5865F2")
     .setDescription(
-      "Server owner and Administrator are always allowed. Manage Guild users currently receive management/build access.\n\n" +
+      guideBlock(
+        "Choose who can build, review, approve, download, and clean up applications.",
+        "Select roles in each permission menu. A role can be selected in more than one group.",
+        "After permissions, create or select an application type.",
+      ) +
+        "Server owner and Administrator are always allowed. Manage Guild users currently receive management/build access.\n\n" +
         `**Manage Roles:** ${roleList(grouped.manage)}\n` +
         `**Build/Edit Forms:** ${roleList(grouped.build)}\n` +
         `**Reviewer Roles:** ${roleList(grouped.review)}\n` +
@@ -416,7 +499,14 @@ async function buildApplicationTypesPayload(guildId) {
     .setTitle("Application Type Manager")
     .setColor("#5865F2")
     .setDescription(
-      `${appTypes.filter((t) => t.enabled).length}/3 active application types. Select a type below for editing, form building, actions, role routing, and review behaviour.`,
+      guideBlock(
+        "Create the application buttons users will choose from the public panel.",
+        appTypes.length
+          ? "Select an application type to configure its button, form, actions, and routing."
+          : "Click Create Application Type to make the first application users can start.",
+        "Once a type exists, build its form pages and fields.",
+      ) +
+        `${appTypes.filter((t) => t.enabled).length}/3 active application types. Select a type below for editing, form building, actions, role routing, and review behaviour.`,
     )
     .setTimestamp();
 
@@ -447,13 +537,11 @@ async function buildApplicationTypesPayload(guildId) {
           .setCustomId("onboarding:select:typeadmin")
           .setPlaceholder("Select application type to manage")
           .addOptions(
-            appTypes
-              .slice(0, 25)
-              .map((t) => ({
-                label: (t.publicTitle || t.name).slice(0, 100),
-                value: t.id,
-                description: `${t.enabled ? "Enabled" : "Disabled"} • ${t.buttonStyle || "PRIMARY"}`,
-              })),
+            appTypes.slice(0, 25).map((t) => ({
+              label: (t.publicTitle || t.name).slice(0, 100),
+              value: t.id,
+              description: `${t.enabled ? "Enabled" : "Disabled"} • ${t.buttonStyle || "PRIMARY"}`,
+            })),
           ),
       ),
     );
@@ -491,7 +579,14 @@ async function buildTypeManagerPayload(guildId, appTypeId) {
     .setTitle(`Application Type — ${type.publicTitle || type.name}`)
     .setColor(type.themeColor || "#5865F2")
     .setDescription(
-      `**Internal name:** ${type.name}\n` +
+      guideBlock(
+        "Finish one application type before moving to the next.",
+        pages.length && fieldCount
+          ? "Review button, actions, role routing, and review channel settings."
+          : "Start with Build Forms so applicants have real questions to answer.",
+        "After the form is built, configure accepted/denied actions and role routing.",
+      ) +
+        `**Internal name:** ${type.name}\n` +
         `**Public title:** ${type.publicTitle}\n` +
         `**Description:** ${type.publicDescription || "None"}\n` +
         `**Instructions:** ${type.instructions ? "Configured" : "None"}\n` +
@@ -568,7 +663,13 @@ async function buildFormBuilderPayload(appTypeId) {
     .setTitle(`Form Builder — ${appType.publicTitle || appType.name}`)
     .setColor(appType.themeColor || "#5865F2")
     .setDescription(
-      "Each application type supports up to 3 pages and 5 fields per page for now. Open a page to add/edit/delete fields.",
+      guideBlock(
+        "Create a clear page-by-page DM application form.",
+        pages.length
+          ? "Open a page, then add or edit fields inside that page."
+          : "Click Add Page and create Page 1, usually Basic Info.",
+        "After fields are added, preview the form and configure answer-based role routing.",
+      ) + "Limits for now: up to 3 pages, 5 fields per page.",
     )
     .setTimestamp();
 
@@ -597,13 +698,11 @@ async function buildFormBuilderPayload(appTypeId) {
           .setCustomId(`onboarding:select:openpage:${appTypeId}`)
           .setPlaceholder("Open a form page")
           .addOptions(
-            pages
-              .slice(0, 25)
-              .map((p, i) => ({
-                label: `${i + 1}. ${p.title}`.slice(0, 100),
-                value: p.id,
-                description: `${p.sortOrder ?? i} • page builder`,
-              })),
+            pages.slice(0, 25).map((p, i) => ({
+              label: `${i + 1}. ${p.title}`.slice(0, 100),
+              value: p.id,
+              description: `${p.sortOrder ?? i} • page builder`,
+            })),
           ),
       ),
     );
@@ -644,7 +743,14 @@ async function buildPageBuilderPayload(pageId) {
     .setTitle(`Page Builder — ${page.title}`)
     .setColor(appType?.themeColor || "#5865F2")
     .setDescription(
-      `${page.description || "No page description."}\n\nUp to 5 fields per page. Select a field to manage options or linked roles.`,
+      guideBlock(
+        "Add the questions applicants answer on this page.",
+        fields.length
+          ? "Select a field to edit it, add choice options, or review its settings."
+          : "Click Add Field, choose the field type, then fill in the question and settings.",
+        "When this page is done, go back to the form and add the next page or preview.",
+      ) +
+        `${page.description || "No page description."}\n\nUp to 5 fields per page. Select a field to manage options or linked roles.`,
     )
     .setTimestamp();
 
@@ -675,13 +781,11 @@ async function buildPageBuilderPayload(pageId) {
           .setCustomId(`onboarding:select:fieldadmin:${pageId}`)
           .setPlaceholder("Select field to edit/delete/configure roles")
           .addOptions(
-            fields
-              .slice(0, 25)
-              .map((f, i) => ({
-                label: `${i + 1}. ${f.label}`.slice(0, 100),
-                value: f.id,
-                description: fieldTypeLabel(f.fieldType).slice(0, 100),
-              })),
+            fields.slice(0, 25).map((f, i) => ({
+              label: `${i + 1}. ${f.label}`.slice(0, 100),
+              value: f.id,
+              description: fieldTypeLabel(f.fieldType).slice(0, 100),
+            })),
           ),
       ),
     );
@@ -729,7 +833,15 @@ async function buildFieldManagerPayload(fieldId) {
     .setTitle(`Field Builder — ${field.label}`)
     .setColor("#5865F2")
     .setDescription(
-      `**Type:** ${fieldTypeLabel(field.fieldType)}\n` +
+      guideBlock(
+        "Make this question useful for both applicants and staff.",
+        field.fieldType === "SINGLE_SELECT" ||
+          field.fieldType === "MULTI_SELECT"
+          ? "Use Set Options to define choices. Then use Role Routing if choices should grant roles."
+          : "Use Edit Field to adjust the question, help text, and required setting.",
+        "Return to the page to add the next field, or open Role Routing for answer-based roles.",
+      ) +
+        `**Type:** ${fieldTypeLabel(field.fieldType)}\n` +
         `**Required:** ${yesNo(field.required !== false)}\n` +
         `**Help:** ${field.helpText || "None"}\n` +
         `**Placeholder:** ${field.placeholder || "None"}\n` +
@@ -803,7 +915,12 @@ async function buildRoleRoutingPayload(guildId, appTypeId = null) {
     .setTitle("Role Routing Builder")
     .setColor("#5865F2")
     .setDescription(
-      "Configure decision roles and answer-based rules. Option-linked roles are applied on approval by default; explicit role rules can add/remove roles on submit, approval, or manual staff confirmation.",
+      guideBlock(
+        "Automatically apply roles based on application answers.",
+        "Select application type, select the field, select the answer/option condition, then select roles to add on approval.",
+        "Configure accepted/denied action roles after answer routing is in place.",
+      ) +
+        "Option-linked roles are applied on approval by default; explicit role rules can add/remove roles on submit, approval, or manual staff confirmation.",
     )
     .setTimestamp();
 
@@ -831,12 +948,10 @@ async function buildRoleRoutingPayload(guildId, appTypeId = null) {
           .setCustomId("onboarding:select:routingtype")
           .setPlaceholder("Choose application type for rule")
           .addOptions(
-            appTypes
-              .slice(0, 25)
-              .map((t) => ({
-                label: (t.publicTitle || t.name).slice(0, 100),
-                value: t.id,
-              })),
+            appTypes.slice(0, 25).map((t) => ({
+              label: (t.publicTitle || t.name).slice(0, 100),
+              value: t.id,
+            })),
           ),
       ),
     );
@@ -865,8 +980,15 @@ async function buildActionsPayload(guildId, appTypeId = null) {
     .setTitle("Accepted / Denied Action Builder")
     .setColor(selected?.themeColor || "#5865F2")
     .setDescription(
-      selected
-        ? `**Application type:** ${selected.publicTitle || selected.name}\n` +
+      guideBlock(
+        "Define what the bot does when staff approves or denies.",
+        selected
+          ? "Set accepted, removed, pending, and denied roles. Keep kick/ban disabled unless deliberately required."
+          : "Create an application type first, then return here.",
+        "After actions, review staff behaviour and panel design.",
+      ) +
+        (selected
+          ? `**Application type:** ${selected.publicTitle || selected.name}\n` +
             `**Accepted roles:** ${roleList(selected.acceptRoleIds)}\n` +
             `**Remove on accept:** ${roleList(selected.removeRoleIds)}\n` +
             `**Pending role:** ${selected.pendingRoleId ? `<@&${selected.pendingRoleId}>` : "None"}\n` +
@@ -876,7 +998,7 @@ async function buildActionsPayload(guildId, appTypeId = null) {
             `**Kick on deny:** ${yesNo(selected.kickOnDeny)}\n` +
             `**Ban on deny:** ${yesNo(selected.banOnDeny)}\n\n` +
             "Defaults: approval gives accepted roles plus selected option-linked roles; deny sends DM only; kick/ban are disabled unless explicitly set."
-        : "Create an application type before configuring actions.",
+          : "Create an application type before configuring actions."),
     )
     .setTimestamp();
 
@@ -951,7 +1073,12 @@ async function buildReviewBehaviourPayload(guildId, appTypeId = null) {
     .setTitle("Review Behaviour Settings")
     .setColor("#5865F2")
     .setDescription(
-      `**Default review channel:** ${config?.defaultReviewChannelId ? `<#${config.defaultReviewChannelId}>` : "Not set"}\n` +
+      guideBlock(
+        "Decide how staff receives and works each application.",
+        "Confirm the default review channel, then choose a type if it needs a channel override or custom review behaviour.",
+        "After review settings, design the public panel and preview the full flow.",
+      ) +
+        `**Default review channel:** ${config?.defaultReviewChannelId ? `<#${config.defaultReviewChannelId}>` : "Not set"}\n` +
         (selected
           ? `**Selected type:** ${selected.publicTitle || selected.name}\n` +
             `**Override channel:** ${selected.reviewChannelId ? `<#${selected.reviewChannelId}>` : "Default"}\n` +
@@ -1022,7 +1149,12 @@ async function buildPanelDesignPayload(guild, config) {
   );
   return {
     content:
-      "Public panel design preview. Use the buttons below to edit embed text, media, toggles, and application button presentation.",
+      guideBlock(
+        "Design the public message members use to start applications.",
+        "Edit the embed text/media first, then adjust button labels/styles from Application Types.",
+        "Preview the full flow before publishing or repairing the live panel.",
+      ) +
+      "Public panel design preview. The embed below is what users will see.",
     embeds: [embed],
     components: [
       new ActionRowBuilder().addComponents(
@@ -1070,7 +1202,12 @@ async function buildPreviewFlowPayload(guild, config) {
     .setTitle("Preview Full User Flow")
     .setColor(config?.panelEmbedColor || firstType?.themeColor || "#5865F2")
     .setDescription(
-      "This preview shows the major user/staff surfaces before publishing. It does not submit a real application.\n\n" +
+      guideBlock(
+        "Check the whole experience before users see it.",
+        "Review the panel, DM start, form pages, submission preview, staff card, and decision outcome below.",
+        "If anything is missing, go back to the relevant builder. If it looks right, publish the panel.",
+      ) +
+        "This preview shows the major user/staff surfaces before publishing. It does not submit a real application.\n\n" +
         `**1. Public panel:** ${config?.panelEmbedTitle || "Application Forms"}\n` +
         `**2. Server reply:** Application started. Check your DMs.\n` +
         `**3. DM intro:** Applying for ${firstType?.publicTitle || "an application type"}.\n` +
