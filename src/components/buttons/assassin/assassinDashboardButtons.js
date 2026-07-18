@@ -48,17 +48,23 @@ module.exports = {
     const userId = interaction.user.id;
     const action = interaction.customId.replace("assassin:dash:", "");
     db.ensureTables().catch(() => {});
+
+    // All dashboard actions must defer first to avoid timeout
+    const needsDefer = ![
+      "close",
+      "wiz_min_modal",
+      "wiz_cooldown_modal",
+      "wiz_time_modal",
+    ].includes(action);
+    if (needsDefer) {
+      await interaction.deferUpdate().catch(() => {});
+    }
+
     const config = await getConfig(guildId);
     const game = await db.findActiveGame(guildId);
 
     switch (action) {
-      // ── Main dashboard ──
-      case "open":
-        return openDashboard(interaction, config, game, client);
       case "close":
-        if (!interaction.deferred && !interaction.replied) {
-          await interaction.deferUpdate().catch(() => {});
-        }
         return interaction.message.delete().catch(() => {});
 
       // ── Games ──
@@ -199,7 +205,6 @@ function b(id, label, style, disabled = false) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleStartGame(interaction, guildId, client) {
-  await interaction.deferUpdate().catch(() => {});
   const r = await createSignup(guildId, client);
   if (!r) {
     try {
@@ -219,7 +224,6 @@ async function handleStartGame(interaction, guildId, client) {
 }
 
 async function handleBeginHunt(interaction, guildId, client) {
-  await interaction.deferUpdate().catch(() => {});
   const r = await beginHunt(guildId, client);
   if (!r.success) {
     try {
@@ -239,10 +243,12 @@ async function handleBeginHunt(interaction, guildId, client) {
 async function handleCancelGame(interaction, guildId, client) {
   await cancelGame(guildId, client);
   const config = await getConfig(guildId);
-  return interaction.update({
-    embeds: [buildDashboardEmbed(config, null, interaction.guild)],
-    components: buildDashRows(config, null),
-  });
+  try {
+    await interaction.editReply({
+      embeds: [buildDashboardEmbed(config, null, interaction.guild)],
+      components: buildDashRows(config, null),
+    });
+  } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
