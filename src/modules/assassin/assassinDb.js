@@ -155,7 +155,7 @@ async function findGame(id) {
 async function findActiveGame(guildId) {
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT * FROM "AssassinGame" WHERE "guildId" = $1 AND "status" IN ('SIGNUPS','ACTIVE') ORDER BY "createdAt" DESC LIMIT 1`,
+      `SELECT * FROM "AssassinGame" WHERE "guildId" = $1 AND "status" IN ('SIGNUPS','ACTIVE','COMPLETED') ORDER BY "createdAt" DESC LIMIT 1`,
       guildId,
     );
     return rows?.[0] || null;
