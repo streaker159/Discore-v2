@@ -83,6 +83,12 @@ async function grantPremium({
   grantedBy,
 }) {
   const now = new Date();
+  await prisma.guild.upsert({
+    where: { id: guildId },
+    update: {},
+    create: { id: guildId },
+  });
+
   const expiresAt = calculatePremiumExpiry({ durationValue, durationUnit });
   const tier = durationUnit === "LIFETIME" ? "LIFETIME" : "PRO";
   const periodEnd =
@@ -141,6 +147,12 @@ async function grantPremium({
 }
 
 async function revokePremium(guildId, revokedBy) {
+  await prisma.guild.upsert({
+    where: { id: guildId },
+    update: {},
+    create: { id: guildId },
+  });
+
   const premium = await prisma.guildPremium.upsert({
     where: { guildId },
     update: {

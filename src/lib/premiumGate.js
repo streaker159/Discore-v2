@@ -29,10 +29,18 @@ async function hasFeature(guildId, featureKey) {
 async function requireFeature(interaction, featureKey) {
   const ok = await hasFeature(interaction.guildId, featureKey);
   if (ok) return true;
-  await interaction.reply({
+  const payload = {
     content: `🔒 **Discore Premium required.** This feature is premium locked.`,
     flags: 64,
-  });
+  };
+
+  if (interaction.deferred) {
+    await interaction.editReply({ content: payload.content });
+  } else if (interaction.replied) {
+    await interaction.followUp(payload);
+  } else {
+    await interaction.reply(payload);
+  }
   return false;
 }
 
