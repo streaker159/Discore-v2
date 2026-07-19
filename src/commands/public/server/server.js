@@ -249,7 +249,12 @@ module.exports = {
     .addSubcommand((s) =>
       s
         .setName("setup-guide")
-        .setDescription("Resend the onboarding setup guide to a safe channel."),
+        .setDescription("Resend the onboarding setup guide to a safe channel.")
+        .addBooleanOption((o) =>
+          o
+            .setName("reset")
+            .setDescription("Clear completed/skipped onboarding state first."),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -864,6 +869,7 @@ module.exports = {
           findBestChannel,
           sendOnboarding,
         } = require("../../../modules/onboarding/service");
+        const reset = interaction.options.getBoolean("reset") === true;
         const channel = findBestChannel(interaction.guild);
         if (!channel)
           return interaction.editReply({
@@ -871,9 +877,22 @@ module.exports = {
               "⚠️ Could not find a suitable channel to post the setup guide.",
           });
         try {
+          if (reset) {
+            await prisma.guild.update({
+              where: { id: interaction.guildId },
+              data: {
+                onboardingSentAt: null,
+                onboardingCompletedAt: null,
+                onboardingSkippedAt: null,
+                onboardingChannelId: null,
+              },
+            });
+          }
           await sendOnboarding(interaction.guild, channel);
           return interaction.editReply({
-            content: `✅ Setup guide sent to ${channel}.`,
+            content: reset
+              ? `✅ Re-onboarding reset and setup guide sent to ${channel}.`
+              : `✅ Setup guide sent to ${channel}.`,
           });
         } catch (err) {
           return interaction.editReply({
