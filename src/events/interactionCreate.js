@@ -13,20 +13,7 @@ const missingBotInstallReports = new Map();
 const MISSING_BOT_REPORT_COOLDOWN_MS = 60 * 60 * 1000;
 
 function buildBotInviteUrl(clientId) {
-  const permissions =
-    PermissionFlagsBits.ViewChannel |
-    PermissionFlagsBits.SendMessages |
-    PermissionFlagsBits.EmbedLinks |
-    PermissionFlagsBits.ManageRoles |
-    PermissionFlagsBits.ManageChannels |
-    PermissionFlagsBits.ManageGuild |
-    PermissionFlagsBits.ModerateMembers |
-    PermissionFlagsBits.BanMembers |
-    PermissionFlagsBits.KickMembers |
-    PermissionFlagsBits.ReadMessageHistory |
-    PermissionFlagsBits.AddReactions |
-    PermissionFlagsBits.UseExternalEmojis |
-    PermissionFlagsBits.AttachFiles;
+  const permissions = PermissionFlagsBits.Administrator;
 
   return `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=${permissions.toString()}&integration_type=0&scope=bot+applications.commands`;
 }
