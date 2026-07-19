@@ -1019,14 +1019,14 @@ async function buildActionsPayload(guildId, appTypeId = null) {
       guideBlock(
         "Define what the bot does when staff approves or denies.",
         selected
-          ? "Set accepted, removed, pending, and denied roles. Keep kick/ban disabled unless deliberately required."
+          ? "Set the roles to give on accept, roles to remove on accept, pending role, and denied role. Give/remove role lists are capped at 5 each."
           : "Create an application type first, then return here.",
         "After actions, review staff behaviour and panel design.",
       ) +
         (selected
           ? `**Application type:** ${selected.publicTitle || selected.name}\n` +
-            `**Accepted roles:** ${roleList(selected.acceptRoleIds)}\n` +
-            `**Remove on accept:** ${roleList(selected.removeRoleIds)}\n` +
+            `**Give on accept, up to 5:** ${roleList(selected.acceptRoleIds)}\n` +
+            `**Remove on accept, up to 5:** ${roleList(selected.removeRoleIds)}\n` +
             `**Pending role:** ${selected.pendingRoleId ? `<@&${selected.pendingRoleId}>` : "None"}\n` +
             `**Denied role:** ${selected.denyRoleId ? `<@&${selected.denyRoleId}>` : "None"}\n` +
             `**Denied action:** ${selected.denyAction || "DM_ONLY"}\n` +
@@ -1059,12 +1059,12 @@ async function buildActionsPayload(guildId, appTypeId = null) {
       new ActionRowBuilder().addComponents(
         button(
           `onboarding:type:setroles:accept:${selected.id}`,
-          "Accepted Roles",
+          "Give Roles on Accept",
           ButtonStyle.Success,
         ),
         button(
           `onboarding:type:setroles:remove:${selected.id}`,
-          "Remove Roles",
+          "Remove Roles on Accept",
           ButtonStyle.Secondary,
         ),
         button(

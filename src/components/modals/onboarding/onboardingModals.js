@@ -580,8 +580,14 @@ module.exports = {
         if (result.rolesApplied?.length) {
           content += `\nRoles applied: ${result.rolesApplied.length}`;
         }
+        if (result.rolesRemoved?.length) {
+          content += `\nRoles removed: ${result.rolesRemoved.length}`;
+        }
         if (result.rolesFailed?.length) {
           content += `\n⚠️ Failed to apply roles: ${result.rolesFailed.length}`;
+        }
+        if (result.rolesRemoveFailed?.length) {
+          content += `\n⚠️ Failed to remove roles: ${result.rolesRemoveFailed.length}`;
         }
         await interaction.editReply({ content });
       } else {

@@ -456,7 +456,9 @@ async function approveApplication(applicationId, staffId, reason, client) {
 
     // Apply roles
     const rolesApplied = [];
+    const rolesRemoved = [];
     const rolesFailed = [];
+    const rolesRemoveFailed = [];
 
     if (appType) {
       const member = await guild.members
@@ -494,8 +496,13 @@ async function approveApplication(applicationId, staffId, reason, client) {
                 role.position < guild.members.me.roles.highest.position
               ) {
                 await member.roles.remove(roleId, "Application approved");
+                rolesRemoved.push(roleId);
+              } else {
+                rolesRemoveFailed.push(roleId);
               }
-            } catch {}
+            } catch {
+              rolesRemoveFailed.push(roleId);
+            }
           }
         }
 
@@ -574,7 +581,9 @@ async function approveApplication(applicationId, staffId, reason, client) {
     return {
       success: true,
       rolesApplied,
+      rolesRemoved,
       rolesFailed,
+      rolesRemoveFailed,
     };
   } catch (e) {
     logger.error("[Onboarding] approveApplication failed", {

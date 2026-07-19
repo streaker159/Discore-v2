@@ -278,6 +278,7 @@ function buildReviewCardEmbed(application, appType, answers, notes, guild) {
 
   // Files
   const files = [];
+  let firstImageUrl = null;
   if (answers) {
     for (const a of answers) {
       if (a.fileRefs) {
@@ -292,12 +293,15 @@ function buildReviewCardEmbed(application, appType, answers, notes, guild) {
         }
         if (Array.isArray(refs)) {
           for (const f of refs) {
-            if (f?.url) files.push(`[${f.name || "file"}](${f.url})`);
+            if (!f?.url) continue;
+            files.push(`[${f.name || "file"}](${f.url})`);
+            if (!firstImageUrl && isImageFile(f)) firstImageUrl = f.url;
           }
         }
       }
     }
   }
+  if (firstImageUrl) embed.setImage(firstImageUrl);
   if (files.length) {
     embed.addFields({ name: "📁 Files", value: files.join("\n") || "None" });
   }
@@ -311,6 +315,25 @@ function buildReviewCardEmbed(application, appType, answers, notes, guild) {
   }
 
   return embed;
+}
+
+function isImageFile(fileRef) {
+  const contentType = String(fileRef.contentType || "").toLowerCase();
+  const name = String(fileRef.name || "").toLowerCase();
+  return (
+    contentType.startsWith("image/") ||
+    [".png", ".jpg", ".jpeg", ".webp", ".gif"].some((ext) => name.endsWith(ext))
+  );
+}
+
+function parseFileRefs(fileRefs) {
+  if (!fileRefs) return [];
+  try {
+    const refs = typeof fileRefs === "string" ? JSON.parse(fileRefs) : fileRefs;
+    return Array.isArray(refs) ? refs.filter((file) => file?.url) : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -339,11 +362,22 @@ function buildFullViewEmbed(
     .setTimestamp();
 
   if (answers && answers.length) {
+    let firstImageUrl = null;
     for (const a of answers) {
       const label = a.fieldLabelSnapshot || "Answer";
       let val = a.answerText || "";
       if (a.selectedOptionValues && a.selectedOptionValues.length) {
         val = a.selectedOptionValues.join(", ");
+      }
+      const files = parseFileRefs(a.fileRefs);
+      if (files.length) {
+        val += `${val ? "\n" : ""}${files
+          .map((file) => `[${file.name || "file"}](${file.url})`)
+          .join("\n")}`;
+        if (!firstImageUrl) {
+          const imageFile = files.find(isImageFile);
+          if (imageFile) firstImageUrl = imageFile.url;
+        }
       }
       if (!val) val = "*(no answer)*";
       if (val.length > 1024) val = val.slice(0, 1021) + "...";
@@ -355,6 +389,7 @@ function buildFullViewEmbed(
         inline: false,
       });
     }
+    if (firstImageUrl) embed.setImage(firstImageUrl);
   }
 
   if (notes && notes.length) {

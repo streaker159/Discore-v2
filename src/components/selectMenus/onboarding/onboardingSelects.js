@@ -554,7 +554,8 @@ module.exports = {
       if (!interaction.isRoleSelectMenu()) return;
       const roleKind = parts[3];
       const appTypeId = parts[4];
-      const roleIds = interaction.values || [];
+      const maxRoles = roleKind === "pending" || roleKind === "denied" ? 1 : 5;
+      const roleIds = (interaction.values || []).slice(0, maxRoles);
       const updates = {};
       if (roleKind === "accept") updates.acceptRoleIds = roleIds;
       if (roleKind === "remove") updates.removeRoleIds = roleIds;

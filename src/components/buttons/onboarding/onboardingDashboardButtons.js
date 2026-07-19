@@ -943,14 +943,25 @@ async function handle(interaction, client) {
 
   if (customId.startsWith("onboarding:type:setroles:")) {
     const [, , , roleKind, appTypeId] = customId.split(":");
-    const maxValues = roleKind === "pending" || roleKind === "denied" ? 1 : 10;
+    const maxValues = roleKind === "pending" || roleKind === "denied" ? 1 : 5;
+    const labels = {
+      accept:
+        "Select up to 5 roles to GIVE when staff accepts this application.",
+      remove:
+        "Select up to 5 roles to REMOVE when staff accepts this application.",
+      pending:
+        "Select the temporary pending role to give while this application waits for review.",
+      denied: "Select the role to give if staff denies this application.",
+    };
     await respondAdmin(interaction, {
-      content: "Select role(s) to save for this action:",
+      content: labels[roleKind] || "Select role(s) to save for this action:",
       components: [
         new ActionRowBuilder().addComponents(
           new (require("discord.js").RoleSelectMenuBuilder)()
             .setCustomId(`onboarding:select:setroles:${roleKind}:${appTypeId}`)
-            .setPlaceholder("Select roles")
+            .setPlaceholder(
+              maxValues === 1 ? "Select 1 role" : "Select up to 5 roles",
+            )
             .setMinValues(0)
             .setMaxValues(maxValues),
         ),
