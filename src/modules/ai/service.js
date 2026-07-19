@@ -19,6 +19,23 @@ setInterval(() => {
   }
 }, 60000);
 
+function isLikelyGameQuestionText(text) {
+  const message = String(text || "");
+  const explicitGameTerms =
+    /\b(con|conflict of nations|call of war|cow|supremacy|s1914|iron order|io|ww3)\b/i;
+  const gameDomainTerms =
+    /\b(unit|units|hp|damage|range|cost|infantry|tank|naval|aircraft|submarine|missile|doctrine|research|build|building|troop|troops|coalition|alliance|commander)\b/i;
+  const militaryContextTerms =
+    /\b(attack|defense|army|war|battle|nation|country)\b/i;
+  const statOnlyTerms = /\b(stat|stats|speed)\b/i;
+
+  return (
+    explicitGameTerms.test(message) ||
+    gameDomainTerms.test(message) ||
+    (militaryContextTerms.test(message) && statOnlyTerms.test(message))
+  );
+}
+
 // ─── Discord mention handler ──────────────────────────────────────────────────
 
 async function handleDiscoreMention({
@@ -103,13 +120,13 @@ async function handleDiscoreMention({
     detectedGame = resolveGameKey(userMsg);
   } catch (_) {}
 
-  // Detect if it's a unit/game question
-  const gameKeywords =
-    /unit|units|stat|stats|hp|damage|speed|range|cost|infantry|tank|naval|aircraft|submarine|missile|doctrine|commander|strategy|nation|country|research|build|building|attack|defense|military|army|war|game|troop|battle|alliance|coalition/i;
+  // Detect if it's a unit/game question. Keep this conservative so general
+  // real-world questions like "speed of light" do not get forced into game routing.
+  const isLikelyGameQuestion = isLikelyGameQuestionText(userMsg);
 
   // If user only said a game name (reply to "which game?"), look up stored question
   const sessionKey = `${userId}:${channelId}`;
-  if (detectedGame && !gameKeywords.test(userMsg)) {
+  if (detectedGame && !isLikelyGameQuestion) {
     const stored = pendingQuestions.get(sessionKey);
     if (stored) {
       pendingQuestions.delete(sessionKey);
@@ -174,7 +191,7 @@ async function handleDiscoreMention({
     }
   }
 
-  if (!detectedGame && gameKeywords.test(userMsg)) {
+  if (!detectedGame && isLikelyGameQuestion) {
     // Store question for follow-up
     pendingQuestions.set(sessionKey, { question: userMsg, time: Date.now() });
     await message
@@ -354,6 +371,7 @@ async function answerStrategy({
 module.exports = {
   handleDiscoreMention,
   answerStrategy,
+  isLikelyGameQuestionText,
   classifyQuestion,
   isDiscoreSelfHelpQuestion,
   STAT_HEAVY_TYPES,
