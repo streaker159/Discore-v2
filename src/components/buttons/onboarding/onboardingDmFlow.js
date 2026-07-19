@@ -38,6 +38,7 @@ module.exports = {
   customIdPrefix: "onboarding:dm:",
   buildFormPagePayload,
   showFormPage,
+  handlePendingUploadMessage,
 
   async execute(interaction, client) {
     const customId = interaction.customId;
@@ -656,13 +657,17 @@ async function handleSubmit(interaction, sessionId, client) {
 
   const missing = await getMissingRequiredFields(session);
   if (missing.length) {
+    const payload = await buildFormPagePayload(
+      session,
+      session.currentPage || 0,
+      client,
+    );
     await interaction
       .editReply({
         content:
           "Please complete the required fields before submitting:\n" +
           missing.map((field) => `- ${field.label}`).join("\n"),
-        embeds: [],
-        components: [],
+        ...payload,
       })
       .catch(() => {});
     return;
@@ -821,6 +826,18 @@ async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
   const field = fields[fieldIndex];
   if (!field) return;
 
+  const pendingUpload = {
+    sessionId,
+    fieldId: field.id,
+    fieldIndex,
+    label: field.label,
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+  };
+
+  await db.updateSession(sessionId, {
+    stateJson: { ...(session.stateJson || {}), pendingUpload },
+  });
+
   await interaction
     .reply({
       content:
@@ -830,37 +847,61 @@ async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
           : ""),
     })
     .catch(() => {});
+}
 
-  let collected;
-  try {
-    collected = await interaction.channel.awaitMessages({
-      filter: (m) =>
-        m.author.id === interaction.user.id && m.attachments.size > 0,
-      max: 1,
-      time: 5 * 60 * 1000,
-      errors: ["time"],
-    });
-  } catch {
-    await interaction
-      .followUp({
-        content:
-          "⌛ Timed out waiting for a file. Please press the upload button again.",
-      })
-      .catch(() => {});
-    return;
+async function handlePendingUploadMessage(message, client) {
+  if (message.author.bot || message.guild || !message.attachments?.size) {
+    return false;
   }
 
-  const msg = collected.first();
-  const attachment = msg?.attachments?.first();
-  if (!attachment) return;
+  const session = await db.getPendingUploadSession(message.author.id);
+  const pendingUpload = session?.stateJson?.pendingUpload;
+  if (!session || !pendingUpload) return false;
+
+  if (new Date(pendingUpload.expiresAt).getTime() < Date.now()) {
+    await db.updateSession(session.id, {
+      stateJson: { ...(session.stateJson || {}), pendingUpload: null },
+    });
+    await message.reply(
+      "⌛ That upload window expired. Please press **Upload File** again.",
+    );
+    return true;
+  }
+
+  const pages = await db.getFormPages(session.applicationTypeId);
+  let field = null;
+  for (const formPage of pages) {
+    const fields = await db.getFormFields(formPage.id);
+    field = fields.find((f) => f.id === pendingUpload.fieldId);
+    if (field) break;
+  }
+  if (!field) return false;
+
+  const attachment = message.attachments.first();
+  if (!attachment) return false;
 
   if (field.maxFileSize && attachment.size > field.maxFileSize) {
-    await interaction
-      .followUp({
-        content: `❌ That file is too large. Max size: ${(field.maxFileSize / 1024 / 1024).toFixed(1)} MB.`,
-      })
-      .catch(() => {});
-    return;
+    await message.reply(
+      `❌ That file is too large. Max size: ${(field.maxFileSize / 1024 / 1024).toFixed(1)} MB.`,
+    );
+    return true;
+  }
+
+  if (field.allowedFileTypes?.length) {
+    const fileName = (attachment.name || "").toLowerCase();
+    const contentType = (attachment.contentType || "").toLowerCase();
+    const allowed = field.allowedFileTypes.map((type) =>
+      String(type).toLowerCase().replace(/^\./, ""),
+    );
+    const matchesAllowed = allowed.some(
+      (type) => fileName.endsWith(`.${type}`) || contentType.includes(type),
+    );
+    if (!matchesAllowed) {
+      await message.reply(
+        `❌ That file type is not allowed. Allowed types: ${allowed.join(", ")}.`,
+      );
+      return true;
+    }
   }
 
   const fileRefs = [
@@ -872,8 +913,8 @@ async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
     },
   ];
 
-  const freshSession = await db.getSessionById(sessionId);
-  if (!freshSession) return;
+  const freshSession = await db.getSessionById(session.id);
+  if (!freshSession) return false;
 
   const answers = freshSession.stateJson?.answers || [];
   const existing = answers.findIndex((a) => a.fieldId === field.id);
@@ -887,23 +928,19 @@ async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
   if (existing >= 0) answers[existing] = answerEntry;
   else answers.push(answerEntry);
 
-  await db.updateSession(sessionId, {
-    stateJson: { ...freshSession.stateJson, answers },
+  await db.updateSession(session.id, {
+    stateJson: { ...freshSession.stateJson, answers, pendingUpload: null },
   });
 
-  await interaction
-    .followUp({ content: `✅ File received: **${attachment.name}**` })
-    .catch(() => {});
+  await message.reply(`✅ File received: **${attachment.name}**`);
 
-  const user = await client.users.fetch(session.applicantId).catch(() => null);
-  if (user) {
-    const payload = await buildFormPagePayload(
-      { ...freshSession, stateJson: { answers } },
-      freshSession.currentPage || 0,
-      client,
-    );
-    await user.send(payload).catch(() => {});
-  }
+  const payload = await buildFormPagePayload(
+    { ...freshSession, stateJson: { answers } },
+    freshSession.currentPage || 0,
+    client,
+  );
+  await message.channel.send(payload).catch(() => {});
+  return true;
 }
 
 async function handleYesNo(interaction, sessionId, fieldIndex, value, client) {
@@ -1054,13 +1091,17 @@ async function handleNextPage(interaction, sessionId, client) {
   const page = pages[session.currentPage || 0];
   const missing = page ? await getMissingRequiredFields(session, page.id) : [];
   if (missing.length) {
+    const payload = await buildFormPagePayload(
+      session,
+      session.currentPage || 0,
+      client,
+    );
     await interaction
       .editReply({
         content:
           "Please answer required fields before continuing:\n" +
           missing.map((field) => `- ${field.label}`).join("\n"),
-        embeds: [],
-        components: [],
+        ...payload,
       })
       .catch(() => {});
     return;

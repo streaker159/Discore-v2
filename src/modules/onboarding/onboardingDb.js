@@ -961,6 +961,32 @@ async function getSession(guildId, applicantId, applicationTypeId) {
   }
 }
 
+async function getPendingUploadSession(applicantId) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT * FROM "OnboardingSession"
+       WHERE "applicantId" = $1
+         AND "stateJson"->'pendingUpload' IS NOT NULL
+         AND COALESCE(("stateJson"->'pendingUpload'->>'expiresAt')::timestamptz, NOW()) > NOW()
+       ORDER BY "updatedAt" DESC
+       LIMIT 1`,
+      applicantId,
+    );
+    const s = rows?.[0];
+    if (s?.stateJson && typeof s.stateJson === "string") {
+      try {
+        s.stateJson = JSON.parse(s.stateJson);
+      } catch {}
+    }
+    return s || null;
+  } catch (e) {
+    logger.error("[Onboarding] getPendingUploadSession failed", {
+      error: e.message,
+    });
+    return null;
+  }
+}
+
 async function createSession(data) {
   try {
     const id = cuid();
@@ -1260,6 +1286,7 @@ module.exports = {
   // Sessions
   getSessionById,
   getSession,
+  getPendingUploadSession,
   createSession,
   updateSession,
   deleteSession,

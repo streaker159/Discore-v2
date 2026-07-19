@@ -65,7 +65,18 @@ module.exports = {
   name: "messageCreate",
   async execute(message, client) {
     if (message.author.bot) return;
-    if (!message.guild) return;
+    if (!message.guild) {
+      const {
+        handlePendingUploadMessage,
+      } = require("../components/buttons/onboarding/onboardingDmFlow");
+      await handlePendingUploadMessage(message, client).catch((err) => {
+        logger.error("Onboarding DM upload handler crashed", {
+          userId: message.author.id,
+          error: err.message,
+        });
+      });
+      return;
+    }
 
     // Track user activity
     try {
