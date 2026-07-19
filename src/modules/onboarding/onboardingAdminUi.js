@@ -58,7 +58,7 @@ const FIELD_TYPES = [
   {
     label: "File Upload",
     value: "FILE_UPLOAD",
-    description: "Attachment prompt fallback",
+    description: "Image or file upload question",
   },
   {
     label: "Confirmation / Agreement",
@@ -105,6 +105,42 @@ function roleList(ids) {
 
 function fieldTypeLabel(type) {
   return FIELD_TYPES.find((f) => f.value === type)?.label || type || "Unknown";
+}
+
+function fieldSummary(field, options = []) {
+  if (field.fieldType === "SINGLE_SELECT") {
+    return options.length
+      ? `Choices: ${options.map((option) => option.label).join(", ")}`.slice(
+          0,
+          1024,
+        )
+      : "Choices: none yet";
+  }
+  if (field.fieldType === "MULTI_SELECT") {
+    const choiceLimit = field.maxChoices
+      ? ` • Pick up to ${field.maxChoices}`
+      : "";
+    return options.length
+      ? `Choices: ${options.map((option) => option.label).join(", ")}${choiceLimit}`.slice(
+          0,
+          1024,
+        )
+      : `Choices: none yet${choiceLimit}`;
+  }
+  if (field.fieldType === "FILE_UPLOAD") {
+    return field.allowedFileTypes?.length
+      ? `Allowed files: ${field.allowedFileTypes.join(", ")}`
+      : "Any file type allowed";
+  }
+  if (
+    field.fieldType === "TEXT_SHORT" ||
+    field.fieldType === "TEXT_PARAGRAPH"
+  ) {
+    const min = field.minLength ? `Min ${field.minLength}` : null;
+    const max = field.maxLength ? `Max ${field.maxLength}` : null;
+    return [min, max].filter(Boolean).join(" • ") || "Written answer";
+  }
+  return "Simple answer field";
 }
 
 function guideBlock(goal, doNow, next) {
@@ -746,11 +782,11 @@ async function buildPageBuilderPayload(pageId) {
       guideBlock(
         "Add the questions applicants answer on this page.",
         fields.length
-          ? "Select a field to edit it, add choice options, or review its settings."
-          : "Click Add Field, choose the field type, then fill in the question and settings.",
+          ? "Select a field to edit it, or click Add Field to create another question."
+          : "Click Add Field, choose the answer type, then enter only the question details that type needs.",
         "When this page is done, go back to the form and add the next page or preview.",
       ) +
-        `${page.description || "No page description."}\n\nUp to 5 fields per page. Select a field to manage options or linked roles.`,
+        `${page.description || "No page description."}\n\nUp to 5 fields per page. Keep each page short so applicants understand exactly what to answer.`,
     )
     .setTimestamp();
 
@@ -767,7 +803,7 @@ async function buildPageBuilderPayload(pageId) {
         name: `${index + 1}. ${field.label}`,
         value:
           `Type: ${fieldTypeLabel(field.fieldType)} • Required: ${yesNo(field.required !== false)}\n` +
-          `Options: ${options.length} • File types: ${field.allowedFileTypes?.join(", ") || "n/a"}`,
+          fieldSummary(field, options),
         inline: false,
       });
     }

@@ -33,6 +33,23 @@ async function respondAdmin(interaction, payload) {
   });
 }
 
+function fieldPlaceholder(fieldType) {
+  const placeholders = {
+    TEXT_SHORT: "What is your server name?",
+    TEXT_PARAGRAPH: "Why do you want to join?",
+    YES_NO: "Do you manage or run a server?",
+    SINGLE_SELECT: "What platform do you play on?",
+    MULTI_SELECT: "Which roles are you interested in?",
+    USER_SELECT: "Which user should staff review?",
+    ROLE_SELECT: "Which role applies to you?",
+    MENTIONABLE_SELECT: "Who or what should staff check?",
+    CHANNEL_SELECT: "Which channel should staff look at?",
+    FILE_UPLOAD: "Upload proof, screenshot, or server image",
+    CONFIRMATION: "Do you agree to the rules?",
+  };
+  return placeholders[fieldType] || "Write the question applicants should see";
+}
+
 module.exports = {
   customIdPrefix: "onboarding:select:",
 
@@ -259,53 +276,85 @@ module.exports = {
 
       const labelInput = new TextInputBuilder()
         .setCustomId("label")
-        .setLabel("Question / Label")
-        .setPlaceholder("What is your in-game name?")
+        .setLabel("Question")
+        .setPlaceholder(fieldPlaceholder(fieldType))
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
         .setMaxLength(100);
 
       const helpInput = new TextInputBuilder()
         .setCustomId("helpText")
-        .setLabel("Help text (optional)")
-        .setPlaceholder("Short guidance shown to applicants")
+        .setLabel("Applicant helper text")
+        .setPlaceholder("Optional. Keep this short and clear.")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false)
         .setMaxLength(300);
 
-      const requiredInput = new TextInputBuilder()
-        .setCustomId("required")
-        .setLabel("Required? yes/no")
-        .setPlaceholder("yes")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setMaxLength(5);
+      modal.addComponents(new ActionRowBuilder().addComponents(labelInput));
 
-      const settingsInput = new TextInputBuilder()
-        .setCustomId("settings")
-        .setLabel("Settings")
-        .setPlaceholder(
-          "Text: min=1 max=100 | Multi: min=1 max=3 | File: types=png,jpg maxmb=8",
-        )
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setMaxLength(100);
-
-      const optionsInput = new TextInputBuilder()
-        .setCustomId("options")
-        .setLabel("Options (one per line, if choice field)")
-        .setPlaceholder("Mobile\nPC\nBoth")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(false)
-        .setMaxLength(800);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(labelInput),
-        new ActionRowBuilder().addComponents(helpInput),
-        new ActionRowBuilder().addComponents(requiredInput),
-        new ActionRowBuilder().addComponents(settingsInput),
-        new ActionRowBuilder().addComponents(optionsInput),
-      );
+      if (fieldType === "TEXT_SHORT" || fieldType === "TEXT_PARAGRAPH") {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(helpInput),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("settings")
+              .setLabel("Answer length")
+              .setPlaceholder("Optional: min=2 max=200")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+              .setMaxLength(60),
+          ),
+        );
+      } else if (
+        fieldType === "SINGLE_SELECT" ||
+        fieldType === "MULTI_SELECT"
+      ) {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(helpInput),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("options")
+              .setLabel("Choices - one per line")
+              .setPlaceholder("Mobile\nPC\nBoth")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setMaxLength(800),
+          ),
+        );
+        if (fieldType === "MULTI_SELECT") {
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("settings")
+                .setLabel("How many can they pick?")
+                .setPlaceholder("Optional: min=1 max=3")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(false)
+                .setMaxLength(60),
+            ),
+          );
+        }
+      } else if (fieldType === "FILE_UPLOAD") {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(helpInput),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("settings")
+              .setLabel("Allowed file types and max size")
+              .setPlaceholder("Optional: types=png,jpg,pdf maxmb=8")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+              .setMaxLength(80),
+          ),
+        );
+      } else if (
+        fieldType === "USER_SELECT" ||
+        fieldType === "ROLE_SELECT" ||
+        fieldType === "MENTIONABLE_SELECT" ||
+        fieldType === "CHANNEL_SELECT"
+      ) {
+        modal.addComponents(new ActionRowBuilder().addComponents(helpInput));
+      }
 
       await interaction.showModal(modal);
       return;

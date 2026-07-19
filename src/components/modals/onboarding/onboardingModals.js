@@ -24,6 +24,14 @@ const {
   requirePermission,
 } = require("../../../modules/onboarding/onboardingPermissions");
 
+function getModalText(interaction, customId) {
+  try {
+    return interaction.fields.getTextInputValue(customId);
+  } catch {
+    return "";
+  }
+}
+
 module.exports = {
   customIdPrefix: "onboarding:modal:",
 
@@ -301,12 +309,10 @@ module.exports = {
       const pageId = targetId;
       const fieldType = parts[4];
       const label = interaction.fields.getTextInputValue("label");
-      const helpText = interaction.fields.getTextInputValue("helpText") || null;
-      const requiredRaw =
-        interaction.fields.getTextInputValue("required") || "yes";
-      const settingsRaw =
-        interaction.fields.getTextInputValue("settings") || "";
-      const optionsRaw = interaction.fields.getTextInputValue("options") || "";
+      const helpText = getModalText(interaction, "helpText") || null;
+      const requiredRaw = getModalText(interaction, "required") || "yes";
+      const settingsRaw = getModalText(interaction, "settings") || "";
+      const optionsRaw = getModalText(interaction, "options") || "";
 
       const prisma = require("../../../lib/prisma");
       const pageRows = await prisma
@@ -376,11 +382,7 @@ module.exports = {
 
       const payload = await adminUi.buildPageBuilderPayload(pageId);
       await interaction.reply({
-        content:
-          `Added ${adminUi.fieldTypeLabel(storedType)} field: **${label}**` +
-          (fieldType === "FILE_UPLOAD"
-            ? "\nFile upload uses the DM attachment prompt fallback in this Discord.js build; raw files are not stored."
-            : ""),
+        content: `Added ${adminUi.fieldTypeLabel(storedType)} field: **${label}**`,
         ...payload,
         flags: [MessageFlags.Ephemeral],
       });

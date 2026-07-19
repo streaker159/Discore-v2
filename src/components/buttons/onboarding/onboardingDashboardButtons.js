@@ -1023,13 +1023,22 @@ async function handle(interaction, client) {
 
   if (customId.startsWith("onboarding:page:addfield:")) {
     const pageId = customId.split(":")[3];
+    const embed = new EmbedBuilder()
+      .setTitle("Add a Question")
+      .setColor("#5865F2")
+      .setDescription(
+        "Choose what kind of answer you need. The next screen only asks for the details that matter for that type.\n\n" +
+          "**Fast fields:** Yes / No, Confirmation, User, Role, Channel, and File Upload only need the question text.\n" +
+          "**Choice fields:** Single Choice and Multi Choice ask for the choices, one per line.\n" +
+          "**Written fields:** Short Text and Paragraph Text can optionally set answer length.",
+      );
     await respondAdmin(interaction, {
-      content: "Choose the field type to add to this page:",
+      embeds: [embed],
       components: [
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId(`onboarding:select:fieldtype:${pageId}`)
-            .setPlaceholder("Select field type...")
+            .setPlaceholder("What should the applicant answer?")
             .addOptions(
               adminUi.FIELD_TYPES.map((fieldType) => ({
                 label: fieldType.label,

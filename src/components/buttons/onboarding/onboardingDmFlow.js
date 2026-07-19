@@ -367,9 +367,10 @@ async function buildFormPagePayload(session, pageIndex, client) {
     .setTitle(`📝 ${page.title || `Step ${pageIndex + 1}`}`)
     .setColor(appType?.themeColor || "#5865F2");
 
-  if (page.description) {
-    embed.setDescription(page.description);
-  }
+  embed.setDescription(
+    `${page.description || "Answer the questions on this page."}\n\n` +
+      "Use the buttons and dropdowns under this card to answer. Your progress saves after each answer. Required questions must be completed before continuing.",
+  );
   embed.setFooter({
     text: `${guild?.name || "Application"} • Page ${pageIndex + 1} of ${pages.length}`,
   });
@@ -382,7 +383,7 @@ async function buildFormPagePayload(session, pageIndex, client) {
         (a) => a.fieldId === f.id,
       );
       const answered = existingAnswer ? "✅" : "❌";
-      fieldDesc += `${answered} **${f.label}**${f.required === false ? " _(optional)_" : ""}`;
+      fieldDesc += `${answered} **${i + 1}. ${f.label}** — ${f.required === false ? "Optional" : "Required"}`;
 
       if (f.fieldType === "SINGLE_SELECT" || f.fieldType === "MULTI_SELECT") {
         const options = await db.getFieldOptions(f.id);
@@ -392,7 +393,7 @@ async function buildFormPagePayload(session, pageIndex, client) {
       }
 
       if (existingAnswer?.answerText) {
-        fieldDesc += `\n→ ${existingAnswer.answerText.slice(0, 50)}`;
+        fieldDesc += `\nAnswer: ${existingAnswer.answerText.slice(0, 80)}`;
       }
       fieldDesc += "\n\n";
     }
@@ -498,7 +499,9 @@ async function buildFormPagePayload(session, pageIndex, client) {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`onboarding:dm:upload:${session.id}:${i}`)
-          .setLabel(`${existingAnswer ? "Replace File" : "Upload File"}`)
+          .setLabel(
+            `${existingAnswer ? "Replace" : "Upload"}: ${f.label}`.slice(0, 80),
+          )
           .setStyle(
             existingAnswer ? ButtonStyle.Primary : ButtonStyle.Secondary,
           ),
@@ -508,7 +511,9 @@ async function buildFormPagePayload(session, pageIndex, client) {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`onboarding:dm:answer:${session.id}:${i}`)
-          .setLabel(`${existingAnswer ? "✏️" : "📝"} ${f.label.slice(0, 70)}`)
+          .setLabel(
+            `${existingAnswer ? "Edit" : "Answer"}: ${f.label}`.slice(0, 80),
+          )
           .setStyle(
             existingAnswer ? ButtonStyle.Primary : ButtonStyle.Secondary,
           ),
