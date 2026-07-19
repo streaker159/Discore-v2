@@ -9,6 +9,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
   EmbedBuilder,
+  LabelBuilder,
+  FileUploadBuilder,
   StringSelectMenuBuilder,
   UserSelectMenuBuilder,
   RoleSelectMenuBuilder,
@@ -826,33 +828,30 @@ async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
   const field = fields[fieldIndex];
   if (!field) return;
 
-  const pendingUpload = {
-    sessionId,
-    fieldId: field.id,
-    fieldIndex,
-    label: field.label,
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-  };
+  const maxMb = field.maxFileSize
+    ? Math.max(1, Math.ceil(field.maxFileSize / 1024 / 1024))
+    : 25;
+  const allowedText = field.allowedFileTypes?.length
+    ? `Allowed types: ${field.allowedFileTypes.join(", ")}. `
+    : "";
 
-  await db.updateSession(sessionId, {
-    stateJson: { ...(session.stateJson || {}), pendingUpload },
-  });
+  const uploadLabel = new LabelBuilder()
+    .setLabel(field.label.slice(0, 45))
+    .setDescription(`${allowedText}Max ${maxMb} MB.`.slice(0, 100))
+    .setFileUploadComponent(
+      new FileUploadBuilder()
+        .setCustomId("file")
+        .setRequired(true)
+        .setMinValues(1)
+        .setMaxValues(1),
+    );
 
-  const payload = await buildFormPagePayload(
-    { ...session, stateJson: { ...(session.stateJson || {}), pendingUpload } },
-    session.currentPage || 0,
-    client,
-  );
+  const modal = new ModalBuilder()
+    .setCustomId(`onboarding:modal:upload:${session.id}:${fieldIndex}`)
+    .setTitle(field.label.slice(0, 45))
+    .addComponents(uploadLabel);
 
-  await respondForm(interaction, {
-    content:
-      `📎 Send **${field.label}** as a file attachment in this DM within the next 5 minutes.\n` +
-      "After I receive it, I will mark the field as answered and show this page again." +
-      (field.allowedFileTypes?.length
-        ? `\nAllowed types: ${field.allowedFileTypes.join(", ")}`
-        : ""),
-    ...payload,
-  });
+  await interaction.showModal(modal);
 }
 
 async function handlePendingUploadMessage(message, client) {

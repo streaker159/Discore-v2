@@ -114,6 +114,134 @@ module.exports = {
       return;
     }
 
+    /** ── DM File Upload Answer (modal file component) ── **/
+    if (action === "upload") {
+      const sessionId = targetId;
+      const fieldIndex = parseInt(parts[4], 10);
+
+      const session = await db.getSessionById(sessionId);
+      if (!session || session.applicantId !== interaction.user.id) {
+        return interaction
+          .reply({
+            content: "This application session has expired.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const pages = await db.getFormPages(session.applicationTypeId);
+      const page = pages[session.currentPage || 0];
+      if (!page) {
+        return interaction
+          .reply({
+            content: "This form page no longer exists.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const fields = await db.getFormFields(page.id);
+      const field = fields[fieldIndex];
+      if (!field || field.fieldType !== "FILE_UPLOAD") {
+        return interaction
+          .reply({
+            content: "This upload question no longer exists.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      const attachment = interaction.fields.getUploadedFiles("file")?.first();
+      if (!attachment) {
+        return interaction
+          .reply({
+            content: "Please choose a file before submitting the upload.",
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      if (field.maxFileSize && attachment.size > field.maxFileSize) {
+        return interaction
+          .reply({
+            content: `That file is too large. Max size: ${(field.maxFileSize / 1024 / 1024).toFixed(1)} MB.`,
+            flags: [MessageFlags.Ephemeral],
+          })
+          .catch(() => {});
+      }
+
+      if (field.allowedFileTypes?.length) {
+        const fileName = (attachment.name || "").toLowerCase();
+        const contentType = (attachment.contentType || "").toLowerCase();
+        const allowed = field.allowedFileTypes.map((type) =>
+          String(type).toLowerCase().replace(/^\./, ""),
+        );
+        const matchesAllowed = allowed.some(
+          (type) => fileName.endsWith(`.${type}`) || contentType.includes(type),
+        );
+        if (!matchesAllowed) {
+          return interaction
+            .reply({
+              content: `That file type is not allowed. Allowed types: ${allowed.join(", ")}.`,
+              flags: [MessageFlags.Ephemeral],
+            })
+            .catch(() => {});
+        }
+      }
+
+      const answers = session.stateJson?.answers || [];
+      const existing = answers.findIndex((a) => a.fieldId === field.id);
+      const answerEntry = {
+        fieldId: field.id,
+        fieldLabel: field.label,
+        fieldType: field.fieldType,
+        answerText: attachment.name || "Uploaded file",
+        fileRefs: [
+          {
+            url: attachment.url,
+            name: attachment.name,
+            size: attachment.size,
+            contentType: attachment.contentType || null,
+          },
+        ],
+      };
+      if (existing >= 0) answers[existing] = answerEntry;
+      else answers.push(answerEntry);
+
+      const stateJson = {
+        ...(session.stateJson || {}),
+        answers,
+        pendingUpload: null,
+      };
+      await db.updateSession(sessionId, { stateJson });
+
+      const {
+        buildFormPagePayload,
+      } = require("../../buttons/onboarding/onboardingDmFlow");
+      const payload = await buildFormPagePayload(
+        { ...session, stateJson },
+        session.currentPage || 0,
+        client,
+      );
+      const responsePayload = {
+        content: `File saved: **${attachment.name || "Uploaded file"}**`,
+        ...payload,
+      };
+
+      if (interaction.isFromMessage?.()) {
+        await interaction.update(responsePayload).catch(async () => {
+          await interaction
+            .reply({ ...responsePayload, flags: [MessageFlags.Ephemeral] })
+            .catch(() => {});
+        });
+      } else {
+        await interaction
+          .reply({ ...responsePayload, flags: [MessageFlags.Ephemeral] })
+          .catch(() => {});
+      }
+      return;
+    }
+
     if (!guildId) return;
 
     /** ── Add Form Page (guild dashboard context) ── **/
