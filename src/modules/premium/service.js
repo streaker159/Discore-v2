@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const prisma = require("../../lib/prisma");
 const { premiumCache } = require("../../lib/cache");
 const { getPlanLimits } = require("../../config/plans");
@@ -7,7 +8,7 @@ const logger = require("../../lib/logger");
 
 // ─── Premium status ───────────────────────────────────────────────────────────
 
-const GRACE_HOURS = 24;
+const DEFAULT_PREMIUM_AI_ALLOWANCE = 2000;
 
 async function getPremiumStatus(guildId) {
   const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
@@ -29,17 +30,8 @@ async function getPremiumStatus(guildId) {
   let inGrace = false;
 
   if (premium?.expiresAt && premium.expiresAt < now) {
-    const graceEnd = new Date(
-      premium.expiresAt.getTime() + GRACE_HOURS * 60 * 60 * 1000,
-    );
-    if (now <= graceEnd) {
-      // Within 24-hour grace period — keep active but mark as grace
-      inGrace = true;
-      isActive = true;
-    } else {
-      tier = "FREE";
-      isActive = false;
-    }
+    tier = "FREE";
+    isActive = false;
   }
 
   return {
@@ -50,19 +42,131 @@ async function getPremiumStatus(guildId) {
     isActive,
     inGrace,
     expiresAt: premium?.expiresAt,
-    graceEndsAt: inGrace
-      ? new Date(premium.expiresAt.getTime() + GRACE_HOURS * 60 * 60 * 1000)
-      : null,
+    graceEndsAt: null,
   };
 }
 
 function getPremiumSource(premium) {
   if (!premium || premium.tier === "FREE") return "Free";
   if (premium.method === "STRIPE" || premium.entitlementId)
-    return "Discord Subscription";
+    return "Direct Payment";
   if (premium.method === "CODE") return "Premium Code";
   if (premium.method === "MANUAL") return "Manual Grant";
   return "Unknown";
+}
+
+function calculatePremiumExpiry({ durationValue, durationUnit }) {
+  if (durationUnit === "LIFETIME") return null;
+
+  const value = Math.max(1, parseInt(durationValue, 10) || 1);
+  const now = new Date();
+  const expiresAt = new Date(now);
+
+  if (durationUnit === "DAYS") {
+    expiresAt.setDate(expiresAt.getDate() + value);
+  } else if (durationUnit === "WEEKS") {
+    expiresAt.setDate(expiresAt.getDate() + value * 7);
+  } else {
+    expiresAt.setMonth(expiresAt.getMonth() + value);
+  }
+
+  return expiresAt;
+}
+
+async function grantPremium({
+  guildId,
+  durationValue = 1,
+  durationUnit = "MONTHS",
+  monthlyAiAllowance = DEFAULT_PREMIUM_AI_ALLOWANCE,
+  extraAiCredits = 0,
+  method = "MANUAL",
+  grantedBy,
+}) {
+  const now = new Date();
+  const expiresAt = calculatePremiumExpiry({ durationValue, durationUnit });
+  const tier = durationUnit === "LIFETIME" ? "LIFETIME" : "PRO";
+  const periodEnd =
+    expiresAt || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const allowance = Math.max(0, parseInt(monthlyAiAllowance, 10) || 0);
+  const extraCredits = Math.max(0, parseInt(extraAiCredits, 10) || 0);
+
+  const existing = await prisma.guildPremium.findUnique({ where: { guildId } });
+  const isRenewal = existing && existing.tier !== "FREE";
+
+  const premium = await prisma.guildPremium.upsert({
+    where: { guildId },
+    update: {
+      tier,
+      method,
+      grantedBy,
+      expiresAt,
+      entitlementId: null,
+      monthlyAiAllowance: allowance,
+      monthlyAiUsed: 0,
+      monthlyAiPeriodStart: now,
+      monthlyAiPeriodEnd: periodEnd,
+      extraAiCredits: { increment: extraCredits },
+      lastRenewalAt: now,
+      renewalCount: { increment: 1 },
+      graceNotifiedAt: null,
+      ...(isRenewal ? {} : { purchasedAt: now }),
+    },
+    create: {
+      guildId,
+      tier,
+      method,
+      grantedBy,
+      expiresAt,
+      monthlyAiAllowance: allowance,
+      monthlyAiUsed: 0,
+      monthlyAiPeriodStart: now,
+      monthlyAiPeriodEnd: periodEnd,
+      extraAiCredits: extraCredits,
+      purchasedAt: now,
+      lastRenewalAt: now,
+      renewalCount: 1,
+    },
+  });
+
+  premiumCache.delete(`tier:${guildId}`);
+  logger.info("Premium granted manually", {
+    guildId,
+    tier,
+    expiresAt,
+    monthlyAiAllowance: allowance,
+    extraAiCredits,
+    grantedBy,
+  });
+  return premium;
+}
+
+async function revokePremium(guildId, revokedBy) {
+  const premium = await prisma.guildPremium.upsert({
+    where: { guildId },
+    update: {
+      tier: "FREE",
+      method: "MANUAL",
+      expiresAt: new Date(),
+      entitlementId: null,
+      monthlyAiAllowance: 0,
+      monthlyAiUsed: 0,
+      monthlyAiPeriodStart: null,
+      monthlyAiPeriodEnd: null,
+      grantedBy: revokedBy,
+      graceNotifiedAt: null,
+    },
+    create: {
+      guildId,
+      tier: "FREE",
+      method: "MANUAL",
+      grantedBy: revokedBy,
+      expiresAt: new Date(),
+    },
+  });
+
+  premiumCache.delete(`tier:${guildId}`);
+  logger.info("Premium revoked manually", { guildId, revokedBy });
+  return premium;
 }
 
 // ─── AI credit service ────────────────────────────────────────────────────────
@@ -81,10 +185,25 @@ async function getAiCreditStatus(guildId) {
     };
   }
 
+  const now = new Date();
+  const premiumExpired =
+    premium.tier !== "FREE" && premium.expiresAt && premium.expiresAt < now;
+  if (premiumExpired) {
+    const extraCredits = premium.extraAiCredits || 0;
+    return {
+      monthlyAllowance: 0,
+      monthlyUsed: premium.monthlyAiUsed || 0,
+      monthlyRemaining: 0,
+      extraCredits,
+      totalAvailable: extraCredits,
+      monthlyPeriodStart: premium.monthlyAiPeriodStart,
+      monthlyPeriodEnd: premium.expiresAt,
+    };
+  }
+
   // Auto-reset monthly credits if period has expired
   let monthlyUsed = premium.monthlyAiUsed || 0;
-  if (premium.monthlyAiPeriodEnd && new Date() > premium.monthlyAiPeriodEnd) {
-    const now = new Date();
+  if (premium.monthlyAiPeriodEnd && now > premium.monthlyAiPeriodEnd) {
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     await prisma.guildPremium
       .update({
@@ -285,116 +404,6 @@ async function refundAiCredits(guildId, amount) {
     .catch(() => {});
 }
 
-// ─── Discord entitlement processing ───────────────────────────────────────────
-
-async function processSubscriptionEntitlement(guildId, entitlementId) {
-  const existing = await prisma.guildPremium.findUnique({ where: { guildId } });
-
-  // Never downgrade LIFETIME
-  if (existing?.tier === "LIFETIME") return;
-
-  const now = new Date();
-  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-  // Same entitlement ID = renewal (Discord auto-charge)
-  if (existing?.entitlementId === entitlementId) {
-    // Only process if subscription is near/past expiry (not a duplicate event)
-    if (
-      existing.expiresAt &&
-      existing.expiresAt > new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    ) {
-      return; // Still has 7+ days — likely a duplicate event, skip
-    }
-
-    await prisma.guildPremium.update({
-      where: { guildId },
-      data: {
-        expiresAt: periodEnd,
-        monthlyAiUsed: 0,
-        monthlyAiAllowance: 2000,
-        monthlyAiPeriodStart: now,
-        monthlyAiPeriodEnd: periodEnd,
-        lastRenewalAt: now,
-        renewalCount: { increment: 1 },
-        graceNotifiedAt: null, // reset grace warning for new period
-      },
-    });
-    premiumCache.delete(`tier:${guildId}`);
-    logger.info("Premium renewed via Discord (monthly auto-charge)", {
-      guildId,
-      entitlementId,
-      renewalCount: (existing.renewalCount || 0) + 1,
-    });
-    return;
-  }
-
-  // New entitlement or first purchase
-  const isRenewal = existing && existing.tier !== "FREE";
-
-  await prisma.guildPremium.upsert({
-    where: { guildId },
-    update: {
-      tier: "PRO",
-      method: "STRIPE",
-      entitlementId,
-      expiresAt: periodEnd,
-      monthlyAiAllowance: 2000,
-      monthlyAiPeriodStart: now,
-      monthlyAiPeriodEnd: periodEnd,
-      monthlyAiUsed: 0,
-      lastRenewalAt: now,
-      renewalCount: { increment: 1 },
-      graceNotifiedAt: null,
-      ...(isRenewal ? {} : { purchasedAt: now }),
-    },
-    create: {
-      guildId,
-      tier: "PRO",
-      method: "STRIPE",
-      entitlementId,
-      expiresAt: periodEnd,
-      monthlyAiAllowance: 2000,
-      monthlyAiPeriodStart: now,
-      monthlyAiPeriodEnd: periodEnd,
-      purchasedAt: now,
-      lastRenewalAt: now,
-      renewalCount: 1,
-    },
-  });
-  premiumCache.delete(`tier:${guildId}`);
-  logger.info("Premium activated via Discord subscription", {
-    guildId,
-    entitlementId,
-    isRenewal,
-  });
-}
-
-async function processAiCreditsEntitlement(guildId, skuId, entitlementId) {
-  // Check if already processed
-  const existing = await prisma.processedEntitlement.findUnique({
-    where: { entitlementId },
-  });
-  if (existing) return;
-
-  // Grant 3000 extra AI credits
-  await prisma.guildPremium.upsert({
-    where: { guildId },
-    update: { extraAiCredits: { increment: 3000 } },
-    create: { guildId, tier: "FREE", method: "STRIPE" },
-  });
-
-  // Record processed entitlement
-  await prisma.processedEntitlement.create({
-    data: { guildId, skuId, entitlementId, creditsGranted: 3000 },
-  });
-
-  logger.info("AI credits granted via Discord SKU", {
-    guildId,
-    entitlementId,
-    credits: 3000,
-  });
-}
-
 // ─── AI admin settings ────────────────────────────────────────────────────────
 
 async function updateAiSettings(
@@ -470,6 +479,45 @@ async function getAiAdminSettings(guildId) {
 
 // ─── Code redemption ──────────────────────────────────────────────────────────
 
+function generateCodeValue(prefix = "DISCORE") {
+  const random = crypto.randomBytes(5).toString("hex").toUpperCase();
+  return `${prefix}-${random}`;
+}
+
+async function createPremiumCode({
+  code,
+  type = "TRIAL",
+  tier = "PRO",
+  maxUses = 1,
+  trialDays = 30,
+  expiresInDays,
+}) {
+  const normalised = String(code || generateCodeValue())
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "-");
+  const safeMaxUses = Math.max(1, parseInt(maxUses, 10) || 1);
+  const safeTrialDays =
+    tier === "LIFETIME" ? null : Math.max(1, parseInt(trialDays, 10) || 30);
+  const expiresAt = expiresInDays
+    ? new Date(
+        Date.now() +
+          Math.max(1, parseInt(expiresInDays, 10)) * 24 * 60 * 60 * 1000,
+      )
+    : null;
+
+  return prisma.premiumCode.create({
+    data: {
+      code: normalised,
+      type: tier === "LIFETIME" ? "LIFETIME" : type,
+      tier,
+      maxUses: safeMaxUses,
+      trialDays: safeTrialDays,
+      expiresAt,
+    },
+  });
+}
+
 async function redeemPremiumCode({ guildId, userId, code }) {
   const normalised = String(code || "")
     .trim()
@@ -486,21 +534,29 @@ async function redeemPremiumCode({ guildId, userId, code }) {
     );
 
   let expiresAt = null;
-  if (premiumCode.type === "TRIAL" && premiumCode.trialDays) {
+  if (premiumCode.tier !== "LIFETIME" && premiumCode.trialDays) {
     expiresAt = new Date(
       Date.now() + premiumCode.trialDays * 24 * 60 * 60 * 1000,
     );
   }
 
-  await prisma.premiumCode.update({
-    where: { id: premiumCode.id },
-    data: { uses: { increment: 1 } },
-  });
-
-  // Never downgrade LIFETIME
+  // Never downgrade LIFETIME or consume a code use for a no-op redemption.
   const existing = await prisma.guildPremium.findUnique({ where: { guildId } });
   if (existing?.tier === "LIFETIME") {
     throw new Error("This server already has LIFETIME premium.");
+  }
+
+  const claimed = await prisma.premiumCode.updateMany({
+    where: {
+      id: premiumCode.id,
+      uses: { lt: premiumCode.maxUses },
+    },
+    data: { uses: { increment: 1 } },
+  });
+  if (claimed.count !== 1) {
+    throw new Error(
+      "This code has already been used the maximum number of times.",
+    );
   }
 
   const now = new Date();
@@ -508,7 +564,7 @@ async function redeemPremiumCode({ guildId, userId, code }) {
     expiresAt || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const isRenewal = existing && existing.tier !== "FREE";
 
-  return prisma.guildPremium.upsert({
+  const premium = await prisma.guildPremium.upsert({
     where: { guildId },
     update: {
       tier: premiumCode.tier,
@@ -537,6 +593,15 @@ async function redeemPremiumCode({ guildId, userId, code }) {
       monthlyAiPeriodEnd: periodEnd,
     },
   });
+  premiumCache.delete(`tier:${guildId}`);
+  logger.info("Premium code redeemed", {
+    guildId,
+    userId,
+    code: normalised,
+    tier: premiumCode.tier,
+    expiresAt: premium.expiresAt,
+  });
+  return premium;
 }
 
 module.exports = {
@@ -546,8 +611,9 @@ module.exports = {
   canUseAi,
   consumeAiCredits,
   refundAiCredits,
-  processSubscriptionEntitlement,
-  processAiCreditsEntitlement,
+  grantPremium,
+  revokePremium,
+  createPremiumCode,
   updateAiSettings,
   getAiAdminSettings,
   redeemPremiumCode,

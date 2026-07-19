@@ -131,7 +131,7 @@ function buildPremiumLockedEmbed() {
         "• **⏸️ Pause/Resume** — Full control\n" +
         "• **Max 5 Auto Posts** per server\n\n" +
         "### 💰 How to Upgrade\n" +
-        "Run `/premium` to manage your subscription.",
+        "Run `/premium` to contact the Discore owner or redeem a premium code.",
     )
     .setColor("#F1C40F");
 }

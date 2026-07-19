@@ -110,56 +110,8 @@ module.exports = {
         return;
       }
 
-      // ── Discord Entitlement (Shop purchase / renewal) ──────────────
-      // Type 29 = ENTITLEMENT_CREATE (purchase or auto-renewal)
-      // Type 30 = ENTITLEMENT_DELETE (subscription cancelled)
-      if (interaction.type === 29 || interaction.type === 30) {
-        const entitlements = interaction.entitlements || [];
-        const {
-          processSubscriptionEntitlement,
-          processAiCreditsEntitlement,
-        } = require("../modules/premium/service");
-
-        for (const ent of entitlements) {
-          const guildId = ent.guild_id;
-          if (!guildId) continue;
-
-          if (interaction.type === 30) {
-            // Subscription cancelled — log it, don't immediately downgrade
-            // The premiumSyncJob will handle natural expiry + grace
-            logger.info(
-              "Entitlement: subscription cancelled (will expire naturally)",
-              {
-                guildId,
-                entitlementId: ent.id,
-                skuId: ent.sku_id,
-              },
-            );
-            continue;
-          }
-
-          if (ent.sku_id === process.env.DISCORD_PREMIUM_SKU_ID) {
-            await processSubscriptionEntitlement(guildId, ent.id).catch((e) =>
-              logger.error("Entitlement: premium activation failed", {
-                guildId,
-                error: e.message,
-              }),
-            );
-          } else if (ent.sku_id === process.env.DISCORD_AI_CREDITS_SKU_ID) {
-            await processAiCreditsEntitlement(
-              guildId,
-              ent.sku_id,
-              ent.id,
-            ).catch((e) =>
-              logger.error("Entitlement: AI credits purchase failed", {
-                guildId,
-                error: e.message,
-              }),
-            );
-          }
-        }
-        return;
-      }
+      // Premium is now granted by owner dashboard/manual code redemption,
+      // not Discord Shop entitlement events.
     } catch (error) {
       if (error?.code === 10062) return;
 

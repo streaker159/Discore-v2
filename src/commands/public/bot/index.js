@@ -672,10 +672,6 @@ async function handleStatus(interaction) {
     .catch(() => 0);
 
   const alerts = [];
-  if (!process.env.DISCORD_PREMIUM_SKU_ID)
-    alerts.push("⚠️ Premium SKU missing");
-  if (!process.env.DISCORD_AI_CREDITS_SKU_ID)
-    alerts.push("⚠️ AI Credits SKU missing");
   if (totalGuildsDb > 0 && configChannels < totalGuildsDb)
     alerts.push(
       `⚠️ ${totalGuildsDb - configChannels} server(s) missing announcement channel`,

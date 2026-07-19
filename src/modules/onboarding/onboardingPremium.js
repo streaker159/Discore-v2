@@ -42,7 +42,7 @@ async function requireOnboardingPremium(
   // Premium expired
   const content = allowExpiredView
     ? "🔒 **Premium has expired.** You can view existing applications and records, but new submissions and edits are locked until premium is restored."
-    : "🔒 **Premium required.** The Onboarding Applications system requires an active Discore premium subscription.";
+    : "🔒 **Premium required.** Run `/premium` to contact the Discore owner or redeem a premium code.";
 
   try {
     if (interaction.replied || interaction.deferred) {

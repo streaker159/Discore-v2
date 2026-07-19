@@ -17,26 +17,6 @@ module.exports = {
 
     client.user.setActivity("🚧 still under dev", { type: 3 });
 
-    // Verify SKU configuration
-    if (!process.env.DISCORD_PREMIUM_SKU_ID) {
-      logger.warn(
-        "DISCORD_PREMIUM_SKU_ID missing. Discord subscriptions will not unlock Premium automatically.",
-      );
-    } else {
-      logger.info("Discord Premium SKU configured", {
-        sku: process.env.DISCORD_PREMIUM_SKU_ID,
-      });
-    }
-    if (!process.env.DISCORD_AI_CREDITS_SKU_ID) {
-      logger.warn(
-        "DISCORD_AI_CREDITS_SKU_ID missing. AI credit purchases will not be processed automatically.",
-      );
-    } else {
-      logger.info("Discord AI Credits SKU configured", {
-        sku: process.env.DISCORD_AI_CREDITS_SKU_ID,
-      });
-    }
-
     // ── Startup: redeploy commands + schedule jobs ────────────────────
     // Schema changes are now handled exclusively via `prisma migrate deploy`
     // (run in CI/CD before the bot starts), NOT here. See prisma/migrations/.

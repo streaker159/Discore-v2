@@ -14,10 +14,8 @@ const {
   getAiCreditStatus,
   updateAiSettings,
   getAiAdminSettings,
+  redeemPremiumCode,
 } = require("../../../modules/premium/service");
-
-const PREMIUM_SKU = process.env.DISCORD_PREMIUM_SKU_ID;
-const AI_CREDITS_SKU = process.env.DISCORD_AI_CREDITS_SKU_ID;
 
 function isAdmin(member) {
   if (member.permissions?.has("ManageGuild")) return true;
@@ -29,13 +27,6 @@ module.exports = [
   {
     customIdPrefix: "premium:manage",
     async execute(interaction) {
-      if (!PREMIUM_SKU) {
-        return interaction.reply({
-          content:
-            "⚠️ This purchase option is not configured yet. Please contact the bot owner.",
-          flags: 64,
-        });
-      }
       const embed = new EmbedBuilder()
         .setTitle("💎 Upgrade to Discore Premium")
         .setColor(0x1a7a9e)
@@ -46,14 +37,9 @@ module.exports = [
             "• Premium branding\n" +
             "• Advanced setup tools\n" +
             "• 2,000 monthly AI credits\n\n" +
-            "**How to subscribe:**\n" +
-            "1. Open this server in Discord.\n" +
-            "2. Click the server name at the top-left.\n" +
-            "3. Open **Server Apps / App Directory**.\n" +
-            "4. Find **Discore Official**.\n" +
-            "5. Open the **Store / Premium** section.\n" +
-            "6. Select **Discore Premium**.\n\n" +
-            "After subscribing, press **Refresh Status** in `/premium`.",
+            "**How to get Premium:**\n" +
+            "Discore no longer uses the Discord Shop. Contact the Discore owner directly or ask in the official Discore server for current costs, rates, and available deals. Payments are handled directly outside Discord Shop.\n\n" +
+            "If you already have a code, use **Redeem Code** in `/premium`.",
         )
         .setFooter({ text: "Powered by Discore" })
         .setTimestamp();
@@ -65,27 +51,12 @@ module.exports = [
   {
     customIdPrefix: "premium:buy_ai_credits",
     async execute(interaction) {
-      if (!AI_CREDITS_SKU) {
-        return interaction.reply({
-          content:
-            "⚠️ This purchase option is not configured yet. Please contact the bot owner.",
-          flags: 64,
-        });
-      }
       const embed = new EmbedBuilder()
-        .setTitle("🤖 Buy 3,000 AI Credits")
+        .setTitle("🤖 AI Credits")
         .setColor(0x1a7a9e)
         .setDescription(
-          "AI Credits are a one-time purchase for this server.\n" +
-            "Each pack adds **3,000 extra AI credits**.\n\n" +
-            "**How to buy:**\n" +
-            "1. Open this server in Discord.\n" +
-            "2. Click the server name at the top-left.\n" +
-            "3. Open **Server Apps / App Directory**.\n" +
-            "4. Find **Discore Official**.\n" +
-            "5. Open the **Store / Premium** section.\n" +
-            "6. Select **AI Credits**.\n\n" +
-            "After purchase, press **Refresh Status** in `/premium`.",
+          "AI credits are handled directly by the Discore owner now. Contact the owner or official Discore server for current AI credit costs, monthly bundles, and server deals.\n\n" +
+            "If you receive a premium code, redeem it from `/premium` with **Redeem Code**.",
         )
         .setFooter({ text: "Powered by Discore" })
         .setTimestamp();
@@ -215,13 +186,13 @@ module.exports = [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("premium:manage")
-            .setLabel("Upgrade / Manage Premium")
+            .setLabel("Contact for Premium")
             .setEmoji("💎")
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
-            .setCustomId("premium:buy_ai_credits")
-            .setLabel("Buy 3,000 AI Credits")
-            .setEmoji("🤖")
+            .setCustomId("premium:redeem_code")
+            .setLabel("Redeem Code")
+            .setEmoji("🎟️")
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
             .setCustomId("premium:refresh")
@@ -252,10 +223,59 @@ module.exports = [
 
       await interaction.followUp({
         content:
-          "🔄 Premium status refreshed. If you just purchased, Discord may take a moment to sync.",
+          "🔄 Premium status refreshed. If the owner just granted access or you redeemed a code, the updated status should show here.",
         flags: 64,
       });
       return interaction.editReply({ embeds: [embed], components: buttons });
+    },
+  },
+
+  // ── Redeem premium code ────────────────────────────────────────────────
+  {
+    customIdPrefix: "premium:redeem_code",
+    async execute(interaction) {
+      const modal = new ModalBuilder()
+        .setCustomId("premium_redeem_code_modal:")
+        .setTitle("Redeem Premium Code");
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("code")
+            .setLabel("Premium code")
+            .setPlaceholder("DISCORE-XXXXXXX")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(80),
+        ),
+      );
+      return interaction.showModal(modal);
+    },
+  },
+
+  // ── Redeem premium code modal submit ───────────────────────────────────
+  {
+    customIdPrefix: "premium_redeem_code_modal:",
+    async execute(interaction) {
+      const code = interaction.fields.getTextInputValue("code");
+      await interaction.deferReply({ flags: 64 });
+      try {
+        const premium = await redeemPremiumCode({
+          guildId: interaction.guildId,
+          userId: interaction.user.id,
+          code,
+        });
+        return interaction.editReply({
+          content:
+            `✅ Code redeemed. **${premium.tier}** is now active for this server. ` +
+            (premium.expiresAt
+              ? `Expires <t:${Math.floor(premium.expiresAt.getTime() / 1000)}:R>.`
+              : "This grant does not expire."),
+        });
+      } catch (err) {
+        return interaction.editReply({
+          content: `❌ ${err.message || "That code could not be redeemed."}`,
+        });
+      }
     },
   },
 

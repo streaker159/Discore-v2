@@ -63,7 +63,7 @@ function buildPremiumDashboard(status, aiCredits, aiSettings, guildName) {
     fields.push({
       name: "Premium Status",
       value:
-        "Premium not active. Upgrade to Discore Premium to unlock expanded scoreboards, archives, merging, premium branding, advanced setup tools, and 2,000 monthly AI credits.",
+        "Premium not active. To get Discore Premium, contact the Discore owner for current costs, rates, and available deals. Discore no longer uses the Discord Shop for premium purchases.",
       inline: false,
     });
   }
@@ -143,13 +143,13 @@ function buildDashboardButtons() {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("premium:manage")
-        .setLabel("Upgrade / Manage Premium")
+        .setLabel("Contact for Premium")
         .setEmoji("💎")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId("premium:buy_ai_credits")
-        .setLabel("Buy 3,000 AI Credits")
-        .setEmoji("🤖")
+        .setCustomId("premium:redeem_code")
+        .setLabel("Redeem Code")
+        .setEmoji("🎟️")
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId("premium:refresh")
@@ -177,7 +177,7 @@ function buildDashboardButtons() {
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("premium:contact_dev")
-        .setLabel("Contact Developer")
+        .setLabel("Message Discore Owner")
         .setEmoji("✉️")
         .setStyle(ButtonStyle.Secondary),
     ),
@@ -188,7 +188,9 @@ module.exports = {
   scope: "PUBLIC",
   data: new SlashCommandBuilder()
     .setName("premium")
-    .setDescription("View Discore premium status and manage subscription."),
+    .setDescription(
+      "View Discore premium status, AI credits, and redeem codes.",
+    ),
 
   async execute(interaction) {
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });

@@ -1,13 +1,9 @@
 const prisma = require("./prisma");
-const { premiumCache } = require("./cache");
 const { hasTier, getPlanLimits } = require("../config/plans");
 const FEATURE_REQUIREMENTS = require("../config/features");
 
 async function getGuildTier(guildId) {
   if (!guildId) return "FREE";
-  const cacheKey = `tier:${guildId}`;
-  const cached = premiumCache.get(cacheKey);
-  if (cached) return cached;
 
   const premium = await prisma.guildPremium.findUnique({ where: { guildId } });
   let tier = premium?.tier || "FREE";
@@ -16,7 +12,6 @@ async function getGuildTier(guildId) {
     tier = "FREE";
   }
 
-  premiumCache.set(cacheKey, tier);
   return tier;
 }
 
