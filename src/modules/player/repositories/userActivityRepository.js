@@ -1,11 +1,19 @@
 "use strict";
 
 const prisma = require("../../../lib/prisma");
+const { ensureGuild } = require("../../serverSettings/service");
+
+async function ensureActivityGuild(guildId) {
+  if (!guildId) return;
+  await ensureGuild(guildId);
+}
 
 /**
  * Get or create user activity record
  */
 async function getOrCreateUserActivity(guildId, userId) {
+  await ensureActivityGuild(guildId);
+
   let activity = await prisma.userActivity.findUnique({
     where: {
       guildId_userId: {
@@ -33,6 +41,7 @@ async function getOrCreateUserActivity(guildId, userId) {
  */
 async function updateLastMessage(guildId, userId, channelId) {
   const now = new Date();
+  await ensureActivityGuild(guildId);
 
   return prisma.userActivity.upsert({
     where: {
@@ -62,6 +71,7 @@ async function updateLastMessage(guildId, userId, channelId) {
  */
 async function updateLastReaction(guildId, userId, reaction) {
   const now = new Date();
+  await ensureActivityGuild(guildId);
 
   return prisma.userActivity.upsert({
     where: {
@@ -91,6 +101,7 @@ async function updateLastReaction(guildId, userId, reaction) {
  */
 async function updateLastInteraction(guildId, userId) {
   const now = new Date();
+  await ensureActivityGuild(guildId);
 
   return prisma.userActivity.upsert({
     where: {
