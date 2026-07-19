@@ -387,7 +387,10 @@ async function buildFormPagePayload(session, pageIndex, client) {
 
       if (f.fieldType === "SINGLE_SELECT" || f.fieldType === "MULTI_SELECT") {
         const options = await db.getFieldOptions(f.id);
-        if (options.length <= 5) {
+        if (!options.length) {
+          fieldDesc +=
+            "\n_No choices were set for this question. Use the Answer button below._";
+        } else if (options.length <= 5) {
           fieldDesc += `\n_Choose from: ${options.map((o) => o.label).join(", ")}_`;
         }
       }
@@ -406,7 +409,7 @@ async function buildFormPagePayload(session, pageIndex, client) {
   }
 
   // Build answer components for each field
-  const rows = [];
+  const answerRows = [];
   for (let i = 0; i < fields.length; i++) {
     const f = fields[i];
     const existingAnswer = (session.stateJson?.answers || []).find(
@@ -462,6 +465,17 @@ async function buildFormPagePayload(session, pageIndex, client) {
             })),
           );
         row.addComponents(select);
+      } else {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`onboarding:dm:answer:${session.id}:${i}`)
+            .setLabel(
+              `${existingAnswer ? "Edit" : "Answer"}: ${f.label}`.slice(0, 80),
+            )
+            .setStyle(
+              existingAnswer ? ButtonStyle.Primary : ButtonStyle.Secondary,
+            ),
+        );
       }
     } else if (f.fieldType === "USER_SELECT") {
       row.addComponents(
@@ -520,7 +534,9 @@ async function buildFormPagePayload(session, pageIndex, client) {
       );
     }
 
-    if (row.components.length > 0) rows.push(row);
+    if (row.components.length > 0) {
+      answerRows.push({ row, answered: !!existingAnswer, index: i });
+    }
   }
 
   // Navigation row
@@ -544,9 +560,24 @@ async function buildFormPagePayload(session, pageIndex, client) {
       .setStyle(ButtonStyle.Danger),
   );
 
-  rows.push(navRow);
+  const visibleAnswerRows = answerRows
+    .sort(
+      (a, b) => Number(a.answered) - Number(b.answered) || a.index - b.index,
+    )
+    .slice(0, 4)
+    .map((item) => item.row);
 
-  return { embeds: [embed], components: rows.slice(0, 5) };
+  const hiddenCount = Math.max(0, answerRows.length - visibleAnswerRows.length);
+  if (hiddenCount > 0) {
+    embed.addFields({
+      name: "More Questions",
+      value:
+        `${hiddenCount} question control(s) are hidden to keep this page inside Discord's button limit. ` +
+        "Complete the visible unanswered questions and the next control will appear.",
+    });
+  }
+
+  return { embeds: [embed], components: [...visibleAnswerRows, navRow] };
 }
 
 /**

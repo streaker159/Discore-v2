@@ -94,14 +94,14 @@ module.exports = {
       else answers.push(answerEntry);
 
       await db.updateSession(sessionId, {
-        stateJson: { ...session.stateJson, answers },
+        stateJson: { ...(session.stateJson || {}), answers },
       });
 
       const {
         buildFormPagePayload,
       } = require("../../buttons/onboarding/onboardingDmFlow");
       const payload = await buildFormPagePayload(
-        { ...session, stateJson: { answers } },
+        { ...session, stateJson: { ...(session.stateJson || {}), answers } },
         session.currentPage || 0,
         client,
       );
@@ -330,10 +330,10 @@ module.exports = {
       }
 
       const fields = await db.getFormFields(pageId);
-      if (fields.length >= 5) {
+      if (fields.length >= 4) {
         return interaction.reply({
           content:
-            "This page already has 5 fields. Delete or edit an existing field first.",
+            "This page already has 4 fields. Create another page so every applicant answer control stays visible.",
           flags: [MessageFlags.Ephemeral],
         });
       }

@@ -705,7 +705,7 @@ async function buildFormBuilderPayload(appTypeId) {
           ? "Open a page, then add or edit fields inside that page."
           : "Click Add Page and create Page 1, usually Basic Info.",
         "After fields are added, preview the form and configure answer-based role routing.",
-      ) + "Limits for now: up to 3 pages, 5 fields per page.",
+      ) + "Limits for now: up to 3 pages, 4 fields per page.",
     )
     .setTimestamp();
 
@@ -786,7 +786,7 @@ async function buildPageBuilderPayload(pageId) {
           : "Click Add Field, choose the answer type, then enter only the question details that type needs.",
         "When this page is done, go back to the form and add the next page or preview.",
       ) +
-        `${page.description || "No page description."}\n\nUp to 5 fields per page. Keep each page short so applicants understand exactly what to answer.`,
+        `${page.description || "No page description."}\n\nUp to 4 fields per page. Keep each page short so every answer control stays visible.`,
     )
     .setTimestamp();
 
@@ -832,7 +832,7 @@ async function buildPageBuilderPayload(pageId) {
         `onboarding:page:addfield:${pageId}`,
         "Add Field",
         ButtonStyle.Success,
-        fields.length >= 5,
+        fields.length >= 4,
       ),
       button(
         `onboarding:page:preview:${pageId}`,
