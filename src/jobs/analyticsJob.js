@@ -8,8 +8,11 @@ const {
 } = require("discord.js");
 const prisma = require("../lib/prisma");
 const logger = require("../lib/logger");
+const {
+  getDatabaseStatus,
+  getOwnerReportSettings,
+} = require("../modules/ownerReports");
 
-const OFFICIAL_CHANNEL = "1367326139109871738";
 let isRunning = false;
 
 function scheduleNextRun(client) {
@@ -45,11 +48,13 @@ async function runReport(client) {
   isRunning = true;
 
   try {
-    const channel = await client.channels
-      .fetch(OFFICIAL_CHANNEL)
-      .catch(() => null);
+    const settings = await getOwnerReportSettings();
+    const channelId = settings.hourlyReportChannelId;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel || !channel.isTextBased()) {
-      logger.warn("[AnalyticsJob] Official channel not found");
+      logger.warn("[AnalyticsJob] owner hourly report channel not found", {
+        channelId,
+      });
       return;
     }
 
@@ -74,6 +79,14 @@ async function runReport(client) {
     const uptimeH = Math.floor(uptime / 3600);
     const uptimeM = Math.floor((uptime % 3600) / 60);
     const memMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    const dbStatus = await getDatabaseStatus(client).catch((error) => ({
+      ok: false,
+      latencyMs: 0,
+      error: error.message,
+      dbGuilds: null,
+      liveGuilds: totalGuilds,
+      trackedLiveGuilds: null,
+    }));
 
     const [
       cmds24,
@@ -219,6 +232,7 @@ async function runReport(client) {
 
     const alerts = [];
     if (memMB > 500) alerts.push(`⚠️ High memory: ${memMB} MB`);
+    if (!dbStatus.ok) alerts.push("⚠️ Database status check failed");
     if (failedCmds24 > 0) alerts.push(`⚠️ ${failedCmds24} failed commands`);
     if (aiFailed24 > 0) alerts.push(`⚠️ ${aiFailed24} failed AI`);
     if (totalGuildsDb > 0 && configChannels < totalGuildsDb)
@@ -297,6 +311,11 @@ async function runReport(client) {
           inline: false,
         },
         {
+          name: "🗄️ Database",
+          value: `${dbStatus.ok ? "Online" : "Problem"} · ${dbStatus.latencyMs}ms · DB guilds: ${dbStatus.dbGuilds ?? "?"} · Tracked live: ${dbStatus.trackedLiveGuilds ?? "?"}`,
+          inline: false,
+        },
+        {
           name: "⚙️ Commands",
           value: `24h: ${cmds24} · 7d: ${cmds7} · All: ${cmdsAll} · Failed: ${failedCmds24}`,
           inline: true,
@@ -352,7 +371,7 @@ async function runReport(client) {
     });
 
     await prisma.botHourlyStatusReport.create({
-      data: { channelId: OFFICIAL_CHANNEL, reportHour, status: "success" },
+      data: { channelId, reportHour, status: "success" },
     });
 
     logger.info("[AnalyticsJob] Report sent successfully");

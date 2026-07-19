@@ -4,8 +4,7 @@ const { EmbedBuilder } = require("discord.js");
 const prisma = require("../lib/prisma");
 const logger = require("../lib/logger");
 const { handleGuildGone } = require("../lib/guildLifecycle");
-
-const OFFICIAL_CHANNEL = "1367326139109871738";
+const { sendOwnerReport } = require("../modules/ownerReports");
 
 module.exports = {
   name: "guildDelete",
@@ -53,35 +52,30 @@ module.exports = {
       });
     }
 
-    // Send leave alert to official channel
+    // Send leave alert to configured owner report channel
     try {
       const client = guild.client;
-      const alertChannel = await client.channels
-        .fetch(OFFICIAL_CHANNEL)
-        .catch(() => null);
-      if (alertChannel && alertChannel.isTextBased()) {
-        const totalGuilds = client.guilds.cache.size;
-        const alertEmbed = new EmbedBuilder()
-          .setColor(0xed4245)
-          .setTitle("📤 Bot Removed / Server Left")
-          .addFields(
-            { name: "Server", value: guild.name, inline: true },
-            { name: "ID", value: guild.id, inline: true },
-            {
-              name: "Members",
-              value: String(guild.memberCount ?? "?"),
-              inline: true,
-            },
-            {
-              name: "Total Servers Now",
-              value: String(totalGuilds),
-              inline: true,
-            },
-          )
-          .setTimestamp()
-          .setFooter({ text: "Discore Official · Leave Alert" });
-        await alertChannel.send({ embeds: [alertEmbed] }).catch(() => {});
-      }
+      const totalGuilds = client.guilds.cache.size;
+      const alertEmbed = new EmbedBuilder()
+        .setColor(0xed4245)
+        .setTitle("Bot Removed / Server Left")
+        .addFields(
+          { name: "Server", value: guild.name, inline: true },
+          { name: "ID", value: guild.id, inline: true },
+          {
+            name: "Members",
+            value: String(guild.memberCount ?? "?"),
+            inline: true,
+          },
+          {
+            name: "Total Servers Now",
+            value: String(totalGuilds),
+            inline: true,
+          },
+        )
+        .setTimestamp()
+        .setFooter({ text: "Discore Official · Leave Alert" });
+      await sendOwnerReport(client, "guildLeave", { embeds: [alertEmbed] });
     } catch {
       // non-critical
     }

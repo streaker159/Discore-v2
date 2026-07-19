@@ -7,6 +7,7 @@ const {
   findBestChannel,
   sendOnboarding,
 } = require("../modules/onboarding/service");
+const { sendOwnerReport } = require("../modules/ownerReports");
 
 module.exports = {
   name: "guildCreate",
@@ -49,41 +50,35 @@ module.exports = {
       // non-critical
     }
 
-    // Send join alert to official channel
-    const OFFICIAL_CHANNEL = "1367326139109871738";
+    // Send join alert to configured owner report channel
     try {
       const client = guild.client;
-      const alertChannel = await client.channels
-        .fetch(OFFICIAL_CHANNEL)
-        .catch(() => null);
-      if (alertChannel && alertChannel.isTextBased()) {
-        const totalGuilds = client.guilds.cache.size;
-        const alertEmbed = new EmbedBuilder()
-          .setColor(0x57f287)
-          .setTitle("📥 Server Joined")
-          .addFields(
-            { name: "Server", value: guild.name, inline: true },
-            { name: "ID", value: guild.id, inline: true },
-            {
-              name: "Members",
-              value: String(memberCount),
-              inline: true,
-            },
-            {
-              name: "Owner",
-              value: ownerId ? `<@${ownerId}>` : "Unknown",
-              inline: true,
-            },
-            {
-              name: "Total Servers",
-              value: String(totalGuilds),
-              inline: true,
-            },
-          )
-          .setTimestamp()
-          .setFooter({ text: "Discore Official · Join Alert" });
-        await alertChannel.send({ embeds: [alertEmbed] }).catch(() => {});
-      }
+      const totalGuilds = client.guilds.cache.size;
+      const alertEmbed = new EmbedBuilder()
+        .setColor(0x57f287)
+        .setTitle("Server Joined")
+        .addFields(
+          { name: "Server", value: guild.name, inline: true },
+          { name: "ID", value: guild.id, inline: true },
+          {
+            name: "Members",
+            value: String(memberCount),
+            inline: true,
+          },
+          {
+            name: "Owner",
+            value: ownerId ? `<@${ownerId}>` : "Unknown",
+            inline: true,
+          },
+          {
+            name: "Total Servers",
+            value: String(totalGuilds),
+            inline: true,
+          },
+        )
+        .setTimestamp()
+        .setFooter({ text: "Discore Official · Join Alert" });
+      await sendOwnerReport(client, "guildJoin", { embeds: [alertEmbed] });
     } catch {
       // non-critical
     }

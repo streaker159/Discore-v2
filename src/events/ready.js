@@ -22,6 +22,17 @@ module.exports = {
     // (run in CI/CD before the bot starts), NOT here. See prisma/migrations/.
     setImmediate(async () => {
       try {
+        const {
+          ensureOwnerReportSettingsTable,
+          sendDatabaseStatusReport,
+        } = require("../modules/ownerReports");
+        await ensureOwnerReportSettingsTable();
+        await sendDatabaseStatusReport(client).catch((e) => {
+          logger.warn("Startup database status report failed", {
+            error: e.message?.slice(0, 100),
+          });
+        });
+
         // Schedule hourly analytics job (runs at minute 1 past every hour)
         try {
           const { scheduleNextRun } = require("../jobs/analyticsJob");
@@ -32,25 +43,9 @@ module.exports = {
           });
         }
 
-        // Safe redeploy: only send to Discord if commands were loaded
-        const { REST, Routes } = require("discord.js");
-        const commands = [...client.commands.values()]
-          .filter((c) => c.data)
-          .map((c) => c.data.toJSON());
-        if (commands.length > 0) {
-          const rest = new REST({ version: "10" }).setToken(
-            process.env.DISCORD_TOKEN,
-          );
-          logger.info(`Redeploying ${commands.length} commands...`);
-          await rest.put(Routes.applicationCommands(client.user.id), {
-            body: commands,
-          });
-          logger.info("Commands redeployed");
-        } else {
-          logger.warn(
-            "No commands loaded — skipping deploy (retry on next restart)",
-          );
-        }
+        logger.info(
+          "Command auto-deploy skipped on ready; use deploy:global and deploy:admin to preserve command scopes.",
+        );
       } catch (err) {
         logger.warn("Startup migration/deploy skipped", {
           error: err.message?.slice(0, 100),
