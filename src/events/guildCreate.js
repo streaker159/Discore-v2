@@ -83,17 +83,23 @@ module.exports = {
       // non-critical
     }
 
-    // Only send onboarding if it hasn't been sent before
+    // Send onboarding on fresh invite unless this server explicitly completed or skipped setup.
     const record = await prisma.guild.findUnique({
       where: { id: guild.id },
-      select: { onboardingSentAt: true },
+      select: {
+        onboardingCompletedAt: true,
+        onboardingSkippedAt: true,
+      },
     });
-    if (record?.onboardingSentAt) {
-      logger.info("guildCreate: onboarding already sent, skipping", {
+    if (record?.onboardingCompletedAt || record?.onboardingSkippedAt) {
+      logger.info("guildCreate: onboarding already completed/skipped", {
         guildId: guild.id,
       });
       return;
     }
+
+    await guild.members.fetchMe().catch(() => null);
+    await guild.channels.fetch().catch(() => null);
 
     const channel = findBestChannel(guild);
     if (!channel) {

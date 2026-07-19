@@ -202,12 +202,12 @@ async function setupRoles(guild) {
   for (const roleDef of RECOMMENDED_ROLES) {
     const existing = guild.roles.cache.find((r) => r.name === roleDef.name);
     if (existing) {
-      updates[roleDef.field] = existing.id;
+      if (roleDef.field) updates[roleDef.field] = existing.id;
       results.push({ name: roleDef.name, reused: true, id: existing.id });
     } else {
       const result = await createOrReuseRole(guild, roleDef);
       if (result.id) {
-        updates[roleDef.field] = result.id;
+        if (roleDef.field) updates[roleDef.field] = result.id;
         results.push({
           name: roleDef.name,
           created: result.created,

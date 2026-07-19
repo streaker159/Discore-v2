@@ -77,12 +77,23 @@ module.exports = {
 
             const record = await prisma.guild.findUnique({
               where: { id: guild.id },
-              select: { onboardingSentAt: true },
+              select: {
+                onboardingSentAt: true,
+                onboardingCompletedAt: true,
+                onboardingSkippedAt: true,
+              },
             });
 
-            if (record?.onboardingSentAt) {
-              continue; // Already sent
+            if (
+              record?.onboardingSentAt ||
+              record?.onboardingCompletedAt ||
+              record?.onboardingSkippedAt
+            ) {
+              continue; // Already handled
             }
+
+            await guild.members.fetchMe().catch(() => null);
+            await guild.channels.fetch().catch(() => null);
 
             const channel = findBestChannel(guild);
             if (!channel) {
