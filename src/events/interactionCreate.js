@@ -4,6 +4,7 @@ const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 const { findComponent } = require("../loaders/componentLoader");
 const { friendlyError } = require("../lib/errors");
 const logger = require("../lib/logger");
+const prisma = require("../lib/prisma");
 const {
   trackInteraction,
 } = require("../modules/player/services/userActivityService");
@@ -30,11 +31,51 @@ function buildBotInviteUrl(clientId) {
   return `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=${permissions.toString()}&integration_type=0&scope=bot+applications.commands`;
 }
 
+async function ensureGuildDatabaseForInteraction(interaction, client) {
+  if (!interaction.guildId) return;
+
+  try {
+    const guild =
+      client.guilds.cache.get(interaction.guildId) || interaction.guild || null;
+    const guildDefaults = guild
+      ? {
+          allianceName: guild.name,
+          allianceLogo: guild.iconURL?.() || null,
+        }
+      : {};
+
+    await prisma.guild.upsert({
+      where: { id: interaction.guildId },
+      update: guildDefaults,
+      create: {
+        id: interaction.guildId,
+        ...guildDefaults,
+      },
+    });
+
+    await prisma.aiCredits.upsert({
+      where: { guildId: interaction.guildId },
+      update: {},
+      create: {
+        guildId: interaction.guildId,
+        balance: 100,
+      },
+    });
+  } catch (error) {
+    logger.warn("interactionCreate: guild database provision skipped", {
+      guildId: interaction.guildId,
+      error: error.message,
+    });
+  }
+}
+
 async function ensureBotPresentForGuildInteraction(interaction, client) {
   if (!interaction.guildId) return true;
   if (client.guilds.cache.has(interaction.guildId)) return true;
 
-  const guild = await client.guilds.fetch(interaction.guildId).catch(() => null);
+  const guild = await client.guilds
+    .fetch(interaction.guildId)
+    .catch(() => null);
   if (guild) return true;
 
   const inviteUrl = buildBotInviteUrl(client.user.id);
@@ -48,7 +89,7 @@ async function ensureBotPresentForGuildInteraction(interaction, client) {
       .setTitle("Commands-Only App Install Detected")
       .setColor(0xed4245)
       .setDescription(
-        "A server used Discore commands, but the bot user is not present in the guild. Onboarding cannot run until the bot is invited with the `bot` scope.",
+        "A server used Discore commands, but the bot user is not present in the guild. A database row was created from the interaction, but onboarding cannot run until the bot is invited with the `bot` scope.",
       )
       .addFields(
         { name: "Guild ID", value: interaction.guildId, inline: true },
@@ -106,6 +147,8 @@ module.exports = {
 
   async execute(interaction, client) {
     try {
+      await ensureGuildDatabaseForInteraction(interaction, client);
+
       if (interaction.isAutocomplete()) {
         const command = client.commands.get(interaction.commandName);
 

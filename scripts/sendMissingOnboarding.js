@@ -75,7 +75,11 @@ async function main() {
       }
 
       await sendOnboarding(guild, channel);
-      results.sent.push({ guild: guild.name, id: guild.id, channel: channel.id });
+      results.sent.push({
+        guild: guild.name,
+        id: guild.id,
+        channel: channel.id,
+      });
       await new Promise((resolve) => setTimeout(resolve, 1500));
     } catch (error) {
       results.failed.push({
