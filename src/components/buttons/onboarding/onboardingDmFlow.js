@@ -838,15 +838,21 @@ async function handleUploadButton(interaction, sessionId, fieldIndex, client) {
     stateJson: { ...(session.stateJson || {}), pendingUpload },
   });
 
-  await interaction
-    .reply({
-      content:
-        `📎 Please send **${field.label}** as a file attachment in this DM within the next 5 minutes.` +
-        (field.allowedFileTypes?.length
-          ? `\nAllowed types: ${field.allowedFileTypes.join(", ")}`
-          : ""),
-    })
-    .catch(() => {});
+  const payload = await buildFormPagePayload(
+    { ...session, stateJson: { ...(session.stateJson || {}), pendingUpload } },
+    session.currentPage || 0,
+    client,
+  );
+
+  await respondForm(interaction, {
+    content:
+      `📎 Send **${field.label}** as a file attachment in this DM within the next 5 minutes.\n` +
+      "After I receive it, I will mark the field as answered and show this page again." +
+      (field.allowedFileTypes?.length
+        ? `\nAllowed types: ${field.allowedFileTypes.join(", ")}`
+        : ""),
+    ...payload,
+  });
 }
 
 async function handlePendingUploadMessage(message, client) {
@@ -934,12 +940,22 @@ async function handlePendingUploadMessage(message, client) {
 
   await message.reply(`✅ File received: **${attachment.name}**`);
 
+  const updatedSession = {
+    ...freshSession,
+    stateJson: { ...(freshSession.stateJson || {}), answers },
+  };
   const payload = await buildFormPagePayload(
-    { ...freshSession, stateJson: { answers } },
+    updatedSession,
     freshSession.currentPage || 0,
     client,
   );
-  await message.channel.send(payload).catch(() => {});
+  await message.channel
+    .send({
+      content:
+        "File saved. Continue the application from the updated form below.",
+      ...payload,
+    })
+    .catch(() => {});
   return true;
 }
 
